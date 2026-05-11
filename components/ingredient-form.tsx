@@ -59,17 +59,22 @@ export default function IngredientForm({
   });
 
   function handleNutritionSelect(result: NutritionSearchResult) {
+    const r = (v: number | null) => (v !== null ? Math.round(v * 100) / 100 : null);
+    const micros: Record<string, number> = {};
+    for (const [k, v] of Object.entries(result.nutrition.micronutrients)) {
+      micros[k] = Math.round(v * 100) / 100;
+    }
     setForm((prev) => ({
       ...prev,
-      calories: result.nutrition.calories,
-      protein: result.nutrition.protein,
-      carbs: result.nutrition.carbs,
-      fat: result.nutrition.fat,
-      fiber: result.nutrition.fiber,
-      sugar: result.nutrition.sugar,
-      sat_fat: result.nutrition.sat_fat,
-      salt: result.nutrition.salt,
-      micronutrients: result.nutrition.micronutrients,
+      calories: r(result.nutrition.calories),
+      protein: r(result.nutrition.protein),
+      carbs: r(result.nutrition.carbs),
+      fat: r(result.nutrition.fat),
+      fiber: r(result.nutrition.fiber),
+      sugar: r(result.nutrition.sugar),
+      sat_fat: r(result.nutrition.sat_fat),
+      salt: r(result.nutrition.salt),
+      micronutrients: micros,
       api_source: result.source,
       barcode: result.barcode,
     }));
