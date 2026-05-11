@@ -103,4 +103,5 @@ export interface NutritionSearchResult {
   barcode: string | null;
   nutrition: NutritionData;
   completeness: number;
+  dataType?: string;
 }

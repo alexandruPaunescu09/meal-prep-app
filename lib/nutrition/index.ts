@@ -5,18 +5,67 @@ import { searchUSDA } from "./usda";
 export async function searchNutrition(
   query: string
 ): Promise<NutritionSearchResult[]> {
-  // Search Open Food Facts first (best for branded products)
-  const offResults = await searchOpenFoodFacts(query);
+  const [offResult, usdaResult] = await Promise.allSettled([
+    searchOpenFoodFacts(query),
+    searchUSDA(query),
+  ]);
 
-  // If fewer than 3 useful results, also search USDA (better for raw ingredients)
-  let usdaResults: NutritionSearchResult[] = [];
-  if (offResults.length < 3) {
-    usdaResults = await searchUSDA(query);
-  }
+  const off = offResult.status === "fulfilled" ? offResult.value : [];
+  const usda = usdaResult.status === "fulfilled" ? usdaResult.value : [];
 
-  // Merge and sort by completeness (most nutrition data = highest rank)
-  const combined = [...offResults, ...usdaResults];
-  combined.sort((a, b) => b.completeness - a.completeness);
+  const combined = [...off, ...usda];
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter((w) => w.length > 1);
+
+  combined.sort(
+    (a, b) =>
+      computeScore(b, queryWords, queryLower) -
+      computeScore(a, queryWords, queryLower)
+  );
 
   return combined.slice(0, 15);
+}
+
+function computeScore(
+  result: NutritionSearchResult,
+  queryWords: string[],
+  queryLower: string
+): number {
+  let score = 0;
+  score += sourceAuthorityScore(result);
+  score += nameRelevanceScore(result.name, queryWords, queryLower);
+  score += Math.min(result.completeness * 1.5, 25);
+  return score;
+}
+
+function sourceAuthorityScore(result: NutritionSearchResult): number {
+  if (result.source === "usda") {
+    const dt = result.dataType;
+    if (dt === "Foundation") return 40;
+    if (dt === "SR Legacy") return 35;
+    if (dt === "Survey (FNDDS)") return 30;
+    return 20;
+  }
+  return 10;
+}
+
+function nameRelevanceScore(
+  name: string,
+  queryWords: string[],
+  queryLower: string
+): number {
+  const nameLower = name.toLowerCase();
+
+  if (nameLower.includes(queryLower)) return 35;
+
+  if (queryWords.length === 0) return 0;
+
+  let matchedWords = 0;
+  for (const word of queryWords) {
+    if (nameLower.includes(word)) {
+      matchedWords++;
+    }
+  }
+
+  return Math.round((matchedWords / queryWords.length) * 30);
 }

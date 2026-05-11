@@ -11,6 +11,7 @@ interface USDAFood {
   description: string;
   brandOwner?: string;
   fdcId: number;
+  dataType?: string;
   foodNutrients: USDANutrient[];
 }
 
@@ -102,7 +103,7 @@ export async function searchUSDA(
   const apiKey = process.env.USDA_API_KEY;
   if (!apiKey || apiKey === "your-usda-key") return [];
 
-  const url = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=10`;
+  const url = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=15&dataType=Foundation,SR%20Legacy,Survey%20(FNDDS),Branded`;
 
   const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) return [];
@@ -120,6 +121,7 @@ export async function searchUSDA(
         barcode: null,
         nutrition,
         completeness: completeness(nutrition),
+        dataType: food.dataType || undefined,
       };
     })
     .filter((r) => r.completeness >= 3);

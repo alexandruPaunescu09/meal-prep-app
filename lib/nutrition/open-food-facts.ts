@@ -9,6 +9,7 @@ interface OFFProduct {
   product_name?: string;
   brands?: string;
   code?: string;
+  lang?: string;
   nutriments?: Record<string, number>;
 }
 
@@ -69,7 +70,7 @@ function completeness(nutrition: NutritionData): number {
 export async function searchOpenFoodFacts(
   query: string
 ): Promise<NutritionSearchResult[]> {
-  const url = `${OFF_SEARCH_URL}?search_terms=${encodeURIComponent(query)}&json=1&page_size=10&fields=product_name,brands,code,nutriments`;
+  const url = `${OFF_SEARCH_URL}?search_terms=${encodeURIComponent(query)}&json=1&page_size=10&lc=en&fields=product_name,brands,code,nutriments,lang`;
 
   const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
   if (!res.ok) return [];
@@ -78,7 +79,7 @@ export async function searchOpenFoodFacts(
   const products: OFFProduct[] = data.products ?? [];
 
   return products
-    .filter((p) => p.product_name && p.nutriments)
+    .filter((p) => p.product_name && p.nutriments && (!p.lang || p.lang === "en"))
     .map((p) => {
       const nutrition = extractNutrition(p.nutriments!);
       return {
