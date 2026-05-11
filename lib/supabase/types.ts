@@ -104,4 +104,6 @@ export interface NutritionSearchResult {
   nutrition: NutritionData;
   completeness: number;
   dataType?: string;
+  confidenceScore: number;
+  category?: "primary" | "lightly_processed" | "composite";
 }

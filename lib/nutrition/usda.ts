@@ -1,4 +1,5 @@
 import { NutritionSearchResult, NutritionData } from "@/lib/supabase/types";
+import { containsCookedKeyword, queryRequestsCooked } from "./classification";
 
 const USDA_SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 
@@ -40,6 +41,13 @@ const NUTRIENT_MAP: Record<number, { key: string; macro: boolean }> = {
   1103: { key: "selenium_ug", macro: false },
 };
 
+const CONFIDENCE_BY_TYPE: Record<string, number> = {
+  Foundation: 1.0,
+  "SR Legacy": 0.97,
+  "Survey (FNDDS)": 0.93,
+  Branded: 0.85,
+};
+
 function extractNutrition(nutrients: USDANutrient[]): NutritionData {
   const macros: Record<string, number | null> = {
     calories: null,
@@ -59,7 +67,6 @@ function extractNutrition(nutrients: USDANutrient[]): NutritionData {
 
     if (mapping.macro) {
       if (mapping.key === "sodium") {
-        // Convert sodium (mg) to salt (g): salt = sodium * 2.5 / 1000
         macros["salt"] = (n.value * 2.5) / 1000;
       } else {
         macros[mapping.key] = n.value;
@@ -111,9 +118,18 @@ export async function searchUSDA(
   const data = await res.json();
   const foods: USDAFood[] = data.foods ?? [];
 
+  const wantsCooked = queryRequestsCooked(query);
+
   return foods
+    .filter((food) => {
+      if (!wantsCooked && containsCookedKeyword(food.description)) {
+        return false;
+      }
+      return true;
+    })
     .map((food) => {
       const nutrition = extractNutrition(food.foodNutrients);
+      const dt = food.dataType || "Branded";
       return {
         name: food.description,
         brand: food.brandOwner || null,
@@ -122,6 +138,8 @@ export async function searchUSDA(
         nutrition,
         completeness: completeness(nutrition),
         dataType: food.dataType || undefined,
+        confidenceScore: CONFIDENCE_BY_TYPE[dt] ?? 0.85,
+        category: food.brandOwner ? ("lightly_processed" as const) : ("primary" as const),
       };
     })
     .filter((r) => r.completeness >= 3);

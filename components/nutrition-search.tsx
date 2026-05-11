@@ -2,11 +2,17 @@
 
 import { useState } from "react";
 import { NutritionSearchResult } from "@/lib/supabase/types";
-import { Search, X, Loader2, Check } from "lucide-react";
+import { Search, X, Loader2 } from "lucide-react";
 
 interface NutritionSearchProps {
   onSelect: (result: NutritionSearchResult) => void;
   onClose: () => void;
+}
+
+function confidenceBadge(score: number) {
+  if (score >= 0.95) return { bg: "bg-green-100", text: "text-green-700" };
+  if (score >= 0.85) return { bg: "bg-yellow-100", text: "text-yellow-700" };
+  return { bg: "bg-orange-100", text: "text-orange-700" };
 }
 
 export default function NutritionSearch({
@@ -62,7 +68,7 @@ export default function NutritionSearch({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search ingredient (e.g. 'chicken breast', 'Olympus iaurt')..."
+                placeholder="Search ingredient (e.g. 'chicken breast', 'lapte zuzu')..."
                 className="w-full pl-10 pr-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                 autoFocus
               />
@@ -80,7 +86,7 @@ export default function NutritionSearch({
             </button>
           </div>
           <p className="mt-2 text-xs text-gray-500">
-            Searches Open Food Facts (branded products) and USDA (raw ingredients)
+            USDA (raw ingredients) + Open Food Facts (Romanian products)
           </p>
         </form>
 
@@ -101,52 +107,67 @@ export default function NutritionSearch({
 
           {!loading && results.length > 0 && (
             <div className="space-y-2">
-              {results.map((result, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSelect(result)}
-                  className="w-full text-left p-3 rounded-lg border hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-gray-900 truncate">
-                        {result.name}
-                      </p>
-                      {result.brand && (
-                        <p className="text-xs text-gray-500">{result.brand}</p>
+              {results.map((result, idx) => {
+                const badge = confidenceBadge(result.confidenceScore);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => onSelect(result)}
+                    className="w-full text-left p-3 rounded-lg border hover:border-emerald-300 hover:bg-emerald-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-900 truncate">
+                          {result.name}
+                        </p>
+                        {result.brand && (
+                          <p className="text-xs text-gray-500">{result.brand}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        {result.dataType && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">
+                            {result.dataType}
+                          </span>
+                        )}
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            result.source === "openfoodfacts"
+                              ? "bg-orange-100 text-orange-700"
+                              : "bg-blue-100 text-blue-700"
+                          }`}
+                        >
+                          {result.source === "openfoodfacts" ? "OFF" : "USDA"}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.bg} ${badge.text}`}
+                        >
+                          {Math.round(result.confidenceScore * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
+                      {result.nutrition.calories !== null && (
+                        <span>{Math.round(result.nutrition.calories)} kcal</span>
+                      )}
+                      {result.nutrition.protein !== null && (
+                        <span>P: {result.nutrition.protein.toFixed(1)}g</span>
+                      )}
+                      {result.nutrition.carbs !== null && (
+                        <span>C: {result.nutrition.carbs.toFixed(1)}g</span>
+                      )}
+                      {result.nutrition.fat !== null && (
+                        <span>F: {result.nutrition.fat.toFixed(1)}g</span>
+                      )}
+                      {result.category && result.category !== "primary" && (
+                        <span className="text-gray-400 italic">
+                          {result.category === "composite" ? "composite" : "processed"}
+                        </span>
                       )}
                     </div>
-                    <span
-                      className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
-                        result.source === "openfoodfacts"
-                          ? "bg-orange-100 text-orange-700"
-                          : "bg-blue-100 text-blue-700"
-                      }`}
-                    >
-                      {result.source === "openfoodfacts" ? "OFF" : "USDA"}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex gap-3 text-xs text-gray-600">
-                    {result.nutrition.calories !== null && (
-                      <span>{Math.round(result.nutrition.calories)} kcal</span>
-                    )}
-                    {result.nutrition.protein !== null && (
-                      <span>P: {result.nutrition.protein.toFixed(1)}g</span>
-                    )}
-                    {result.nutrition.carbs !== null && (
-                      <span>C: {result.nutrition.carbs.toFixed(1)}g</span>
-                    )}
-                    {result.nutrition.fat !== null && (
-                      <span>F: {result.nutrition.fat.toFixed(1)}g</span>
-                    )}
-                    {Object.keys(result.nutrition.micronutrients).length > 0 && (
-                      <span className="text-emerald-600">
-                        +{Object.keys(result.nutrition.micronutrients).length} micros
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
