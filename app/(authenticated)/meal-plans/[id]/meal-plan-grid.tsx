@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -12,8 +12,9 @@ import {
   Client,
   MealType,
 } from "@/lib/supabase/types";
-import { calculateWeek, DayTotals } from "@/lib/calculations/meal-plan";
-import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings } from "lucide-react";
+import { calculateWeek } from "@/lib/calculations/meal-plan";
+import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
+import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check } from "lucide-react";
 import Link from "next/link";
 
 type FullEntry = MealPlanEntry & {
@@ -53,6 +54,8 @@ export default function MealPlanGrid({
   const supabase = createClient();
   const [slotPicker, setSlotPicker] = useState<SlotPickerState | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showShoppingList, setShowShoppingList] = useState(false);
+  const [showDuplicate, setShowDuplicate] = useState(false);
 
   const weekTotals = calculateWeek(entries, plan.markup_multiplier);
 
@@ -80,9 +83,6 @@ export default function MealPlanGrid({
     router.refresh();
   }
 
-  function formatDayTotals(day: DayTotals) {
-    return `${Math.round(day.calories)} kcal • P:${day.protein.toFixed(0)}g C:${day.carbs.toFixed(0)}g F:${day.fat.toFixed(0)}g • ${day.cost.toFixed(2)} lei`;
-  }
 
   return (
     <div>
@@ -94,20 +94,34 @@ export default function MealPlanGrid({
         >
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </Link>
-        <div className="flex-1">
-          <h1 className="text-2xl font-bold text-gray-900">{plan.name}</h1>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900 truncate">{plan.name}</h1>
           <p className="text-sm text-gray-500">
             Week of {plan.week_start}
-            {plan.client && ` • Client: ${plan.client.name}`}
+            {plan.client && ` • ${plan.client.name}`}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             onClick={() => setShowSettings(true)}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
           >
             <Settings className="w-3.5 h-3.5" />
             Edit
+          </button>
+          <button
+            onClick={() => setShowShoppingList(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            Shopping List
+          </button>
+          <button
+            onClick={() => setShowDuplicate(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Duplicate
           </button>
           <a
             href={`/api/og/meal-plan?id=${plan.id}&format=story`}
@@ -128,8 +142,76 @@ export default function MealPlanGrid({
         </div>
       </div>
 
-      {/* Weekly Grid */}
-      <div className="bg-white rounded-xl border overflow-hidden mb-6">
+      {/* Mobile stacked day view */}
+      <div className="md:hidden space-y-3 mb-6">
+        {DAYS.map((dayLabel, dayIdx) => {
+          const day = dayIdx + 1;
+          const dayTotals = weekTotals.days[day];
+          const hasEntries = dayTotals.calories > 0;
+          return (
+            <div key={dayLabel} className="bg-white rounded-xl border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+                <span className="text-sm font-semibold text-gray-700">{dayLabel}</span>
+                {hasEntries && (
+                  <span className="text-[10px] text-gray-500">
+                    {Math.round(dayTotals.calories)} kcal • {dayTotals.cost.toFixed(2)} lei
+                  </span>
+                )}
+              </div>
+              <div className="divide-y">
+                {MEAL_TYPES.map((mealType) => {
+                  const slotEntries = getEntriesForSlot(day, mealType);
+                  return (
+                    <div key={mealType} className="px-4 py-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-500">
+                          {MEAL_LABELS[mealType]}
+                        </span>
+                        <button
+                          onClick={() => setSlotPicker({ day, mealType })}
+                          className="p-1 rounded hover:bg-gray-100"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-gray-400" />
+                        </button>
+                      </div>
+                      {slotEntries.length === 0 ? (
+                        <p className="text-xs text-gray-300 italic">Empty</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {slotEntries.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between bg-emerald-50 rounded px-2 py-1"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-gray-900 truncate">
+                                  {entry.recipe.name}
+                                </p>
+                                <p className="text-[10px] text-gray-500">
+                                  ×{entry.portions}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => removeEntry(entry.id)}
+                                className="p-1 rounded hover:bg-red-100"
+                              >
+                                <X className="w-3 h-3 text-red-500" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop Weekly Grid */}
+      <div className="hidden md:block bg-white rounded-xl border overflow-hidden mb-6">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -297,6 +379,24 @@ export default function MealPlanGrid({
           plan={plan}
           clients={clients}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* Shopping list modal */}
+      {showShoppingList && (
+        <ShoppingListModal
+          entries={entries}
+          onClose={() => setShowShoppingList(false)}
+        />
+      )}
+
+      {/* Duplicate modal */}
+      {showDuplicate && (
+        <DuplicatePlanModal
+          plan={plan}
+          entries={entries}
+          clients={clients}
+          onClose={() => setShowDuplicate(false)}
         />
       )}
     </div>
@@ -523,6 +623,286 @@ function PlanSettings({
               className="flex-1 py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
             >
               {saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ShoppingListModal({
+  entries,
+  onClose,
+}: {
+  entries: FullEntry[];
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const { groups, totalCost } = useMemo(
+    () => generateShoppingList(entries),
+    [entries]
+  );
+
+  function handleCopy() {
+    const text = shoppingListToText(groups, totalCost);
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Shopping List</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              {copied ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              {copied ? "Copied!" : "Copy"}
+            </button>
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {groups.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              No entries in this meal plan yet.
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {groups.map((group) => (
+                <div key={group.category}>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    {group.label}
+                  </h3>
+                  <div className="space-y-1">
+                    {group.items.map((item) => (
+                      <div
+                        key={item.ingredientId}
+                        className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg"
+                      >
+                        <span className="text-sm font-medium text-gray-900">
+                          {item.name}
+                        </span>
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="text-gray-600">
+                            {item.totalQuantity % 1 === 0
+                              ? item.totalQuantity
+                              : item.totalQuantity.toFixed(1)}
+                            {item.unit}
+                          </span>
+                          <span className="text-emerald-700 font-medium w-20 text-right">
+                            {item.estimatedCost.toFixed(2)} lei
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 text-right mt-1">
+                    Subtotal: {group.subtotal.toFixed(2)} lei
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {groups.length > 0 && (
+          <div className="px-6 py-4 border-t bg-emerald-50 rounded-b-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">
+                Total Estimated Cost
+              </span>
+              <span className="text-lg font-bold text-emerald-700">
+                {totalCost.toFixed(2)} lei
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DuplicatePlanModal({
+  plan,
+  entries,
+  clients,
+  onClose,
+}: {
+  plan: PlanWithClient;
+  entries: FullEntry[];
+  clients: Client[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const supabase = createClient();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  const defaultWeekStart = nextMonday.toISOString().split("T")[0];
+
+  const [form, setForm] = useState({
+    name: `${plan.name} (copy)`,
+    client_id: plan.client_id ?? "",
+    week_start: defaultWeekStart,
+    markup_multiplier: plan.markup_multiplier,
+  });
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError("");
+
+    const { data: newPlan, error: createErr } = await supabase
+      .from("meal_plans")
+      .insert({
+        name: form.name.trim(),
+        client_id: form.client_id || null,
+        week_start: form.week_start,
+        markup_multiplier: form.markup_multiplier,
+      })
+      .select("id")
+      .single();
+
+    if (createErr || !newPlan) {
+      setError(createErr?.message ?? "Failed to create plan");
+      setSaving(false);
+      return;
+    }
+
+    if (entries.length > 0) {
+      const { error: entriesErr } = await supabase
+        .from("meal_plan_entries")
+        .insert(
+          entries.map((e) => ({
+            meal_plan_id: newPlan.id,
+            day_of_week: e.day_of_week,
+            meal_type: e.meal_type,
+            recipe_id: e.recipe_id,
+            portions: e.portions,
+          }))
+        );
+
+      if (entriesErr) {
+        setError(entriesErr.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    router.push(`/meal-plans/${newPlan.id}`);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Duplicate Plan</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <p className="text-sm text-gray-500">
+            This will create a new plan with all {entries.length} meal entries copied over.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Plan Name *
+            </label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Client
+            </label>
+            <select
+              value={form.client_id}
+              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+            >
+              <option value="">No client</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Week Start (Monday)
+            </label>
+            <input
+              type="date"
+              value={form.week_start}
+              onChange={(e) => setForm({ ...form, week_start: e.target.value })}
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Markup Multiplier
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              min={1}
+              value={form.markup_multiplier}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  markup_multiplier: parseFloat(e.target.value) || 1,
+                })
+              }
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+            />
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
+              {error}
+            </p>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+            >
+              {saving ? "Duplicating..." : "Duplicate"}
             </button>
           </div>
         </form>
