@@ -14,40 +14,45 @@ const MEAL_LABELS: Record<string, string> = {
 };
 
 export async function GET(request: NextRequest) {
-  const id = request.nextUrl.searchParams.get("id");
-  if (!id) {
-    return new Response("Missing plan id", { status: 400 });
-  }
+  try {
+    const id = request.nextUrl.searchParams.get("id");
+    if (!id) {
+      return new Response("Missing plan id", { status: 400 });
+    }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => [], setAll: () => {} } }
-  );
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => [], setAll: () => {} } }
+    );
 
-  const { data: plan } = await supabase
-    .from("meal_plans")
-    .select(`*, client:clients (*)`)
-    .eq("id", id)
-    .single();
+    const { data: plan, error: planError } = await supabase
+      .from("meal_plans")
+      .select(`*, client:clients (*)`)
+      .eq("id", id)
+      .single();
 
-  if (!plan) {
-    return new Response("Plan not found", { status: 404 });
-  }
+    if (planError || !plan) {
+      return new Response(`Plan error: ${planError?.message ?? "not found"}`, { status: 404 });
+    }
 
-  const { data: entries } = await supabase
-    .from("meal_plan_entries")
-    .select(`
-      *,
-      recipe:recipes (
+    const { data: entries, error: entriesError } = await supabase
+      .from("meal_plan_entries")
+      .select(`
         *,
-        recipe_ingredients (
+        recipe:recipes (
           *,
-          ingredient:ingredients (*)
+          recipe_ingredients (
+            *,
+            ingredient:ingredients (*)
+          )
         )
-      )
-    `)
-    .eq("meal_plan_id", id);
+      `)
+      .eq("meal_plan_id", id);
+
+    if (entriesError) {
+      return new Response(`Entries error: ${entriesError.message}`, { status: 500 });
+    }
 
   const allEntries = (entries as any[]) ?? [];
   const weekTotals = calculateWeek(allEntries, plan.markup_multiplier);
@@ -369,4 +374,7 @@ export async function GET(request: NextRequest) {
     ),
     { width, height }
   );
+  } catch (e: any) {
+    return new Response(`OG generation failed: ${e.message}`, { status: 500 });
+  }
 }
