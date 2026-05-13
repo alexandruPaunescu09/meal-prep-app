@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
   Ingredient,
   IngredientCategory,
+  IngredientPriceHistory,
   NutritionSearchResult,
 } from "@/lib/supabase/types";
 import NutritionSearch from "./nutrition-search";
-import { Search, X } from "lucide-react";
+import { Search, X, ChevronDown, ChevronUp } from "lucide-react";
 
 const CATEGORIES: { value: IngredientCategory; label: string }[] = [
   { value: "protein", label: "Protein" },
@@ -38,6 +39,8 @@ export default function IngredientForm({
   const [showNutritionSearch, setShowNutritionSearch] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [form, setForm] = useState({
     name: ingredient?.name ?? "",
@@ -57,6 +60,19 @@ export default function IngredientForm({
     api_source: ingredient?.api_source ?? null as string | null,
     barcode: ingredient?.barcode ?? null as string | null,
   });
+
+  useEffect(() => {
+    if (!ingredient) return;
+    supabase
+      .from("ingredient_price_history")
+      .select("*")
+      .eq("ingredient_id", ingredient.id)
+      .order("recorded_at", { ascending: false })
+      .limit(10)
+      .then(({ data }) => {
+        if (data) setPriceHistory(data);
+      });
+  }, [ingredient?.id]);
 
   function handleNutritionSelect(result: NutritionSearchResult) {
     const r = (v: number | null) => (v !== null ? Math.round(v * 100) / 100 : null);
@@ -107,10 +123,38 @@ export default function IngredientForm({
 
     let result;
     if (ingredient) {
-      result = await supabase
+      const oldPPU = ingredient.quantity_purchased > 0
+        ? ingredient.package_price / ingredient.quantity_purchased
+        : 0;
+      const newPPU = form.quantity_purchased > 0
+        ? form.package_price / form.quantity_purchased
+        : 0;
+
+      const priceChanged = Math.abs(oldPPU - newPPU) > 0.0001;
+
+      const updatePromise = supabase
         .from("ingredients")
         .update(payload)
         .eq("id", ingredient.id);
+
+      if (priceChanged) {
+        const [updateResult, historyResult] = await Promise.all([
+          updatePromise,
+          supabase.from("ingredient_price_history").insert({
+            ingredient_id: ingredient.id,
+            package_price: ingredient.package_price,
+            quantity_purchased: ingredient.quantity_purchased,
+            unit: ingredient.unit,
+            price_per_unit: oldPPU,
+          }),
+        ]);
+        result = updateResult;
+        if (historyResult.error) {
+          console.warn("Failed to record price history:", historyResult.error.message);
+        }
+      } else {
+        result = await updatePromise;
+      }
     } else {
       result = await supabase.from("ingredients").insert(payload);
     }
@@ -133,6 +177,14 @@ export default function IngredientForm({
       ...prev,
       [field]: value === "" ? null : parseFloat(value),
     }));
+  }
+
+  function formatDate(dateStr: string): string {
+    return new Date(dateStr).toLocaleDateString("ro-RO", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   }
 
   return (
@@ -238,6 +290,46 @@ export default function IngredientForm({
               />
             </div>
           </div>
+
+          {/* Price History */}
+          {ingredient && priceHistory.length > 0 && (
+            <div className="border rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <span className="text-xs font-medium text-gray-600">
+                  Price History ({priceHistory.length})
+                </span>
+                {showHistory ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
+              </button>
+              {showHistory && (
+                <div className="divide-y">
+                  {priceHistory.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="px-4 py-2 flex items-center justify-between text-xs"
+                    >
+                      <span className="text-gray-500">
+                        {formatDate(entry.recorded_at)}
+                      </span>
+                      <span className="text-gray-700">
+                        {entry.package_price.toFixed(2)} lei / {entry.quantity_purchased}{entry.unit}
+                      </span>
+                      <span className="font-medium text-gray-900">
+                        {entry.price_per_unit.toFixed(4)} lei/{entry.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Nutrition section */}
           <div className="border-t pt-4">

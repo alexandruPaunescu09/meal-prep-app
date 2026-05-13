@@ -120,7 +120,7 @@ function NewPlanForm({
     name: "",
     client_id: "" as string,
     week_start: defaultWeekStart,
-    markup_multiplier: 2.5,
+    markup_multiplier: parseFloat(process.env.NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT ?? "2.5"),
   });
 
   async function handleSubmit(e: React.FormEvent) {

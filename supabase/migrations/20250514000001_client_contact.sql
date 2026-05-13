@@ -1,0 +1,2 @@
+ALTER TABLE clients ADD COLUMN email TEXT;
+ALTER TABLE clients ADD COLUMN phone TEXT;

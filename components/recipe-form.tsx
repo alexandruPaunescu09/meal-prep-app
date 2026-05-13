@@ -8,6 +8,7 @@ import {
   RecipeIngredient,
   Ingredient,
   MealType,
+  ContainerType,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
 import { X, Plus, Trash2, Search } from "lucide-react";
@@ -44,6 +45,9 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const [category, setCategory] = useState<MealType>(recipe?.category ?? "lunch");
   const [portions, setPortions] = useState(recipe?.portions ?? 1);
   const [notes, setNotes] = useState(recipe?.notes ?? "");
+  const [containerTypeId, setContainerTypeId] = useState<string | null>(
+    recipe?.container_type_id ?? null
+  );
 
   const [entries, setEntries] = useState<IngredientEntry[]>(
     recipe?.recipe_ingredients.map((ri) => ({
@@ -54,6 +58,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   );
 
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
+  const [containerTypes, setContainerTypes] = useState<ContainerType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showPicker, setShowPicker] = useState(false);
 
@@ -64,6 +69,13 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       .order("name")
       .then(({ data }) => {
         if (data) setAllIngredients(data as Ingredient[]);
+      });
+    supabase
+      .from("container_types")
+      .select("*")
+      .order("name")
+      .then(({ data }) => {
+        if (data) setContainerTypes(data as ContainerType[]);
       });
   }, []);
 
@@ -116,7 +128,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     if (recipe) {
       const { error: updateErr } = await supabase
         .from("recipes")
-        .update({ name: name.trim(), category, portions, notes: notes || null })
+        .update({ name: name.trim(), category, portions, notes: notes || null, container_type_id: containerTypeId })
         .eq("id", recipe.id);
 
       if (updateErr) {
@@ -146,7 +158,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     } else {
       const { data: newRecipe, error: createErr } = await supabase
         .from("recipes")
-        .insert({ name: name.trim(), category, portions, notes: notes || null })
+        .insert({ name: name.trim(), category, portions, notes: notes || null, container_type_id: containerTypeId })
         .select("id")
         .single();
 
@@ -232,6 +244,29 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               />
             </div>
           </div>
+
+          {/* Container Type */}
+          {containerTypes.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Container Type
+              </label>
+              <select
+                value={containerTypeId ?? ""}
+                onChange={(e) =>
+                  setContainerTypeId(e.target.value || null)
+                }
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              >
+                <option value="">No container assigned</option>
+                {containerTypes.map((ct) => (
+                  <option key={ct.id} value={ct.id}>
+                    {ct.name}{ct.volume_ml ? ` (${ct.volume_ml}ml)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Ingredients */}
           <div className="border-t pt-4">

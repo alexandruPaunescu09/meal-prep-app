@@ -85,6 +85,12 @@ export default function ClientsClient({ clients }: { clients: Client[] }) {
                   Target: {client.calorie_target} kcal/day
                 </p>
               )}
+              {(client.email || client.phone) && (
+                <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                  {client.email && <p>{client.email}</p>}
+                  {client.phone && <p>{client.phone}</p>}
+                </div>
+              )}
               {client.restrictions && (
                 <p className="text-xs text-gray-500 mt-1">
                   Restrictions: {client.restrictions}
@@ -131,6 +137,8 @@ function ClientForm({
 
   const [form, setForm] = useState({
     name: client?.name ?? "",
+    email: client?.email ?? "",
+    phone: client?.phone ?? "",
     calorie_target: client?.calorie_target ?? (null as number | null),
     restrictions: client?.restrictions ?? "",
     allergies: client?.allergies ?? "",
@@ -145,6 +153,8 @@ function ClientForm({
 
     const payload = {
       name: form.name.trim(),
+      email: form.email || null,
+      phone: form.phone || null,
       calorie_target: form.calorie_target,
       restrictions: form.restrictions || null,
       allergies: form.allergies || null,
@@ -195,6 +205,32 @@ function ClientForm({
               className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
               required
             />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="client@example.com"
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Phone
+              </label>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                placeholder="+40 7XX XXX XXX"
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -10,6 +10,7 @@ import {
   CookingPot,
   CalendarDays,
   Users,
+  Package,
   LogOut,
   Menu,
   X,
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Recipes", href: "/recipes", icon: CookingPot },
   { name: "Meal Plans", href: "/meal-plans", icon: CalendarDays },
   { name: "Clients", href: "/clients", icon: Users },
+  { name: "Containers", href: "/containers", icon: Package },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
