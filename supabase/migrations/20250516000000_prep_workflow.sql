@@ -45,3 +45,15 @@ CREATE POLICY "Authenticated full access" ON prep_rules
 CREATE POLICY "Authenticated full access" ON prep_tasks
   FOR ALL USING (auth.uid() IS NOT NULL)
   WITH CHECK (auth.uid() IS NOT NULL);
+
+-- Default prep rules (standard kitchen baseline)
+INSERT INTO prep_rules (ingredient_category, prep_type, advance_days, time_estimate_minutes, notes) VALUES
+  ('vegetables', 'wash', 2, 10, 'Wash and pat dry before storage'),
+  ('vegetables', 'peel', 2, 15, 'Carrots, potatoes, beets — store in water or dry'),
+  ('vegetables', 'chop', 1, 20, 'Chop day before to maintain freshness'),
+  ('protein', 'thaw', 1, NULL, 'Move from freezer to fridge 24h before cooking'),
+  ('protein', 'marinate', 1, 10, 'Chicken, pork — marinate overnight for best flavor'),
+  ('protein', 'portion', 1, 15, 'Weigh and portion into individual containers'),
+  ('legumes', 'soak', 1, 5, 'Beans, chickpeas — overnight soak (8-12h)'),
+  ('grains', 'portion', 0, 5, 'Measure out on cooking day'),
+  ('fruits', 'wash', 1, 5, 'Berries, grapes — wash gently before use');

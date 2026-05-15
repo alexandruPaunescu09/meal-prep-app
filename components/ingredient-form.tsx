@@ -5,36 +5,22 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
   Ingredient,
-  IngredientCategory,
+  Category,
   IngredientPriceHistory,
   NutritionSearchResult,
 } from "@/lib/supabase/types";
 import NutritionSearch from "./nutrition-search";
 import { Search, X, ChevronDown, ChevronUp } from "lucide-react";
 
-const CATEGORIES: { value: IngredientCategory; label: string }[] = [
-  { value: "protein", label: "Protein" },
-  { value: "dairy", label: "Dairy" },
-  { value: "grains", label: "Grains" },
-  { value: "fruits", label: "Fruits" },
-  { value: "vegetables", label: "Vegetables" },
-  { value: "fats", label: "Fats" },
-  { value: "nuts_seeds", label: "Nuts & Seeds" },
-  { value: "supplements", label: "Supplements" },
-  { value: "bakery", label: "Bakery" },
-  { value: "legumes", label: "Legumes" },
-  { value: "bread_pasta", label: "Bread & Pasta" },
-  { value: "dessert_sweets", label: "Dessert & Sweets" },
-  { value: "other", label: "Other" },
-];
-
 interface IngredientFormProps {
   ingredient?: Ingredient;
+  categories: Category[];
   onClose: () => void;
 }
 
 export default function IngredientForm({
   ingredient,
+  categories,
   onClose,
 }: IngredientFormProps) {
   const router = useRouter();
@@ -47,7 +33,7 @@ export default function IngredientForm({
 
   const [form, setForm] = useState({
     name: ingredient?.name ?? "",
-    category: ingredient?.category ?? ("other" as IngredientCategory),
+    category: ingredient?.category ?? "other",
     quantity_purchased: ingredient?.quantity_purchased ?? 0,
     unit: ingredient?.unit ?? "g",
     package_price: ingredient?.package_price ?? 0,
@@ -227,14 +213,14 @@ export default function IngredientForm({
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    category: e.target.value as IngredientCategory,
+                    category: e.target.value,
                   })
                 }
                 className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>
-                    {c.label}
+                {categories.map((c) => (
+                  <option key={c.slug} value={c.slug}>
+                    {c.name}
                   </option>
                 ))}
               </select>

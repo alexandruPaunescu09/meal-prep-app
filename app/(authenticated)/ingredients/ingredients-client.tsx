@@ -1,37 +1,37 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, Fragment, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Ingredient, IngredientCategory } from "@/lib/supabase/types";
+import { Ingredient, Category } from "@/lib/supabase/types";
 import IngredientForm from "@/components/ingredient-form";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp } from "lucide-react";
-
-const CATEGORIES: { value: IngredientCategory | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "protein", label: "Protein" },
-  { value: "dairy", label: "Dairy" },
-  { value: "grains", label: "Grains" },
-  { value: "fruits", label: "Fruits" },
-  { value: "vegetables", label: "Vegetables" },
-  { value: "fats", label: "Fats" },
-  { value: "nuts_seeds", label: "Nuts & Seeds" },
-  { value: "supplements", label: "Supplements" },
-  { value: "bakery", label: "Bakery" },
-  { value: "other", label: "Other" },
-];
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings } from "lucide-react";
+import Link from "next/link";
 
 export default function IngredientsClient({
   ingredients,
+  categories,
 }: {
   ingredients: Ingredient[];
+  categories: Category[];
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const [filter, setFilter] = useState<IngredientCategory | "all">("all");
+  const [filter, setFilter] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [editIngredient, setEditIngredient] = useState<Ingredient | undefined>();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const activeCategories = useMemo(() => {
+    const usedSlugs = new Set(ingredients.map((i) => i.category));
+    return categories.filter((c) => usedSlugs.has(c.slug));
+  }, [ingredients, categories]);
+
+  const categoryLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of categories) map[c.slug] = c.name;
+    return map;
+  }, [categories]);
 
   const filtered =
     filter === "all"
@@ -64,28 +64,47 @@ export default function IngredientsClient({
             {ingredients.length} ingredients in database
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add Ingredient
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/ingredients/categories"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <Settings className="w-4 h-4" />
+            Categories
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Ingredient
+          </button>
+        </div>
       </div>
 
       {/* Category tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-4">
-        {CATEGORIES.map((cat) => (
+        <button
+          onClick={() => setFilter("all")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+            filter === "all"
+              ? "bg-emerald-600 text-white"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+          }`}
+        >
+          All
+        </button>
+        {activeCategories.map((cat) => (
           <button
-            key={cat.value}
-            onClick={() => setFilter(cat.value)}
+            key={cat.slug}
+            onClick={() => setFilter(cat.slug)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              filter === cat.value
+              filter === cat.slug
                 ? "bg-emerald-600 text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
           >
-            {cat.label}
+            {cat.name}
           </button>
         ))}
       </div>
@@ -117,7 +136,7 @@ export default function IngredientsClient({
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-900">{ing.name}</p>
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                      {ing.category.replace("_", " ")}
+                      {categoryLabels[ing.category] ?? ing.category}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 ml-2">
@@ -284,7 +303,7 @@ export default function IngredientsClient({
                         </td>
                         <td className="px-4 py-3">
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                            {ing.category.replace("_", " ")}
+                            {categoryLabels[ing.category] ?? ing.category}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right text-gray-600">
@@ -396,7 +415,11 @@ export default function IngredientsClient({
 
       {/* Form modal */}
       {showForm && (
-        <IngredientForm ingredient={editIngredient} onClose={closeForm} />
+        <IngredientForm
+          ingredient={editIngredient}
+          categories={categories}
+          onClose={closeForm}
+        />
       )}
     </div>
   );

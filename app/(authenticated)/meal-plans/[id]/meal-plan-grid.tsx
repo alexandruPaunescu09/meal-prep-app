@@ -11,6 +11,7 @@ import {
   Ingredient,
   Client,
   MealType,
+  Category,
 } from "@/lib/supabase/types";
 import { calculateWeek } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
@@ -47,12 +48,14 @@ export default function MealPlanGrid({
   recipes,
   clients,
   ingredients,
+  categories,
 }: {
   plan: PlanWithClient;
   entries: FullEntry[];
   recipes: { id: string; name: string; category: MealType; portions: number }[];
   clients: Client[];
   ingredients: Ingredient[];
+  categories: Category[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -435,6 +438,7 @@ export default function MealPlanGrid({
       {showShoppingList && (
         <ShoppingListModal
           entries={entries}
+          categories={categories}
           onClose={() => setShowShoppingList(false)}
         />
       )}
@@ -797,17 +801,20 @@ function PlanSettings({
 
 function ShoppingListModal({
   entries,
+  categories,
   onClose,
 }: {
   entries: FullEntry[];
+  categories: Category[];
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
-  const { groups, totalCost } = useMemo(
-    () => generateShoppingList(entries),
-    [entries]
-  );
+  const { groups, totalCost } = useMemo(() => {
+    const labels: Record<string, string> = {};
+    for (const c of categories) labels[c.slug] = c.name;
+    return generateShoppingList(entries, labels);
+  }, [entries, categories]);
 
   function toggleItem(ingredientId: string) {
     setCheckedItems((prev) => {

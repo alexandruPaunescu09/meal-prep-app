@@ -31,6 +31,7 @@ app/
 │   ├── layout.tsx          # AppShell wrapper (sidebar + nav)
 │   ├── page.tsx            # Dashboard
 │   ├── ingredients/        # Ingredients CRUD
+│   │   └── categories/     # Category management CRUD
 │   ├── recipes/            # Recipes CRUD
 │   ├── meal-plans/         # Meal plans list + [id] grid editor
 │   ├── prep/               # Prep schedule (weekly view + rules config)
@@ -79,7 +80,8 @@ supabase/
     ├── 20250514000001_client_contact.sql
     ├── 20250514000002_container_tracking.sql
     ├── 20250515000000_improvements.sql
-    └── 20250516000000_prep_workflow.sql
+    ├── 20250516000000_prep_workflow.sql
+    └── 20250517000000_categories_table.sql
 middleware.ts               # Auth check on all routes
 ```
 
@@ -88,13 +90,17 @@ middleware.ts               # Auth check on all routes
 ## Database Schema
 
 ### Enums
-- `ingredient_category`: protein, dairy, grains, fruits, vegetables, fats, nuts_seeds, supplements, bakery, legumes, bread_pasta, dessert_sweets, other
 - `meal_type`: breakfast, lunch, dinner, snack
 
 ### Tables
 
+**`ingredient_categories`**
+- `id` UUID PK, `slug` TEXT UNIQUE, `name` TEXT, `sort_order` INT
+- `created_at` TIMESTAMPTZ
+- Index: `(sort_order)`
+
 **`ingredients`**
-- `id` UUID PK, `name` TEXT, `category` ingredient_category
+- `id` UUID PK, `name` TEXT, `category` TEXT (references ingredient_categories.slug by convention)
 - `quantity_purchased` NUMERIC, `unit` TEXT (g/ml/buc), `package_price` NUMERIC
 - `price_per_unit` NUMERIC **GENERATED** (`package_price / NULLIF(quantity_purchased, 0)`)
 - Macros (per 100g): `calories`, `protein`, `carbs`, `fat`, `fiber`, `sugar`, `sat_fat`, `salt`
@@ -350,3 +356,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | Ingredients tab in SlotPicker + fractional portions + direct ingredient entries | `supabase/migrations/20250515000000_improvements.sql`, `lib/supabase/types.ts`, `lib/calculations/meal-plan.ts`, `lib/calculations/shopping-list.ts`, `app/(authenticated)/meal-plans/[id]/page.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/api/export/meal-plan/route.ts` |
 | 2025-05-15 | PDF export shows recipe ingredients (scaled to plan portions) | `lib/pdf/meal-plan.tsx`, `app/api/export/meal-plan/route.ts` |
 | 2025-05-15 | Prep workflow: configurable rules + auto-generated weekly prep tasks from all meal plans | `supabase/migrations/20250516000000_prep_workflow.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/prep.ts`, `components/prep-rule-form.tsx`, `app/(authenticated)/prep/*`, `components/app-shell.tsx` |
+| 2025-05-15 | Dynamic categories: migrated ingredient_category ENUM to categories table, dynamic filter buttons, category management CRUD | `supabase/migrations/20250517000000_categories_table.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/shopping-list.ts`, `components/ingredient-form.tsx`, `components/prep-rule-form.tsx`, `app/(authenticated)/ingredients/*`, `app/(authenticated)/prep/rules/*`, `app/(authenticated)/meal-plans/[id]/*` |

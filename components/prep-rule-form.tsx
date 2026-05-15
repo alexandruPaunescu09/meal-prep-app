@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { PrepRule, Ingredient, IngredientCategory, PrepType } from "@/lib/supabase/types";
+import { PrepRule, Ingredient, Category, PrepType } from "@/lib/supabase/types";
 import { X } from "lucide-react";
 
 const PREP_TYPES: { value: PrepType; label: string }[] = [
@@ -19,29 +19,14 @@ const PREP_TYPES: { value: PrepType; label: string }[] = [
   { value: "blanch", label: "Blanch" },
 ];
 
-const CATEGORIES: { value: IngredientCategory; label: string }[] = [
-  { value: "protein", label: "Protein" },
-  { value: "dairy", label: "Dairy" },
-  { value: "grains", label: "Grains" },
-  { value: "fruits", label: "Fruits" },
-  { value: "vegetables", label: "Vegetables" },
-  { value: "fats", label: "Fats & Oils" },
-  { value: "nuts_seeds", label: "Nuts & Seeds" },
-  { value: "supplements", label: "Supplements" },
-  { value: "bakery", label: "Bakery" },
-  { value: "legumes", label: "Legumes" },
-  { value: "bread_pasta", label: "Bread & Pasta" },
-  { value: "dessert_sweets", label: "Dessert & Sweets" },
-  { value: "other", label: "Other" },
-];
-
 interface Props {
   rule?: PrepRule;
   ingredients: Ingredient[];
+  categories: Category[];
   onClose: () => void;
 }
 
-export default function PrepRuleForm({ rule, ingredients, onClose }: Props) {
+export default function PrepRuleForm({ rule, ingredients, categories, onClose }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [saving, setSaving] = useState(false);
@@ -141,8 +126,8 @@ export default function PrepRuleForm({ rule, ingredients, onClose }: Props) {
                 onChange={(e) => setForm({ ...form, ingredient_category: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm"
               >
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
+                {categories.map((c) => (
+                  <option key={c.slug} value={c.slug}>{c.name}</option>
                 ))}
               </select>
             </div>

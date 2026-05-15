@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { PrepRule, Ingredient } from "@/lib/supabase/types";
+import { PrepRule, Ingredient, Category } from "@/lib/supabase/types";
 import { Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import PrepRuleForm from "@/components/prep-rule-form";
@@ -13,24 +13,24 @@ const PREP_TYPE_LABELS: Record<string, string> = {
   marinate: "Marinate", portion: "Portion", thaw: "Thaw", soak: "Soak", blanch: "Blanch",
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  protein: "Protein", dairy: "Dairy", grains: "Grains", fruits: "Fruits",
-  vegetables: "Vegetables", fats: "Fats & Oils", nuts_seeds: "Nuts & Seeds",
-  supplements: "Supplements", bakery: "Bakery", legumes: "Legumes",
-  bread_pasta: "Bread & Pasta", dessert_sweets: "Dessert & Sweets", other: "Other",
-};
-
 interface Props {
   rules: PrepRule[];
   ingredients: Ingredient[];
+  categories: Category[];
 }
 
-export default function PrepRulesClient({ rules, ingredients }: Props) {
+export default function PrepRulesClient({ rules, ingredients, categories }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [showForm, setShowForm] = useState(false);
   const [editRule, setEditRule] = useState<PrepRule | undefined>();
   const [filterCategory, setFilterCategory] = useState<string>("all");
+
+  const categoryLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of categories) map[c.slug] = c.name;
+    return map;
+  }, [categories]);
 
   const filtered = filterCategory === "all"
     ? rules
@@ -68,15 +68,15 @@ export default function PrepRulesClient({ rules, ingredients }: Props) {
         >
           All
         </button>
-        {Object.entries(CATEGORY_LABELS).map(([val, label]) => (
+        {categories.map((cat) => (
           <button
-            key={val}
-            onClick={() => setFilterCategory(val)}
+            key={cat.slug}
+            onClick={() => setFilterCategory(cat.slug)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${
-              filterCategory === val ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"
+              filterCategory === cat.slug ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"
             }`}
           >
-            {label}
+            {cat.name}
           </button>
         ))}
       </div>
@@ -103,7 +103,7 @@ export default function PrepRulesClient({ rules, ingredients }: Props) {
                   <td className="px-4 py-3 text-gray-900">
                     {rule.ingredient
                       ? rule.ingredient.name
-                      : CATEGORY_LABELS[rule.ingredient_category ?? ""] ?? rule.ingredient_category}
+                      : categoryLabels[rule.ingredient_category ?? ""] ?? rule.ingredient_category}
                     {rule.ingredient && (
                       <span className="ml-1 text-xs text-gray-400">(specific)</span>
                     )}
@@ -142,6 +142,7 @@ export default function PrepRulesClient({ rules, ingredients }: Props) {
         <PrepRuleForm
           rule={editRule}
           ingredients={ingredients}
+          categories={categories}
           onClose={() => setShowForm(false)}
         />
       )}

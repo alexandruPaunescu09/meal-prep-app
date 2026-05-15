@@ -2,18 +2,7 @@ import { z } from "zod/v4";
 
 export const ingredientSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  category: z.enum([
-    "protein",
-    "dairy",
-    "grains",
-    "fruits",
-    "vegetables",
-    "fats",
-    "nuts_seeds",
-    "supplements",
-    "bakery",
-    "other",
-  ]),
+  category: z.string().min(1, "Category is required"),
   quantity_purchased: z.number().positive("Must be > 0"),
   unit: z.enum(["g", "ml", "buc"]),
   package_price: z.number().nonnegative("Must be >= 0"),
@@ -53,11 +42,7 @@ export const clientSchema = z.object({
 export type ClientFormData = z.infer<typeof clientSchema>;
 
 export const prepRuleSchema = z.object({
-  ingredient_category: z.enum([
-    "protein", "dairy", "grains", "fruits", "vegetables",
-    "fats", "nuts_seeds", "supplements", "bakery", "legumes",
-    "bread_pasta", "dessert_sweets", "other",
-  ]).nullable(),
+  ingredient_category: z.string().nullable(),
   ingredient_id: z.string().nullable(),
   prep_type: z.enum([
     "wash", "peel", "chop", "slice", "dice",

@@ -3,13 +3,12 @@ import {
   Recipe,
   RecipeIngredient,
   MealPlanEntry,
-  IngredientCategory,
 } from "@/lib/supabase/types";
 
 export interface ShoppingItem {
   ingredientId: string;
   name: string;
-  category: IngredientCategory;
+  category: string;
   totalQuantity: number;
   unit: string;
   estimatedCost: number;
@@ -29,23 +28,10 @@ type FullEntry = MealPlanEntry & {
   ingredient?: Ingredient;
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  protein: "Protein",
-  dairy: "Dairy",
-  grains: "Grains",
-  fruits: "Fruits",
-  vegetables: "Vegetables",
-  fats: "Fats",
-  nuts_seeds: "Nuts & Seeds",
-  supplements: "Supplements",
-  bakery: "Bakery",
-  legumes: "Legumes",
-  bread_pasta: "Bread & Pasta",
-  dessert_sweets: "Dessert & Sweets",
-  other: "Other",
-};
-
-export function generateShoppingList(entries: FullEntry[]): {
+export function generateShoppingList(
+  entries: FullEntry[],
+  categoryLabels?: Record<string, string>
+): {
   groups: ShoppingListGroup[];
   totalCost: number;
 } {
@@ -81,7 +67,7 @@ export function generateShoppingList(entries: FullEntry[]): {
   const groups: ShoppingListGroup[] = Array.from(grouped.entries())
     .map(([category, categoryItems]) => ({
       category,
-      label: CATEGORY_LABELS[category] ?? category,
+      label: categoryLabels?.[category] ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       items: categoryItems.sort((a, b) => a.name.localeCompare(b.name)),
       subtotal: categoryItems.reduce((sum, i) => sum + i.estimatedCost, 0),
     }))

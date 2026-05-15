@@ -1,5 +1,5 @@
 import { createServer } from "@/lib/supabase/server";
-import { Client, Ingredient } from "@/lib/supabase/types";
+import { Client, Ingredient, Category } from "@/lib/supabase/types";
 import { notFound } from "next/navigation";
 import MealPlanGrid from "./meal-plan-grid";
 
@@ -22,35 +22,26 @@ export default async function MealPlanDetailPage({
 
   if (!plan) notFound();
 
-  const { data: entries } = await supabase
-    .from("meal_plan_entries")
-    .select(`
-      *,
-      recipe:recipes (
+  const [{ data: entries }, { data: recipes }, { data: clients }, { data: ingredients }, { data: categories }] = await Promise.all([
+    supabase
+      .from("meal_plan_entries")
+      .select(`
         *,
-        recipe_ingredients (
+        recipe:recipes (
           *,
-          ingredient:ingredients (*)
-        )
-      ),
-      ingredient:ingredients (*)
-    `)
-    .eq("meal_plan_id", id);
-
-  const { data: recipes } = await supabase
-    .from("recipes")
-    .select("id, name, category, portions")
-    .order("name");
-
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("*")
-    .order("name");
-
-  const { data: ingredients } = await supabase
-    .from("ingredients")
-    .select("*")
-    .order("name");
+          recipe_ingredients (
+            *,
+            ingredient:ingredients (*)
+          )
+        ),
+        ingredient:ingredients (*)
+      `)
+      .eq("meal_plan_id", id),
+    supabase.from("recipes").select("id, name, category, portions").order("name"),
+    supabase.from("clients").select("*").order("name"),
+    supabase.from("ingredients").select("*").order("name"),
+    supabase.from("ingredient_categories").select("*").order("sort_order"),
+  ]);
 
   return (
     <MealPlanGrid
@@ -59,6 +50,7 @@ export default async function MealPlanDetailPage({
       recipes={(recipes as any[]) ?? []}
       clients={(clients as Client[]) ?? []}
       ingredients={(ingredients as Ingredient[]) ?? []}
+      categories={(categories as Category[]) ?? []}
     />
   );
 }

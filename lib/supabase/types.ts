@@ -1,17 +1,12 @@
-export type IngredientCategory =
-  | "protein"
-  | "dairy"
-  | "grains"
-  | "fruits"
-  | "vegetables"
-  | "fats"
-  | "nuts_seeds"
-  | "supplements"
-  | "bakery"
-  | "legumes"
-  | "bread_pasta"
-  | "dessert_sweets"
-  | "other";
+export type IngredientCategory = string;
+
+export interface Category {
+  id: string;
+  slug: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
 
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
