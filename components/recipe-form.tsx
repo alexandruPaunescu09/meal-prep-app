@@ -7,7 +7,6 @@ import {
   Recipe,
   RecipeIngredient,
   Ingredient,
-  MealType,
   ContainerType,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
@@ -28,13 +27,6 @@ interface IngredientEntry {
   quantity: number;
 }
 
-const MEAL_TYPES: { value: MealType; label: string }[] = [
-  { value: "breakfast", label: "Breakfast" },
-  { value: "lunch", label: "Lunch" },
-  { value: "dinner", label: "Dinner" },
-  { value: "snack", label: "Snack" },
-];
-
 export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -42,7 +34,6 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const [error, setError] = useState("");
 
   const [name, setName] = useState(recipe?.name ?? "");
-  const [category, setCategory] = useState<MealType>(recipe?.category ?? "lunch");
   const [portions, setPortions] = useState(recipe?.portions ?? 1);
   const [notes, setNotes] = useState(recipe?.notes ?? "");
   const [finalWeight, setFinalWeight] = useState<number | null>(recipe?.final_weight ?? null);
@@ -129,7 +120,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     if (recipe) {
       const { error: updateErr } = await supabase
         .from("recipes")
-        .update({ name: name.trim(), category, portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
+        .update({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
         .eq("id", recipe.id);
 
       if (updateErr) {
@@ -159,7 +150,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     } else {
       const { data: newRecipe, error: createErr } = await supabase
         .from("recipes")
-        .insert({ name: name.trim(), category, portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
+        .insert({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
         .select("id")
         .single();
 
@@ -201,9 +192,9 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Name + Category + Portions */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-1">
+          {/* Name + Portions */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Name *
               </label>
@@ -214,22 +205,6 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                 required
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as MealType)}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-              >
-                {MEAL_TYPES.map((mt) => (
-                  <option key={mt.value} value={mt.value}>
-                    {mt.label}
-                  </option>
-                ))}
-              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

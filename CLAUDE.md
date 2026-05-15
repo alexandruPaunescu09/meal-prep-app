@@ -16,6 +16,7 @@
 | Supabase | @supabase/ssr 0.10.3, supabase-js 2.105.4 | Auth + Postgres database |
 | Tailwind CSS | 4 | Styling (@tailwindcss/postcss) |
 | Zod | 4.4.3 | Schema validation |
+| @dnd-kit/core | latest | Drag-and-drop (meal plan grid) |
 | @react-pdf/renderer | latest | PDF generation (meal plan export) |
 | Resend | latest | Transactional email (PDF delivery) |
 | @vercel/og | 0.11.1 | OG image generation (legacy) |
@@ -81,7 +82,8 @@ supabase/
     ├── 20250514000002_container_tracking.sql
     ├── 20250515000000_improvements.sql
     ├── 20250516000000_prep_workflow.sql
-    └── 20250517000000_categories_table.sql
+    ├── 20250517000000_categories_table.sql
+    └── 20250518000000_drop_recipe_category.sql
 middleware.ts               # Auth check on all routes
 ```
 
@@ -108,7 +110,7 @@ middleware.ts               # Auth check on all routes
 - `created_at`, `updated_at` TIMESTAMPTZ (trigger-maintained)
 
 **`recipes`**
-- `id` UUID PK, `name` TEXT, `category` meal_type, `portions` INT (default 1), `final_weight` NUMERIC (nullable), `notes` TEXT
+- `id` UUID PK, `name` TEXT, `portions` INT (default 1), `final_weight` NUMERIC (nullable), `notes` TEXT
 - `container_type_id` UUID FK→container_types SET NULL
 
 **`recipe_ingredients`** (junction)
@@ -357,3 +359,5 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | PDF export shows recipe ingredients (scaled to plan portions) | `lib/pdf/meal-plan.tsx`, `app/api/export/meal-plan/route.ts` |
 | 2025-05-15 | Prep workflow: configurable rules + auto-generated weekly prep tasks from all meal plans | `supabase/migrations/20250516000000_prep_workflow.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/prep.ts`, `components/prep-rule-form.tsx`, `app/(authenticated)/prep/*`, `components/app-shell.tsx` |
 | 2025-05-15 | Dynamic categories: migrated ingredient_category ENUM to categories table, dynamic filter buttons, category management CRUD | `supabase/migrations/20250517000000_categories_table.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/shopping-list.ts`, `components/ingredient-form.tsx`, `components/prep-rule-form.tsx`, `app/(authenticated)/ingredients/*`, `app/(authenticated)/prep/rules/*`, `app/(authenticated)/meal-plans/[id]/*` |
+| 2025-05-15 | Removed recipe category (was meal_type enum) — recipes no longer classified by meal time | `supabase/migrations/20250518000000_drop_recipe_category.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `components/recipe-form.tsx`, `app/(authenticated)/recipes/recipes-client.tsx`, `app/(authenticated)/meal-plans/[id]/*` |
+| 2025-05-15 | Drag-and-drop in meal plan grid: entries can be dragged between day/meal slots (@dnd-kit) | `package.json`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |

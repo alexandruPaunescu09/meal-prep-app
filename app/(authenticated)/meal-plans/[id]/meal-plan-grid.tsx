@@ -15,9 +15,20 @@ import {
 } from "@/lib/supabase/types";
 import { calculateWeek } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
-import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2 } from "lucide-react";
+import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical } from "lucide-react";
 import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 
 type FullEntry = MealPlanEntry & {
   recipe?: Recipe & {
@@ -52,7 +63,7 @@ export default function MealPlanGrid({
 }: {
   plan: PlanWithClient;
   entries: FullEntry[];
-  recipes: { id: string; name: string; category: MealType; portions: number }[];
+  recipes: { id: string; name: string; portions: number }[];
   clients: Client[];
   ingredients: Ingredient[];
   categories: Category[];
@@ -67,6 +78,11 @@ export default function MealPlanGrid({
   const [showDelivery, setShowDelivery] = useState(false);
   const [addingEntry, setAddingEntry] = useState(false);
   const [removingEntry, setRemovingEntry] = useState<string | null>(null);
+  const [activeEntry, setActiveEntry] = useState<FullEntry | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const weekTotals = calculateWeek(entries, plan.markup_multiplier);
 
@@ -74,6 +90,32 @@ export default function MealPlanGrid({
     return entries.filter(
       (e) => e.day_of_week === day && e.meal_type === mealType
     );
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const entry = entries.find((e) => e.id === event.active.id);
+    setActiveEntry(entry ?? null);
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setActiveEntry(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const entryId = active.id as string;
+    const [, dayStr, mealType] = (over.id as string).split("-");
+    const newDay = parseInt(dayStr);
+    const newMealType = mealType as MealType;
+
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    if (entry.day_of_week === newDay && entry.meal_type === newMealType) return;
+
+    await supabase
+      .from("meal_plan_entries")
+      .update({ day_of_week: newDay, meal_type: newMealType })
+      .eq("id", entryId);
+    router.refresh();
   }
 
   async function addEntry(recipeId: string, portions: number) {
@@ -249,6 +291,7 @@ export default function MealPlanGrid({
       </div>
 
       {/* Desktop Weekly Grid */}
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="hidden md:block bg-white rounded-xl border overflow-hidden mb-6">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -275,38 +318,10 @@ export default function MealPlanGrid({
                     const day = dayIdx + 1;
                     const slotEntries = getEntriesForSlot(day, mealType);
                     return (
-                      <td
-                        key={day}
-                        className="px-2 py-2 border-r last:border-r-0 align-top"
-                      >
+                      <DroppableSlot key={`${day}-${mealType}`} day={day} mealType={mealType}>
                         <div className="space-y-1 min-h-[48px]">
                           {slotEntries.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 group transition-opacity ${removingEntry === entry.id ? "opacity-50 pointer-events-none" : ""}`}
-                            >
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-gray-900 truncate">
-                                  {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
-                                </p>
-                                <p className="text-[10px] text-gray-500">
-                                  {entry.recipe
-                                    ? `×${entry.portions}`
-                                    : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => removeEntry(entry.id)}
-                                disabled={removingEntry === entry.id}
-                                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 transition-opacity"
-                              >
-                                {removingEntry === entry.id ? (
-                                  <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
-                                ) : (
-                                  <X className="w-3 h-3 text-red-500" />
-                                )}
-                              </button>
-                            </div>
+                            <DraggableEntry key={entry.id} entry={entry} removingEntry={removingEntry} onRemove={removeEntry} />
                           ))}
                           <button
                             onClick={() => setSlotPicker({ day, mealType })}
@@ -315,7 +330,7 @@ export default function MealPlanGrid({
                             <Plus className="w-3 h-3" />
                           </button>
                         </div>
-                      </td>
+                      </DroppableSlot>
                     );
                   })}
                 </tr>
@@ -357,6 +372,21 @@ export default function MealPlanGrid({
           </table>
         </div>
       </div>
+      <DragOverlay>
+        {activeEntry && (
+          <div className="bg-emerald-100 rounded px-2 py-1 shadow-lg border border-emerald-300 max-w-[140px]">
+            <p className="text-xs font-medium text-gray-900 truncate">
+              {activeEntry.recipe ? activeEntry.recipe.name : activeEntry.ingredient?.name ?? "Unknown"}
+            </p>
+            <p className="text-[10px] text-gray-500">
+              {activeEntry.recipe
+                ? `×${activeEntry.portions}`
+                : `${activeEntry.quantity}g${activeEntry.portions !== 1 ? ` ×${activeEntry.portions}` : ""}`}
+            </p>
+          </div>
+        )}
+      </DragOverlay>
+      </DndContext>
 
       {/* Weekly summary */}
       <div className="bg-white rounded-xl border p-4">
@@ -480,6 +510,63 @@ export default function MealPlanGrid({
   );
 }
 
+function DroppableSlot({ day, mealType, children }: { day: number; mealType: MealType; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id: `slot-${day}-${mealType}` });
+  return (
+    <td
+      ref={setNodeRef}
+      className={`px-2 py-2 border-r last:border-r-0 align-top transition-colors ${
+        isOver ? "bg-emerald-50" : ""
+      }`}
+    >
+      {children}
+    </td>
+  );
+}
+
+function DraggableEntry({ entry, removingEntry, onRemove }: { entry: FullEntry; removingEntry: string | null; onRemove: (id: string) => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: entry.id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 group transition-opacity ${
+        removingEntry === entry.id ? "opacity-50 pointer-events-none" : ""
+      } ${isDragging ? "opacity-30" : ""}`}
+    >
+      <div className="flex items-center gap-1 min-w-0 flex-1">
+        <button
+          {...attributes}
+          {...listeners}
+          className="p-0.5 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity touch-none"
+        >
+          <GripVertical className="w-3 h-3 text-gray-400" />
+        </button>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-900 truncate">
+            {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
+          </p>
+          <p className="text-[10px] text-gray-500">
+            {entry.recipe
+              ? `×${entry.portions}`
+              : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => onRemove(entry.id)}
+        disabled={removingEntry === entry.id}
+        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 transition-opacity"
+      >
+        {removingEntry === entry.id ? (
+          <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
+        ) : (
+          <X className="w-3 h-3 text-red-500" />
+        )}
+      </button>
+    </div>
+  );
+}
+
 function SlotPicker({
   day,
   mealType,
@@ -492,7 +579,7 @@ function SlotPicker({
 }: {
   day: number;
   mealType: MealType;
-  recipes: { id: string; name: string; category: MealType; portions: number }[];
+  recipes: { id: string; name: string; portions: number }[];
   ingredients: Ingredient[];
   onAdd: (recipeId: string, portions: number) => void;
   onAddIngredient: (ingredientId: string, quantity: number) => void;
@@ -607,7 +694,7 @@ function SlotPicker({
                         {recipe.name}
                       </span>
                       <span className="ml-2 text-xs text-gray-500">
-                        {recipe.category}
+                        {recipe.portions} portion{recipe.portions > 1 ? "s" : ""}
                       </span>
                     </div>
                     {adding && selectedId === recipe.id && (

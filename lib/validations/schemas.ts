@@ -23,7 +23,6 @@ export type IngredientFormData = z.infer<typeof ingredientSchema>;
 
 export const recipeSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  category: z.enum(["breakfast", "lunch", "dinner", "snack"]),
   portions: z.number().int().positive("Must be >= 1"),
   notes: z.string().nullable().optional(),
 });

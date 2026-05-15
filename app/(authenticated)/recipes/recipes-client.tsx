@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Recipe, RecipeIngredient, Ingredient, MealType } from "@/lib/supabase/types";
+import { Recipe, RecipeIngredient, Ingredient } from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
@@ -12,14 +12,6 @@ type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
 };
 
-const MEAL_TYPES: { value: MealType | "all"; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "breakfast", label: "Breakfast" },
-  { value: "lunch", label: "Lunch" },
-  { value: "dinner", label: "Dinner" },
-  { value: "snack", label: "Snack" },
-];
-
 export default function RecipesClient({
   recipes,
 }: {
@@ -27,15 +19,9 @@ export default function RecipesClient({
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const [filter, setFilter] = useState<MealType | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [editRecipe, setEditRecipe] = useState<RecipeWithIngredients | undefined>();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const filtered =
-    filter === "all"
-      ? recipes
-      : recipes.filter((r) => r.category === filter);
 
   function getCalc(recipe: RecipeWithIngredients) {
     const items = recipe.recipe_ingredients.map((ri) => ({
@@ -56,7 +42,6 @@ export default function RecipesClient({
       .from("recipes")
       .insert({
         name: `${recipe.name} (copy)`,
-        category: recipe.category,
         portions: recipe.portions,
         final_weight: recipe.final_weight,
         notes: recipe.notes,
@@ -109,25 +94,8 @@ export default function RecipesClient({
         </button>
       </div>
 
-      {/* Meal type tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-4">
-        {MEAL_TYPES.map((mt) => (
-          <button
-            key={mt.value}
-            onClick={() => setFilter(mt.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              filter === mt.value
-                ? "bg-emerald-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
-          >
-            {mt.label}
-          </button>
-        ))}
-      </div>
-
       {/* List */}
-      {filtered.length === 0 ? (
+      {recipes.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border">
           <p className="text-gray-500">No recipes yet.</p>
           <button
@@ -141,7 +109,7 @@ export default function RecipesClient({
         <>
           {/* Mobile cards */}
           <div className="md:hidden space-y-2">
-            {filtered.map((recipe) => {
+            {recipes.map((recipe) => {
               const calc = getCalc(recipe);
               return (
                 <div
@@ -154,9 +122,6 @@ export default function RecipesClient({
                   <div className="flex items-start justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-gray-900">{recipe.name}</p>
-                      <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                        {recipe.category}
-                      </span>
                     </div>
                     <div className="flex items-center gap-1 ml-2">
                       <button
@@ -286,7 +251,6 @@ export default function RecipesClient({
                 <thead>
                   <tr className="bg-gray-50 border-b">
                     <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">Portions</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">Cost/portion</th>
                     <th className="text-right px-4 py-3 font-medium text-gray-600">Cal/portion</th>
@@ -297,7 +261,7 @@ export default function RecipesClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((recipe) => {
+                  {recipes.map((recipe) => {
                     const calc = getCalc(recipe);
                     return (
                       <Fragment key={recipe.id}>
@@ -316,11 +280,6 @@ export default function RecipesClient({
                               )}
                               {recipe.name}
                             </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                              {recipe.category}
-                            </span>
                           </td>
                           <td className="px-4 py-3 text-right text-gray-600">
                             {recipe.portions}
@@ -372,7 +331,7 @@ export default function RecipesClient({
                         </tr>
                         {expandedId === recipe.id && (
                           <tr key={`${recipe.id}-details`} className="border-b">
-                            <td colSpan={9} className="px-4 py-3 bg-gray-50">
+                            <td colSpan={8} className="px-4 py-3 bg-gray-50">
                               <div className="space-y-3">
                                 <div>
                                   <p className="text-xs font-semibold text-gray-600 mb-1">

@@ -44,7 +44,6 @@ export interface ContainerType {
 export interface Recipe {
   id: string;
   name: string;
-  category: MealType;
   portions: number;
   final_weight: number | null;
   notes: string | null;

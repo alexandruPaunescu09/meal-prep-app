@@ -37,7 +37,7 @@ export default async function MealPlanDetailPage({
         ingredient:ingredients (*)
       `)
       .eq("meal_plan_id", id),
-    supabase.from("recipes").select("id, name, category, portions").order("name"),
+    supabase.from("recipes").select("id, name, portions").order("name"),
     supabase.from("clients").select("*").order("name"),
     supabase.from("ingredients").select("*").order("name"),
     supabase.from("ingredient_categories").select("*").order("sort_order"),
