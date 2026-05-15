@@ -23,9 +23,10 @@ export interface WeekTotals {
 }
 
 type FullEntry = MealPlanEntry & {
-  recipe: Recipe & {
+  recipe?: Recipe & {
     recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
   };
+  ingredient?: Ingredient;
 };
 
 function emptyDayTotals(): DayTotals {
@@ -53,25 +54,41 @@ export function calculateDay(entries: FullEntry[]): DayTotals {
   const totals = emptyDayTotals();
 
   for (const entry of entries) {
-    const items = entry.recipe.recipe_ingredients
-      .filter((ri) => ri.ingredient)
-      .map((ri) => ({
-        ingredient: ri.ingredient!,
-        quantity: ri.quantity,
-      }));
-    const calc = calculateRecipe(items, entry.recipe.portions);
+    if (entry.recipe) {
+      const items = entry.recipe.recipe_ingredients
+        .filter((ri) => ri.ingredient)
+        .map((ri) => ({
+          ingredient: ri.ingredient!,
+          quantity: ri.quantity,
+        }));
+      const calc = calculateRecipe(items, entry.recipe.portions);
 
-    const mult = entry.portions;
-    totals.cost += calc.costPerPortion * mult;
-    totals.calories += calc.perPortion.calories * mult;
-    totals.protein += calc.perPortion.protein * mult;
-    totals.carbs += calc.perPortion.carbs * mult;
-    totals.fat += calc.perPortion.fat * mult;
-    totals.fiber += calc.perPortion.fiber * mult;
-    totals.sugar += calc.perPortion.sugar * mult;
-    totals.sat_fat += calc.perPortion.sat_fat * mult;
-    totals.salt += calc.perPortion.salt * mult;
-    addMicros(totals.micronutrients, calc.perPortion.micronutrients, mult);
+      const mult = entry.portions;
+      totals.cost += calc.costPerPortion * mult;
+      totals.calories += calc.perPortion.calories * mult;
+      totals.protein += calc.perPortion.protein * mult;
+      totals.carbs += calc.perPortion.carbs * mult;
+      totals.fat += calc.perPortion.fat * mult;
+      totals.fiber += calc.perPortion.fiber * mult;
+      totals.sugar += calc.perPortion.sugar * mult;
+      totals.sat_fat += calc.perPortion.sat_fat * mult;
+      totals.salt += calc.perPortion.salt * mult;
+      addMicros(totals.micronutrients, calc.perPortion.micronutrients, mult);
+    } else if (entry.ingredient && entry.quantity) {
+      const ing = entry.ingredient;
+      const qty = entry.quantity * entry.portions;
+      const factor = qty / 100;
+      totals.cost += qty * ing.price_per_unit;
+      totals.calories += (ing.calories ?? 0) * factor;
+      totals.protein += (ing.protein ?? 0) * factor;
+      totals.carbs += (ing.carbs ?? 0) * factor;
+      totals.fat += (ing.fat ?? 0) * factor;
+      totals.fiber += (ing.fiber ?? 0) * factor;
+      totals.sugar += (ing.sugar ?? 0) * factor;
+      totals.sat_fat += (ing.sat_fat ?? 0) * factor;
+      totals.salt += (ing.salt ?? 0) * factor;
+      addMicros(totals.micronutrients, ing.micronutrients || {}, factor);
+    }
   }
 
   return totals;

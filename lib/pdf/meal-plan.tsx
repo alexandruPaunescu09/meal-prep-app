@@ -21,6 +21,7 @@ const styles = StyleSheet.create({
   recipeName: { color: "#111827" },
   nutritionLine: { color: "#6b7280", fontSize: 8, marginTop: 1 },
   totalsBox: { marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingLeft: 8 },
+  ingredientLine: { color: "#6b7280", fontSize: 8, marginTop: 1, paddingLeft: 4 },
   totalsText: { fontSize: 9, color: "#374151", fontWeight: "bold" },
   disclaimer: { marginTop: 20, fontSize: 8, color: "#9ca3af", textAlign: "center" },
 });
@@ -28,6 +29,7 @@ const styles = StyleSheet.create({
 interface MealEntry {
   recipeName: string;
   portions: number;
+  ingredients?: { name: string; quantity: number; unit: string }[];
   nutrition: {
     calories: number;
     protein: number;
@@ -90,6 +92,11 @@ export function MealPlanDocument({ data }: { data: MealPlanPDFData }) {
                           <Text style={styles.recipeName}>
                             {entry.recipeName} ×{entry.portions}
                           </Text>
+                          {entry.ingredients && entry.ingredients.length > 0 && (
+                            <Text style={styles.ingredientLine}>
+                              Ingredients: {entry.ingredients.map(i => `${i.name} ${i.quantity}${i.unit}`).join(", ")}
+                            </Text>
+                          )}
                           <Text style={styles.nutritionLine}>
                             {Math.round(entry.nutrition.calories)} kcal | P: {entry.nutrition.protein.toFixed(1)}g | C: {entry.nutrition.carbs.toFixed(1)}g | F: {entry.nutrition.fat.toFixed(1)}g | Fiber: {entry.nutrition.fiber.toFixed(1)}g | Sugar: {entry.nutrition.sugar.toFixed(1)}g | Sat Fat: {entry.nutrition.sat_fat.toFixed(1)}g | Salt: {entry.nutrition.salt.toFixed(2)}g
                           </Text>
@@ -101,7 +108,7 @@ export function MealPlanDocument({ data }: { data: MealPlanPDFData }) {
               })}
               <View style={styles.totalsBox}>
                 <Text style={styles.totalsText}>
-                  Day Total: {Math.round(day.totals.calories)} kcal | P: {day.totals.protein.toFixed(0)}g | C: {day.totals.carbs.toFixed(0)}g | F: {day.totals.fat.toFixed(0)}g
+                  Day Total: {Math.round(day.totals.calories)} kcal | P: {day.totals.protein.toFixed(0)}g | C: {day.totals.carbs.toFixed(0)}g | F: {day.totals.fat.toFixed(0)}g | Fiber: {day.totals.fiber.toFixed(0)}g
                 </Text>
               </View>
             </View>

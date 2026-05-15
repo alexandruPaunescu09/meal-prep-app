@@ -45,6 +45,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const [category, setCategory] = useState<MealType>(recipe?.category ?? "lunch");
   const [portions, setPortions] = useState(recipe?.portions ?? 1);
   const [notes, setNotes] = useState(recipe?.notes ?? "");
+  const [finalWeight, setFinalWeight] = useState<number | null>(recipe?.final_weight ?? null);
   const [containerTypeId, setContainerTypeId] = useState<string | null>(
     recipe?.container_type_id ?? null
   );
@@ -128,7 +129,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     if (recipe) {
       const { error: updateErr } = await supabase
         .from("recipes")
-        .update({ name: name.trim(), category, portions, notes: notes || null, container_type_id: containerTypeId })
+        .update({ name: name.trim(), category, portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
         .eq("id", recipe.id);
 
       if (updateErr) {
@@ -158,7 +159,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     } else {
       const { data: newRecipe, error: createErr } = await supabase
         .from("recipes")
-        .insert({ name: name.trim(), category, portions, notes: notes || null, container_type_id: containerTypeId })
+        .insert({ name: name.trim(), category, portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
         .select("id")
         .single();
 
@@ -267,6 +268,27 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               </select>
             </div>
           )}
+
+          {/* Final Weight */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Final Weight (g)
+            </label>
+            <input
+              type="number"
+              step="any"
+              min={0}
+              value={finalWeight ?? ""}
+              onChange={(e) => setFinalWeight(e.target.value === "" ? null : parseFloat(e.target.value))}
+              placeholder="Optional — total cooked/prepared weight"
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+            />
+            {finalWeight && portions > 0 && (
+              <p className="text-xs text-gray-400 mt-1">
+                {Math.round(finalWeight / portions)}g per portion
+              </p>
+            )}
+          </div>
 
           {/* Ingredients */}
           <div className="border-t pt-4">

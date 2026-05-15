@@ -1,5 +1,5 @@
 import { createServer } from "@/lib/supabase/server";
-import { Client } from "@/lib/supabase/types";
+import { Client, Ingredient } from "@/lib/supabase/types";
 import { notFound } from "next/navigation";
 import MealPlanGrid from "./meal-plan-grid";
 
@@ -32,7 +32,8 @@ export default async function MealPlanDetailPage({
           *,
           ingredient:ingredients (*)
         )
-      )
+      ),
+      ingredient:ingredients (*)
     `)
     .eq("meal_plan_id", id);
 
@@ -46,12 +47,18 @@ export default async function MealPlanDetailPage({
     .select("*")
     .order("name");
 
+  const { data: ingredients } = await supabase
+    .from("ingredients")
+    .select("*")
+    .order("name");
+
   return (
     <MealPlanGrid
       plan={plan as any}
       entries={(entries as any[]) ?? []}
       recipes={(recipes as any[]) ?? []}
       clients={(clients as Client[]) ?? []}
+      ingredients={(ingredients as Ingredient[]) ?? []}
     />
   );
 }

@@ -8,6 +8,9 @@ export type IngredientCategory =
   | "nuts_seeds"
   | "supplements"
   | "bakery"
+  | "legumes"
+  | "bread_pasta"
+  | "dessert_sweets"
   | "other";
 
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
@@ -48,6 +51,7 @@ export interface Recipe {
   name: string;
   category: MealType;
   portions: number;
+  final_weight: number | null;
   notes: string | null;
   container_type_id: string | null;
   container_type?: ContainerType;
@@ -92,9 +96,12 @@ export interface MealPlanEntry {
   meal_plan_id: string;
   day_of_week: number;
   meal_type: MealType;
-  recipe_id: string;
+  recipe_id: string | null;
+  ingredient_id: string | null;
+  quantity: number | null;
   portions: number;
   recipe?: Recipe & { recipe_ingredients: RecipeIngredient[] };
+  ingredient?: Ingredient;
 }
 
 export interface NutritionData {

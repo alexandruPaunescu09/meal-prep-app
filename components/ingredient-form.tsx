@@ -22,6 +22,9 @@ const CATEGORIES: { value: IngredientCategory; label: string }[] = [
   { value: "nuts_seeds", label: "Nuts & Seeds" },
   { value: "supplements", label: "Supplements" },
   { value: "bakery", label: "Bakery" },
+  { value: "legumes", label: "Legumes" },
+  { value: "bread_pasta", label: "Bread & Pasta" },
+  { value: "dessert_sweets", label: "Dessert & Sweets" },
   { value: "other", label: "Other" },
 ];
 
@@ -82,6 +85,7 @@ export default function IngredientForm({
     }
     setForm((prev) => ({
       ...prev,
+      ...(prev.name.trim() === "" && { name: result.name }),
       calories: r(result.nutrition.calories),
       protein: r(result.nutrition.protein),
       carbs: r(result.nutrition.carbs),

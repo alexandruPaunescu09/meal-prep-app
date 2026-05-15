@@ -29,7 +29,7 @@ async function buildPDFData(planId: string): Promise<MealPlanPDFData | null> {
 
   const { data: entries } = await supabase
     .from("meal_plan_entries")
-    .select("*, recipe:recipes(*, recipe_ingredients(*, ingredient:ingredients(*)))")
+    .select("*, recipe:recipes(*, recipe_ingredients(*, ingredient:ingredients(*))), ingredient:ingredients(*)")
     .eq("meal_plan_id", planId);
 
   if (!entries) return null;
@@ -45,24 +45,51 @@ async function buildPDFData(planId: string): Promise<MealPlanPDFData | null> {
       return {
         mealType: MEAL_LABELS[mealType],
         entries: mealEntries.map((entry: any) => {
-          const items = entry.recipe.recipe_ingredients
-            .filter((ri: any) => ri.ingredient)
-            .map((ri: any) => ({ ingredient: ri.ingredient, quantity: ri.quantity }));
-          const calc = calculateRecipe(items, entry.recipe.portions);
-          return {
-            recipeName: entry.recipe.name,
-            portions: entry.portions,
-            nutrition: {
-              calories: calc.perPortion.calories * entry.portions,
-              protein: calc.perPortion.protein * entry.portions,
-              carbs: calc.perPortion.carbs * entry.portions,
-              fat: calc.perPortion.fat * entry.portions,
-              fiber: calc.perPortion.fiber * entry.portions,
-              sugar: calc.perPortion.sugar * entry.portions,
-              sat_fat: calc.perPortion.sat_fat * entry.portions,
-              salt: calc.perPortion.salt * entry.portions,
-            },
-          };
+          if (entry.recipe) {
+            const items = entry.recipe.recipe_ingredients
+              .filter((ri: any) => ri.ingredient)
+              .map((ri: any) => ({ ingredient: ri.ingredient, quantity: ri.quantity }));
+            const calc = calculateRecipe(items, entry.recipe.portions);
+            return {
+              recipeName: entry.recipe.name,
+              portions: entry.portions,
+              ingredients: entry.recipe.recipe_ingredients
+                .filter((ri: any) => ri.ingredient)
+                .map((ri: any) => ({
+                  name: ri.ingredient.name,
+                  quantity: Math.round((ri.quantity * entry.portions / entry.recipe.portions) * 10) / 10,
+                  unit: ri.ingredient.unit ?? "g",
+                })),
+              nutrition: {
+                calories: calc.perPortion.calories * entry.portions,
+                protein: calc.perPortion.protein * entry.portions,
+                carbs: calc.perPortion.carbs * entry.portions,
+                fat: calc.perPortion.fat * entry.portions,
+                fiber: calc.perPortion.fiber * entry.portions,
+                sugar: calc.perPortion.sugar * entry.portions,
+                sat_fat: calc.perPortion.sat_fat * entry.portions,
+                salt: calc.perPortion.salt * entry.portions,
+              },
+            };
+          } else {
+            const ing = entry.ingredient;
+            const qty = (entry.quantity ?? 0) * entry.portions;
+            const factor = qty / 100;
+            return {
+              recipeName: `${ing?.name ?? "Unknown"} (${qty}g)`,
+              portions: entry.portions,
+              nutrition: {
+                calories: (ing?.calories ?? 0) * factor,
+                protein: (ing?.protein ?? 0) * factor,
+                carbs: (ing?.carbs ?? 0) * factor,
+                fat: (ing?.fat ?? 0) * factor,
+                fiber: (ing?.fiber ?? 0) * factor,
+                sugar: (ing?.sugar ?? 0) * factor,
+                sat_fat: (ing?.sat_fat ?? 0) * factor,
+                salt: (ing?.salt ?? 0) * factor,
+              },
+            };
+          }
         }),
       };
     });

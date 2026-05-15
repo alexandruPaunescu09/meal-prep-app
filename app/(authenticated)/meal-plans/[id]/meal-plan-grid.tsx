@@ -19,9 +19,10 @@ import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
 
 type FullEntry = MealPlanEntry & {
-  recipe: Recipe & {
+  recipe?: Recipe & {
     recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
   };
+  ingredient?: Ingredient;
 };
 
 type PlanWithClient = MealPlan & { client: Client | null };
@@ -45,11 +46,13 @@ export default function MealPlanGrid({
   entries,
   recipes,
   clients,
+  ingredients,
 }: {
   plan: PlanWithClient;
   entries: FullEntry[];
   recipes: { id: string; name: string; category: MealType; portions: number }[];
   clients: Client[];
+  ingredients: Ingredient[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -89,6 +92,22 @@ export default function MealPlanGrid({
     setRemovingEntry(entryId);
     await supabase.from("meal_plan_entries").delete().eq("id", entryId);
     setRemovingEntry(null);
+    router.refresh();
+  }
+
+  async function addIngredientEntry(ingredientId: string, quantity: number) {
+    if (!slotPicker) return;
+    setAddingEntry(true);
+    await supabase.from("meal_plan_entries").insert({
+      meal_plan_id: plan.id,
+      day_of_week: slotPicker.day,
+      meal_type: slotPicker.mealType,
+      ingredient_id: ingredientId,
+      quantity,
+      portions: 1,
+    });
+    setSlotPicker(null);
+    setAddingEntry(false);
     router.refresh();
   }
 
@@ -194,10 +213,12 @@ export default function MealPlanGrid({
                             >
                               <div className="min-w-0">
                                 <p className="text-xs font-medium text-gray-900 truncate">
-                                  {entry.recipe.name}
+                                  {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
                                 </p>
                                 <p className="text-[10px] text-gray-500">
-                                  ×{entry.portions}
+                                  {entry.recipe
+                                    ? `×${entry.portions}`
+                                    : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
                                 </p>
                               </div>
                               <button
@@ -263,10 +284,12 @@ export default function MealPlanGrid({
                             >
                               <div className="min-w-0">
                                 <p className="text-xs font-medium text-gray-900 truncate">
-                                  {entry.recipe.name}
+                                  {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
                                 </p>
                                 <p className="text-[10px] text-gray-500">
-                                  ×{entry.portions}
+                                  {entry.recipe
+                                    ? `×${entry.portions}`
+                                    : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
                                 </p>
                               </div>
                               <button
@@ -314,9 +337,7 @@ export default function MealPlanGrid({
                             {Math.round(dayTotals.calories)} kcal
                           </p>
                           <p className="text-gray-500">
-                            P:{dayTotals.protein.toFixed(0)} C:
-                            {dayTotals.carbs.toFixed(0)} F:
-                            {dayTotals.fat.toFixed(0)}
+                            P:{dayTotals.protein.toFixed(0)} C:{dayTotals.carbs.toFixed(0)} F:{dayTotals.fat.toFixed(0)} Fi:{dayTotals.fiber.toFixed(0)}
                           </p>
                           <p className="text-emerald-700 font-medium">
                             {dayTotals.cost.toFixed(2)} lei
@@ -339,7 +360,7 @@ export default function MealPlanGrid({
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Weekly Summary
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
           <div>
             <p className="text-xs text-gray-500">Ingredient Cost</p>
             <p className="text-lg font-bold text-gray-900">
@@ -378,6 +399,12 @@ export default function MealPlanGrid({
               {weekTotals.averageDaily.fat.toFixed(0)}g
             </p>
           </div>
+          <div>
+            <p className="text-xs text-gray-500">Avg Fiber/day</p>
+            <p className="text-lg font-bold text-gray-900">
+              {weekTotals.averageDaily.fiber.toFixed(0)}g
+            </p>
+          </div>
         </div>
       </div>
 
@@ -387,7 +414,9 @@ export default function MealPlanGrid({
           day={slotPicker.day}
           mealType={slotPicker.mealType}
           recipes={recipes}
+          ingredients={ingredients}
           onAdd={addEntry}
+          onAddIngredient={addIngredientEntry}
           onClose={() => setSlotPicker(null)}
           adding={addingEntry}
         />
@@ -435,9 +464,9 @@ export default function MealPlanGrid({
           clientId={plan.client_id}
           mealPlanId={plan.id}
           expectedContainers={entries
-            .filter((e) => e.recipe.container_type_id)
+            .filter((e) => e.recipe?.container_type_id)
             .map((e) => ({
-              container_type_id: e.recipe.container_type_id!,
+              container_type_id: e.recipe!.container_type_id!,
               quantity: e.portions,
             }))}
           onClose={() => setShowDelivery(false)}
@@ -451,30 +480,47 @@ function SlotPicker({
   day,
   mealType,
   recipes,
+  ingredients,
   onAdd,
+  onAddIngredient,
   onClose,
   adding,
 }: {
   day: number;
   mealType: MealType;
   recipes: { id: string; name: string; category: MealType; portions: number }[];
+  ingredients: Ingredient[];
   onAdd: (recipeId: string, portions: number) => void;
+  onAddIngredient: (ingredientId: string, quantity: number) => void;
   onClose: () => void;
   adding: boolean;
 }) {
+  const [tab, setTab] = useState<"recipes" | "ingredients">("recipes");
   const [search, setSearch] = useState("");
   const [portions, setPortions] = useState(1);
+  const [quantity, setQuantity] = useState(100);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  function handleSelect(recipeId: string) {
+  function handleSelectRecipe(recipeId: string) {
     setSelectedId(recipeId);
     onAdd(recipeId, portions);
   }
 
-  const filtered = recipes.filter(
+  function handleSelectIngredient(ingredientId: string) {
+    setSelectedId(ingredientId);
+    onAddIngredient(ingredientId, quantity);
+  }
+
+  const filteredRecipes = recipes.filter(
     (r) =>
       search.length === 0 ||
       r.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredIngredients = ingredients.filter(
+    (i) =>
+      search.length === 0 ||
+      i.name.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -488,54 +534,114 @@ function SlotPicker({
             <X className="w-4 h-4 text-gray-500" />
           </button>
         </div>
+        <div className="flex border-b">
+          <button
+            onClick={() => { setTab("recipes"); setSearch(""); }}
+            className={`flex-1 px-4 py-2 text-sm font-medium ${tab === "recipes" ? "border-b-2 border-emerald-500 text-emerald-700" : "text-gray-500 hover:text-gray-700"}`}
+          >
+            Recipes
+          </button>
+          <button
+            onClick={() => { setTab("ingredients"); setSearch(""); }}
+            className={`flex-1 px-4 py-2 text-sm font-medium ${tab === "ingredients" ? "border-b-2 border-emerald-500 text-emerald-700" : "text-gray-500 hover:text-gray-700"}`}
+          >
+            Ingredients
+          </button>
+        </div>
         <div className="px-4 py-2 border-b space-y-2">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search recipes..."
+            placeholder={tab === "recipes" ? "Search recipes..." : "Search ingredients..."}
             className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
             autoFocus
           />
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Portions:</label>
-            <input
-              type="number"
-              min={1}
-              value={portions}
-              onChange={(e) => setPortions(parseInt(e.target.value) || 1)}
-              className="w-16 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
-            />
-          </div>
+          {tab === "recipes" ? (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Portions:</label>
+              <input
+                type="number"
+                min={0.1}
+                step="0.1"
+                value={portions}
+                onChange={(e) => setPortions(parseFloat(e.target.value) || 1)}
+                className="w-16 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Quantity (g):</label>
+              <input
+                type="number"
+                min={1}
+                step="1"
+                value={quantity}
+                onChange={(e) => setQuantity(parseFloat(e.target.value) || 100)}
+                className="w-20 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto p-2">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">
-              No recipes found.
-            </p>
+          {tab === "recipes" ? (
+            filteredRecipes.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">
+                No recipes found.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {filteredRecipes.map((recipe) => (
+                  <button
+                    key={recipe.id}
+                    onClick={() => handleSelectRecipe(recipe.id)}
+                    disabled={adding}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors flex items-center justify-between ${adding ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <div>
+                      <span className="font-medium text-gray-900">
+                        {recipe.name}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-500">
+                        {recipe.category}
+                      </span>
+                    </div>
+                    {adding && selectedId === recipe.id && (
+                      <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )
           ) : (
-            <div className="space-y-1">
-              {filtered.map((recipe) => (
-                <button
-                  key={recipe.id}
-                  onClick={() => handleSelect(recipe.id)}
-                  disabled={adding}
-                  className={`w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors flex items-center justify-between ${adding ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  <div>
-                    <span className="font-medium text-gray-900">
-                      {recipe.name}
-                    </span>
-                  <span className="ml-2 text-xs text-gray-500">
-                    {recipe.category}
-                  </span>
-                  </div>
-                  {adding && selectedId === recipe.id && (
-                    <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
-                  )}
-                </button>
-              ))}
-            </div>
+            filteredIngredients.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">
+                No ingredients found.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {filteredIngredients.map((ing) => (
+                  <button
+                    key={ing.id}
+                    onClick={() => handleSelectIngredient(ing.id)}
+                    disabled={adding}
+                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors flex items-center justify-between ${adding ? "opacity-50 cursor-not-allowed" : ""}`}
+                  >
+                    <div>
+                      <span className="font-medium text-gray-900">
+                        {ing.name}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-500">
+                        {ing.category}
+                      </span>
+                    </div>
+                    {adding && selectedId === ing.id && (
+                      <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>
@@ -697,13 +803,33 @@ function ShoppingListModal({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
   const { groups, totalCost } = useMemo(
     () => generateShoppingList(entries),
     [entries]
   );
 
+  function toggleItem(ingredientId: string) {
+    setCheckedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(ingredientId)) next.delete(ingredientId);
+      else next.add(ingredientId);
+      return next;
+    });
+  }
+
   function handleCopy() {
-    const text = shoppingListToText(groups, totalCost);
+    const filteredGroups = groups
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((i) => !checkedItems.has(i.ingredientId)),
+        subtotal: g.items
+          .filter((i) => !checkedItems.has(i.ingredientId))
+          .reduce((sum, i) => sum + i.estimatedCost, 0),
+      }))
+      .filter((g) => g.items.length > 0);
+    const filteredCost = filteredGroups.reduce((s, g) => s + g.subtotal, 0);
+    const text = shoppingListToText(filteredGroups, filteredCost);
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -748,9 +874,15 @@ function ShoppingListModal({
                     {group.items.map((item) => (
                       <div
                         key={item.ingredientId}
-                        className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg"
+                        className={`flex items-center gap-2 py-1.5 px-3 bg-gray-50 rounded-lg ${checkedItems.has(item.ingredientId) ? "opacity-50" : ""}`}
                       >
-                        <span className="text-sm font-medium text-gray-900">
+                        <input
+                          type="checkbox"
+                          checked={checkedItems.has(item.ingredientId)}
+                          onChange={() => toggleItem(item.ingredientId)}
+                          className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                        />
+                        <span className={`text-sm font-medium text-gray-900 flex-1 ${checkedItems.has(item.ingredientId) ? "line-through" : ""}`}>
                           {item.name}
                         </span>
                         <div className="flex items-center gap-3 text-sm">
@@ -786,6 +918,11 @@ function ShoppingListModal({
                 {totalCost.toFixed(2)} lei
               </span>
             </div>
+            {checkedItems.size > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {checkedItems.size} item{checkedItems.size !== 1 ? "s" : ""} checked (in stock)
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -854,6 +991,8 @@ function DuplicatePlanModal({
             day_of_week: e.day_of_week,
             meal_type: e.meal_type,
             recipe_id: e.recipe_id,
+            ingredient_id: e.ingredient_id,
+            quantity: e.quantity,
             portions: e.portions,
           }))
         );

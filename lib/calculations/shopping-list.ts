@@ -23,9 +23,10 @@ export interface ShoppingListGroup {
 }
 
 type FullEntry = MealPlanEntry & {
-  recipe: Recipe & {
+  recipe?: Recipe & {
     recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
   };
+  ingredient?: Ingredient;
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -38,6 +39,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   nuts_seeds: "Nuts & Seeds",
   supplements: "Supplements",
   bakery: "Bakery",
+  legumes: "Legumes",
+  bread_pasta: "Bread & Pasta",
+  dessert_sweets: "Dessert & Sweets",
   other: "Other",
 };
 
@@ -48,29 +52,20 @@ export function generateShoppingList(entries: FullEntry[]): {
   const itemMap = new Map<string, ShoppingItem>();
 
   for (const entry of entries) {
-    const recipe = entry.recipe;
-    const portionMultiplier = entry.portions / recipe.portions;
+    if (entry.recipe) {
+      const recipe = entry.recipe;
+      const portionMultiplier = entry.portions / recipe.portions;
 
-    for (const ri of recipe.recipe_ingredients) {
-      if (!ri.ingredient) continue;
+      for (const ri of recipe.recipe_ingredients) {
+        if (!ri.ingredient) continue;
 
-      const ing = ri.ingredient;
-      const quantity = ri.quantity * portionMultiplier;
-
-      const existing = itemMap.get(ing.id);
-      if (existing) {
-        existing.totalQuantity += quantity;
-        existing.estimatedCost += quantity * ing.price_per_unit;
-      } else {
-        itemMap.set(ing.id, {
-          ingredientId: ing.id,
-          name: ing.name,
-          category: ing.category,
-          totalQuantity: quantity,
-          unit: ing.unit,
-          estimatedCost: quantity * ing.price_per_unit,
-        });
+        const ing = ri.ingredient;
+        const quantity = ri.quantity * portionMultiplier;
+        accumulateItem(itemMap, ing, quantity);
       }
+    } else if (entry.ingredient && entry.quantity) {
+      const quantity = entry.quantity * entry.portions;
+      accumulateItem(itemMap, entry.ingredient, quantity);
     }
   }
 
@@ -95,6 +90,23 @@ export function generateShoppingList(entries: FullEntry[]): {
   const totalCost = items.reduce((sum, i) => sum + i.estimatedCost, 0);
 
   return { groups, totalCost };
+}
+
+function accumulateItem(itemMap: Map<string, ShoppingItem>, ing: Ingredient, quantity: number) {
+  const existing = itemMap.get(ing.id);
+  if (existing) {
+    existing.totalQuantity += quantity;
+    existing.estimatedCost += quantity * ing.price_per_unit;
+  } else {
+    itemMap.set(ing.id, {
+      ingredientId: ing.id,
+      name: ing.name,
+      category: ing.category,
+      totalQuantity: quantity,
+      unit: ing.unit,
+      estimatedCost: quantity * ing.price_per_unit,
+    });
+  }
 }
 
 export function shoppingListToText(

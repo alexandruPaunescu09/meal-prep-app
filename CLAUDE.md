@@ -84,7 +84,7 @@ middleware.ts               # Auth check on all routes
 ## Database Schema
 
 ### Enums
-- `ingredient_category`: protein, dairy, grains, fruits, vegetables, fats, nuts_seeds, supplements, bakery, other
+- `ingredient_category`: protein, dairy, grains, fruits, vegetables, fats, nuts_seeds, supplements, bakery, legumes, bread_pasta, dessert_sweets, other
 - `meal_type`: breakfast, lunch, dinner, snack
 
 ### Tables
@@ -98,7 +98,7 @@ middleware.ts               # Auth check on all routes
 - `created_at`, `updated_at` TIMESTAMPTZ (trigger-maintained)
 
 **`recipes`**
-- `id` UUID PK, `name` TEXT, `category` meal_type, `portions` INT (default 1), `notes` TEXT
+- `id` UUID PK, `name` TEXT, `category` meal_type, `portions` INT (default 1), `final_weight` NUMERIC (nullable), `notes` TEXT
 - `container_type_id` UUID FK→container_types SET NULL
 
 **`recipe_ingredients`** (junction)
@@ -113,7 +113,10 @@ middleware.ts               # Auth check on all routes
 - `id` UUID PK, `name` TEXT, `client_id` FK→clients SET NULL, `week_start` DATE, `markup_multiplier` NUMERIC (default 2.5)
 
 **`meal_plan_entries`**
-- `meal_plan_id` FK→meal_plans CASCADE, `day_of_week` INT (1-7), `meal_type` meal_type, `recipe_id` FK→recipes RESTRICT, `portions` INT
+- `meal_plan_id` FK→meal_plans CASCADE, `day_of_week` INT (1-7), `meal_type` meal_type
+- `recipe_id` FK→recipes RESTRICT (nullable), `ingredient_id` FK→ingredients RESTRICT (nullable), `quantity` NUMERIC (nullable)
+- `portions` NUMERIC (supports fractional)
+- CHECK: `recipe_id IS NOT NULL OR ingredient_id IS NOT NULL`
 
 **`ingredient_price_history`**
 - `ingredient_id` FK→ingredients CASCADE, `package_price`, `quantity_purchased`, `unit`, `price_per_unit`, `recorded_at`
@@ -322,3 +325,11 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-14 | UX loading feedback on meal plan add/remove (spinners + disabled states) | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2025-05-14 | Container flagging rewrite: delivery-pair comparison, first-delivery exempt | `lib/calculations/containers.ts` |
 | 2025-05-14 | Policy values externalized to env vars (tolerance, markup) | `.env.local`, `lib/calculations/containers.ts`, `app/(authenticated)/meal-plans/meal-plans-client.tsx` |
+| 2025-05-15 | Auto-fill ingredient name from nutrition search (when empty) | `components/ingredient-form.tsx` |
+| 2025-05-15 | Fiber displayed in daily totals, weekly summary, and PDF | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `lib/pdf/meal-plan.tsx` |
+| 2025-05-15 | New ingredient categories: legumes, bread_pasta, dessert_sweets | `supabase/migrations/20250515000000_improvements.sql`, `lib/supabase/types.ts`, `components/ingredient-form.tsx`, `lib/calculations/shopping-list.ts` |
+| 2025-05-15 | Shopping list check-off (session-only, excludes checked from copy) | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
+| 2025-05-15 | Recipe final weight field (optional, shows g/portion) | `supabase/migrations/20250515000000_improvements.sql`, `lib/supabase/types.ts`, `components/recipe-form.tsx`, `app/(authenticated)/recipes/recipes-client.tsx` |
+| 2025-05-15 | Clone recipe (copies recipe + all ingredients) | `app/(authenticated)/recipes/recipes-client.tsx` |
+| 2025-05-15 | Ingredients tab in SlotPicker + fractional portions + direct ingredient entries | `supabase/migrations/20250515000000_improvements.sql`, `lib/supabase/types.ts`, `lib/calculations/meal-plan.ts`, `lib/calculations/shopping-list.ts`, `app/(authenticated)/meal-plans/[id]/page.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/api/export/meal-plan/route.ts` |
+| 2025-05-15 | PDF export shows recipe ingredients (scaled to plan portions) | `lib/pdf/meal-plan.tsx`, `app/api/export/meal-plan/route.ts` |

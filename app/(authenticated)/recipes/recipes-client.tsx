@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Recipe, RecipeIngredient, Ingredient, MealType } from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -48,6 +48,35 @@ export default function RecipesClient({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("recipes").delete().eq("id", id);
+    router.refresh();
+  }
+
+  async function handleClone(recipe: RecipeWithIngredients) {
+    const { data: newRecipe, error } = await supabase
+      .from("recipes")
+      .insert({
+        name: `${recipe.name} (copy)`,
+        category: recipe.category,
+        portions: recipe.portions,
+        final_weight: recipe.final_weight,
+        notes: recipe.notes,
+        container_type_id: recipe.container_type_id,
+      })
+      .select("id")
+      .single();
+
+    if (error || !newRecipe) return;
+
+    if (recipe.recipe_ingredients.length > 0) {
+      await supabase.from("recipe_ingredients").insert(
+        recipe.recipe_ingredients.map((ri) => ({
+          recipe_id: newRecipe.id,
+          ingredient_id: ri.ingredient_id,
+          quantity: ri.quantity,
+        }))
+      );
+    }
+
     router.refresh();
   }
 
@@ -140,6 +169,13 @@ export default function RecipesClient({
                         <Pencil className="w-3.5 h-3.5 text-gray-500" />
                       </button>
                       <button
+                        onClick={(e) => { e.stopPropagation(); handleClone(recipe); }}
+                        className="p-1.5 rounded hover:bg-blue-50"
+                        title="Clone"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-blue-500" />
+                      </button>
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDelete(recipe.id, recipe.name);
@@ -226,6 +262,11 @@ export default function RecipesClient({
                           </p>
                         </div>
                       </div>
+                      {recipe.final_weight && (
+                        <span className="text-xs text-gray-500">
+                          {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
+                        </span>
+                      )}
                       {recipe.notes && (
                         <p className="mt-2 text-xs text-gray-500 italic">
                           {recipe.notes}
@@ -311,6 +352,13 @@ export default function RecipesClient({
                                 <Pencil className="w-3.5 h-3.5 text-gray-500" />
                               </button>
                               <button
+                                onClick={(e) => { e.stopPropagation(); handleClone(recipe); }}
+                                className="p-1.5 rounded hover:bg-blue-50"
+                                title="Clone"
+                              >
+                                <Copy className="w-3.5 h-3.5 text-blue-500" />
+                              </button>
+                              <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDelete(recipe.id, recipe.name);
@@ -391,6 +439,11 @@ export default function RecipesClient({
                                     )
                                   )}
                                 </div>
+                                {recipe.final_weight && (
+                                  <span className="text-xs text-gray-500">
+                                    {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
+                                  </span>
+                                )}
                                 {recipe.notes && (
                                   <p className="text-xs text-gray-500 italic">
                                     {recipe.notes}
