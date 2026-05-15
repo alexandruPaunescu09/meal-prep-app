@@ -33,6 +33,7 @@ app/
 │   ├── ingredients/        # Ingredients CRUD
 │   ├── recipes/            # Recipes CRUD
 │   ├── meal-plans/         # Meal plans list + [id] grid editor
+│   ├── prep/               # Prep schedule (weekly view + rules config)
 │   ├── clients/            # Clients CRUD
 │   └── containers/         # Container types CRUD + client balances
 ├── api/
@@ -57,7 +58,8 @@ lib/
 │   ├── recipe.ts           # calculateRecipe() → cost + nutrition per portion
 │   ├── meal-plan.ts        # calculateDay(), calculateWeek() → aggregated totals
 │   ├── shopping-list.ts    # generateShoppingList() → grouped ingredient list
-│   └── containers.ts       # calculateClientBalance(), calculateExpectedReturns(), calculateChargeableAmount()
+│   ├── containers.ts       # calculateClientBalance(), calculateExpectedReturns(), calculateChargeableAmount()
+│   └── prep.ts             # generatePrepTasks() → weekly prep task generation from meal plans
 ├── nutrition/
 │   ├── index.ts            # searchNutrition() orchestrator
 │   ├── usda.ts             # USDA FoodData Central API
@@ -75,7 +77,9 @@ supabase/
     ├── 20250513000000_price_history.sql
     ├── 20250514000000_container_types.sql
     ├── 20250514000001_client_contact.sql
-    └── 20250514000002_container_tracking.sql
+    ├── 20250514000002_container_tracking.sql
+    ├── 20250515000000_improvements.sql
+    └── 20250516000000_prep_workflow.sql
 middleware.ts               # Auth check on all routes
 ```
 
@@ -134,6 +138,18 @@ middleware.ts               # Auth check on all routes
 **`container_delivery_items`**
 - `id` UUID PK, `delivery_id` FK→container_deliveries CASCADE, `container_type_id` FK→container_types RESTRICT
 - `quantity_sent` INT, `quantity_returned` INT
+
+**`prep_rules`**
+- `id` UUID PK, `ingredient_category` TEXT (nullable), `ingredient_id` FK→ingredients CASCADE (nullable)
+- `prep_type` TEXT, `advance_days` INT, `time_estimate_minutes` INT (nullable), `notes` TEXT (nullable)
+- CHECK: `ingredient_category IS NOT NULL OR ingredient_id IS NOT NULL`
+- Index: `(ingredient_category)`, `(ingredient_id)`
+
+**`prep_tasks`**
+- `id` UUID PK, `week_start` DATE, `prep_date` DATE, `cook_date` DATE
+- `ingredient_id` FK→ingredients CASCADE, `prep_type` TEXT, `quantity` NUMERIC, `unit` TEXT
+- `recipe_names` TEXT[], `completed` BOOLEAN, `completed_at` TIMESTAMPTZ (nullable)
+- Index: `(week_start, prep_date)`
 
 ### RLS
 All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
@@ -333,3 +349,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | Clone recipe (copies recipe + all ingredients) | `app/(authenticated)/recipes/recipes-client.tsx` |
 | 2025-05-15 | Ingredients tab in SlotPicker + fractional portions + direct ingredient entries | `supabase/migrations/20250515000000_improvements.sql`, `lib/supabase/types.ts`, `lib/calculations/meal-plan.ts`, `lib/calculations/shopping-list.ts`, `app/(authenticated)/meal-plans/[id]/page.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/api/export/meal-plan/route.ts` |
 | 2025-05-15 | PDF export shows recipe ingredients (scaled to plan portions) | `lib/pdf/meal-plan.tsx`, `app/api/export/meal-plan/route.ts` |
+| 2025-05-15 | Prep workflow: configurable rules + auto-generated weekly prep tasks from all meal plans | `supabase/migrations/20250516000000_prep_workflow.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/prep.ts`, `components/prep-rule-form.tsx`, `app/(authenticated)/prep/*`, `components/app-shell.tsx` |

@@ -51,3 +51,21 @@ export const clientSchema = z.object({
 });
 
 export type ClientFormData = z.infer<typeof clientSchema>;
+
+export const prepRuleSchema = z.object({
+  ingredient_category: z.enum([
+    "protein", "dairy", "grains", "fruits", "vegetables",
+    "fats", "nuts_seeds", "supplements", "bakery", "legumes",
+    "bread_pasta", "dessert_sweets", "other",
+  ]).nullable(),
+  ingredient_id: z.string().nullable(),
+  prep_type: z.enum([
+    "wash", "peel", "chop", "slice", "dice",
+    "marinate", "portion", "thaw", "soak", "blanch",
+  ]),
+  advance_days: z.number().int().nonnegative(),
+  time_estimate_minutes: z.number().int().positive().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export type PrepRuleFormData = z.infer<typeof prepRuleSchema>;

@@ -11,6 +11,7 @@ import {
   CalendarDays,
   Users,
   Package,
+  ClipboardList,
   LogOut,
   Menu,
   X,
@@ -22,6 +23,7 @@ const navigation = [
   { name: "Ingredients", href: "/ingredients", icon: Carrot },
   { name: "Recipes", href: "/recipes", icon: CookingPot },
   { name: "Meal Plans", href: "/meal-plans", icon: CalendarDays },
+  { name: "Prep", href: "/prep", icon: ClipboardList },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Containers", href: "/containers", icon: Package },
 ];

@@ -164,3 +164,43 @@ export interface ClientContainerBalance {
   totalOutstanding: number;
   flagged: boolean;
 }
+
+export type PrepType =
+  | "wash"
+  | "peel"
+  | "chop"
+  | "slice"
+  | "dice"
+  | "marinate"
+  | "portion"
+  | "thaw"
+  | "soak"
+  | "blanch";
+
+export interface PrepRule {
+  id: string;
+  ingredient_category: IngredientCategory | null;
+  ingredient_id: string | null;
+  prep_type: PrepType;
+  advance_days: number;
+  time_estimate_minutes: number | null;
+  notes: string | null;
+  created_at: string;
+  ingredient?: Ingredient;
+}
+
+export interface PrepTask {
+  id: string;
+  week_start: string;
+  prep_date: string;
+  cook_date: string;
+  ingredient_id: string;
+  prep_type: PrepType;
+  quantity: number;
+  unit: string;
+  recipe_names: string[];
+  completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+  ingredient?: Ingredient;
+}
