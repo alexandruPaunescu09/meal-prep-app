@@ -118,11 +118,12 @@ middleware.ts               # Auth check on all routes
 
 **`clients`**
 - `id` UUID PK, `name` TEXT, `email` TEXT, `phone` TEXT
-- `calorie_target` INT, `restrictions` TEXT, `allergies` TEXT, `preferences` TEXT, `notes` TEXT
+- `calorie_target` INT, `weight_kg` NUMERIC, `restrictions` TEXT, `allergies` TEXT, `preferences` TEXT, `notes` TEXT
 - `container_tolerance` INT (default 2) — max containers a client can have outstanding before being flagged
 
 **`meal_plans`**
 - `id` UUID PK, `name` TEXT, `client_id` FK→clients SET NULL, `week_start` DATE, `markup_multiplier` NUMERIC (default 2.5)
+- `calorie_target` INT (kcal/day), `protein_per_kg` NUMERIC, `carbs_per_kg` NUMERIC, `fat_per_kg` NUMERIC, `fiber_per_kg` NUMERIC — per-plan nutrition targets; macros multiply by `clients.weight_kg`
 
 **`meal_plan_entries`**
 - `meal_plan_id` FK→meal_plans CASCADE, `day_of_week` INT (1-7), `meal_type` meal_type
@@ -208,6 +209,7 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 - `calculateRecipe(ingredients, portions)` → totalCost, costPerPortion, per-portion macros
 - `calculateDay(entries)` → aggregated day nutrition + cost
 - `calculateWeek(entries, markup)` → weekly totals, averageDaily, sellingPrice
+- `resolveTargets(plan, client)` → resolved nutrition targets (calories absolute, macros = per-kg × client weight)
 - `generateShoppingList(entries)` → deduplicated ingredient list grouped by category
 - `calculateClientBalance(client, deliveries, containerTypes)` → per-client outstanding containers, flag status
 - `calculateExpectedReturns(lastDelivery)` → what client should return this delivery
@@ -361,3 +363,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | Dynamic categories: migrated ingredient_category ENUM to categories table, dynamic filter buttons, category management CRUD | `supabase/migrations/20250517000000_categories_table.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/shopping-list.ts`, `components/ingredient-form.tsx`, `components/prep-rule-form.tsx`, `app/(authenticated)/ingredients/*`, `app/(authenticated)/prep/rules/*`, `app/(authenticated)/meal-plans/[id]/*` |
 | 2025-05-15 | Removed recipe category (was meal_type enum) — recipes no longer classified by meal time | `supabase/migrations/20250518000000_drop_recipe_category.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `components/recipe-form.tsx`, `app/(authenticated)/recipes/recipes-client.tsx`, `app/(authenticated)/meal-plans/[id]/*` |
 | 2025-05-15 | Drag-and-drop in meal plan grid: entries can be dragged between day/meal slots (@dnd-kit) | `package.json`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
+| 2026-05-29 | Per-meal-plan nutrition targets: client weight (kg) + per-kg macro ratios on plans, weekly-average comparison in summary | `supabase/migrations/20260529000000_nutrition_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/(authenticated)/meal-plans/[id]/page.tsx` |

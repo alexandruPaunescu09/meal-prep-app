@@ -1,4 +1,4 @@
-import { RecipeIngredient, Ingredient, Recipe, MealPlanEntry, MealType } from "@/lib/supabase/types";
+import { RecipeIngredient, Ingredient, Recipe, MealPlanEntry, MealType, MealPlan, Client } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "./recipe";
 
 export interface DayTotals {
@@ -143,5 +143,27 @@ export function calculateWeek(
     days,
     weekly,
     averageDaily,
+  };
+}
+
+export interface ResolvedTargets {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+}
+
+export function resolveTargets(
+  plan: Pick<MealPlan, "calorie_target" | "protein_per_kg" | "carbs_per_kg" | "fat_per_kg" | "fiber_per_kg">,
+  client: Pick<Client, "weight_kg"> | null | undefined
+): ResolvedTargets {
+  const kg = client?.weight_kg ?? null;
+  return {
+    calories: plan.calorie_target ?? null,
+    protein: kg != null && plan.protein_per_kg != null ? kg * plan.protein_per_kg : null,
+    carbs: kg != null && plan.carbs_per_kg != null ? kg * plan.carbs_per_kg : null,
+    fat: kg != null && plan.fat_per_kg != null ? kg * plan.fat_per_kg : null,
+    fiber: kg != null && plan.fiber_per_kg != null ? kg * plan.fiber_per_kg : null,
   };
 }

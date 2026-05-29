@@ -32,6 +32,7 @@ export type RecipeFormData = z.infer<typeof recipeSchema>;
 export const clientSchema = z.object({
   name: z.string().min(1, "Name is required"),
   calorie_target: z.number().int().positive().nullable().optional(),
+  weight_kg: z.number().positive().nullable().optional(),
   restrictions: z.string().nullable().optional(),
   allergies: z.string().nullable().optional(),
   preferences: z.string().nullable().optional(),
@@ -39,6 +40,20 @@ export const clientSchema = z.object({
 });
 
 export type ClientFormData = z.infer<typeof clientSchema>;
+
+export const mealPlanSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  client_id: z.string().uuid().nullable().optional(),
+  week_start: z.string(),
+  markup_multiplier: z.number().positive(),
+  calorie_target: z.number().int().positive().nullable().optional(),
+  protein_per_kg: z.number().positive().nullable().optional(),
+  carbs_per_kg: z.number().positive().nullable().optional(),
+  fat_per_kg: z.number().positive().nullable().optional(),
+  fiber_per_kg: z.number().positive().nullable().optional(),
+});
+
+export type MealPlanFormData = z.infer<typeof mealPlanSchema>;
 
 export const prepRuleSchema = z.object({
   ingredient_category: z.string().nullable(),

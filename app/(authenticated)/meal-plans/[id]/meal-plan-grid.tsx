@@ -13,7 +13,7 @@ import {
   MealType,
   Category,
 } from "@/lib/supabase/types";
-import { calculateWeek } from "@/lib/calculations/meal-plan";
+import { calculateWeek, resolveTargets, ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
 import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical } from "lucide-react";
 import Link from "next/link";
@@ -85,6 +85,7 @@ export default function MealPlanGrid({
   );
 
   const weekTotals = calculateWeek(entries, plan.markup_multiplier);
+  const targets = resolveTargets(plan, plan.client);
 
   function getEntriesForSlot(day: number, mealType: MealType) {
     return entries.filter(
@@ -393,7 +394,7 @@ export default function MealPlanGrid({
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Weekly Summary
         </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <div>
             <p className="text-xs text-gray-500">Ingredient Cost</p>
             <p className="text-lg font-bold text-gray-900">
@@ -408,36 +409,37 @@ export default function MealPlanGrid({
               {weekTotals.sellingPrice.toFixed(2)} lei
             </p>
           </div>
-          <div>
-            <p className="text-xs text-gray-500">Avg Daily Cal</p>
-            <p className="text-lg font-bold text-gray-900">
-              {Math.round(weekTotals.averageDaily.calories)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Avg Protein/day</p>
-            <p className="text-lg font-bold text-gray-900">
-              {weekTotals.averageDaily.protein.toFixed(0)}g
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Avg Carbs/day</p>
-            <p className="text-lg font-bold text-gray-900">
-              {weekTotals.averageDaily.carbs.toFixed(0)}g
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Avg Fat/day</p>
-            <p className="text-lg font-bold text-gray-900">
-              {weekTotals.averageDaily.fat.toFixed(0)}g
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Avg Fiber/day</p>
-            <p className="text-lg font-bold text-gray-900">
-              {weekTotals.averageDaily.fiber.toFixed(0)}g
-            </p>
-          </div>
+          <TargetCell
+            label="Avg Daily Cal"
+            actual={weekTotals.averageDaily.calories}
+            target={targets.calories}
+            unit=""
+            roundActual
+          />
+          <TargetCell
+            label="Avg Protein/day"
+            actual={weekTotals.averageDaily.protein}
+            target={targets.protein}
+            unit="g"
+          />
+          <TargetCell
+            label="Avg Carbs/day"
+            actual={weekTotals.averageDaily.carbs}
+            target={targets.carbs}
+            unit="g"
+          />
+          <TargetCell
+            label="Avg Fat/day"
+            actual={weekTotals.averageDaily.fat}
+            target={targets.fat}
+            unit="g"
+          />
+          <TargetCell
+            label="Avg Fiber/day"
+            actual={weekTotals.averageDaily.fiber}
+            target={targets.fiber}
+            unit="g"
+          />
         </div>
       </div>
 
@@ -563,6 +565,60 @@ function DraggableEntry({ entry, removingEntry, onRemove }: { entry: FullEntry; 
           <X className="w-3 h-3 text-red-500" />
         )}
       </button>
+    </div>
+  );
+}
+
+function TargetCell({
+  label,
+  actual,
+  target,
+  unit,
+  roundActual,
+}: {
+  label: string;
+  actual: number;
+  target: number | null;
+  unit: string;
+  roundActual?: boolean;
+}) {
+  const fmt = (n: number) => (roundActual ? Math.round(n).toString() : n.toFixed(0));
+
+  if (target == null) {
+    return (
+      <div>
+        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-lg font-bold text-gray-900">
+          {fmt(actual)}{unit}
+        </p>
+        <p className="text-[10px] text-gray-400 mt-0.5">no target set</p>
+      </div>
+    );
+  }
+
+  const pct = target > 0 ? (actual / target) * 100 : 0;
+  const deviation = Math.abs(pct - 100);
+  let badgeClass = "bg-emerald-50 text-emerald-700";
+  if (deviation > 20) badgeClass = "bg-red-50 text-red-700";
+  else if (deviation > 10) badgeClass = "bg-amber-50 text-amber-700";
+
+  const delta = actual - target;
+  const sign = delta >= 0 ? "+" : "";
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-lg font-bold text-gray-900">
+        {fmt(actual)}{unit}
+        <span className="text-xs font-normal text-gray-400">
+          {" "}/ {fmt(target)}{unit}
+        </span>
+      </p>
+      <span
+        className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded ${badgeClass}`}
+      >
+        {sign}{fmt(delta)}{unit} ({Math.round(pct)}%)
+      </span>
     </div>
   );
 }
@@ -759,6 +815,11 @@ function PlanSettings({
     client_id: plan.client_id ?? "",
     week_start: plan.week_start,
     markup_multiplier: plan.markup_multiplier,
+    calorie_target: plan.calorie_target ?? (null as number | null),
+    protein_per_kg: plan.protein_per_kg ?? (null as number | null),
+    carbs_per_kg: plan.carbs_per_kg ?? (null as number | null),
+    fat_per_kg: plan.fat_per_kg ?? (null as number | null),
+    fiber_per_kg: plan.fiber_per_kg ?? (null as number | null),
   });
 
   async function handleSubmit(e: React.FormEvent) {
@@ -773,6 +834,11 @@ function PlanSettings({
         client_id: form.client_id || null,
         week_start: form.week_start,
         markup_multiplier: form.markup_multiplier,
+        calorie_target: form.calorie_target,
+        protein_per_kg: form.protein_per_kg,
+        carbs_per_kg: form.carbs_per_kg,
+        fat_per_kg: form.fat_per_kg,
+        fiber_per_kg: form.fiber_per_kg,
       })
       .eq("id", plan.id);
 
@@ -787,7 +853,7 @@ function PlanSettings({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-semibold text-gray-900">Plan Settings</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
@@ -856,6 +922,129 @@ function PlanSettings({
             <p className="text-xs text-gray-400 mt-1">
               Selling price = ingredient cost × multiplier
             </p>
+          </div>
+
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              Nutrition Targets
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Macro targets multiply by client&apos;s weight (kg). Compared
+              against the weekly daily average.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Calorie Target (kcal/day)
+                </label>
+                <input
+                  type="number"
+                  value={form.calorie_target ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      calorie_target: e.target.value
+                        ? parseInt(e.target.value)
+                        : null,
+                    })
+                  }
+                  placeholder="e.g. 2000"
+                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Protein (g/kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.protein_per_kg ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      protein_per_kg: e.target.value
+                        ? parseFloat(e.target.value)
+                        : null,
+                    })
+                  }
+                  placeholder="e.g. 1.6"
+                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Carbs (g/kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.carbs_per_kg ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      carbs_per_kg: e.target.value
+                        ? parseFloat(e.target.value)
+                        : null,
+                    })
+                  }
+                  placeholder="e.g. 3"
+                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Fat (g/kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.fat_per_kg ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      fat_per_kg: e.target.value
+                        ? parseFloat(e.target.value)
+                        : null,
+                    })
+                  }
+                  placeholder="e.g. 0.8"
+                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Fiber (g/kg)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.fiber_per_kg ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      fiber_per_kg: e.target.value
+                        ? parseFloat(e.target.value)
+                        : null,
+                    })
+                  }
+                  placeholder="e.g. 0.4"
+                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                />
+              </div>
+            </div>
+            {plan.client && plan.client.weight_kg == null && (
+              <p className="text-xs text-amber-600 mt-2">
+                Client has no weight set — macro targets won&apos;t resolve until
+                you add a weight to the client.
+              </p>
+            )}
+            {!plan.client && (
+              <p className="text-xs text-amber-600 mt-2">
+                No client linked — macro targets won&apos;t resolve until you
+                link a client with a weight.
+              </p>
+            )}
           </div>
 
           {error && (

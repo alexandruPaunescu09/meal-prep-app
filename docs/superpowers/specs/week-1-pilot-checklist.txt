@@ -1,0 +1,160 @@
+WEEK 1 PILOT CHECKLIST
+======================
+
+How to use this in macOS Notes:
+1. Open Notes, create a new note
+2. Paste the contents of this file
+3. Select all the lines starting with "*"
+4. Format menu -> Checklist (Shift+Cmd+L)
+5. Lines become tickable checkboxes
+
+
+WEEK 0 - FOUNDATION (Mon-Wed before week 1)
+--------------------------------------------
+* Client intake: agree on calorie targets + macro splits + fiber per person
+* Confirm pricing: ingredient cost only, no markup, no labor (verbal agreement)
+* Confirm logistics: Mon/Wed/Fri delivery time + handoff location
+* Confirm dietary restrictions/allergies, write into clients record in app
+
+
+WEEK 0 - MENU & APP PREP (Thu-Fri)
+----------------------------------
+* Build week 1 menu: 18 meal-slots (6 days x 3 meals), repeats allowed
+* Verify each recipe: ingredients exist, prices current, container assigned, portions correct
+* Create Plan A in app for person 1 (set markup_multiplier = 1.0)
+* Create Plan B in app for person 2 (set markup_multiplier = 1.0)
+* Validate daily totals against each person's calorie + macro + fiber targets
+* Verify prep rules cover this menu (beans, lentils, eggs, marinated proteins)
+
+
+WEEK 0 - SHOPPING & PREP (Saturday)
+-----------------------------------
+* Generate shopping list from both meal plans, combine into one list
+* Split list by store (Freshful vs Lidl)
+* Place Freshful order with Saturday-morning or Friday-evening slot
+* Lidl run Saturday afternoon for fresh meat + picky produce
+* Container check: 24 clean and dry, lids match, replace cracked
+* Stock rescue pantry: oats, fruit, nut butter, eggs
+* Saturday advance prep per app's prep tasks (soak beans, marinate, wash greens)
+
+
+SUNDAY - COOK DAY 1 (for Mon+Tue food)
+--------------------------------------
+* Lidl top-up if needed
+* Final check: ingredients staged, prep tasks done, kitchen clean
+* Mise en place: pull all ingredients, weigh per recipe, stage in bowls
+* Start anything slow first (beans, oven preheat, stews)
+* Work through stovetop dishes in sequence
+* Spread cooked food on sheet pans, LIDS OFF for cooling
+* Cool to <4C (1-2 hours) before sealing in glass
+* Wash dishes during cooling phase
+* Portion into glass containers: Plan A for person 1, Plan B for person 2
+* Apply post-it labels: name + meal + day (e.g. "Ana - Mon Lunch")
+* Stack in fridge overnight, coldest shelf
+* Confirm Monday delivery time with client (text)
+* Pre-stage delivery bag at door, ice packs in freezer
+
+
+MONDAY - DELIVERY 1
+-------------------
+* Load food into insulated bag with ice packs
+* Drive to client, ~5-min handoff (NO empties to collect - first delivery)
+* Log delivery #1 in app (sent quantities, returned = 0)
+* Capture any casual feedback in phone note
+
+
+TUESDAY - COOK DAY 2 (for Wed+Thu food)
+---------------------------------------
+* Same checklist as Sunday cook day
+* Use Mon feedback for portion-size tweaks (don't change menu, just portions)
+
+
+WEDNESDAY - DELIVERY 2 + FIRST RETURNS
+--------------------------------------
+* Load Wed+Thu food into insulated bag
+* At handoff: deliver food, COLLECT empties from Monday delivery
+* Quick chat: how was Mon+Tue? what hit, what didn't?
+* Log delivery #2 in app (sent + returned)
+* CRITICAL: are all 12 Monday containers back?
+* Inspect returns, note anything not rinsed (gentle - don't make it a thing)
+* Wash + dry containers (need them ready for Thursday cook)
+
+
+THURSDAY - COOK DAY 3 (for Fri+Sat food)
+----------------------------------------
+* Same checklist as Sunday/Tuesday cook day
+* Containers used = the just-washed Monday set
+
+
+FRIDAY - DELIVERY 3
+-------------------
+* Deliver Fri+Sat food, collect empties from Wednesday delivery
+* Log delivery #3 in app
+* Wash returned containers (ready for Sunday's week-2 cook)
+
+
+SATURDAY - WEEK 1 CLOSE-OUT
+---------------------------
+* End-of-week debrief with both people (30-45 min, in person or video)
+* Walk through every meal, ask explicit questions:
+    - what would you change?
+    - anything you didn't finish?
+    - portion sizes too big/small?
+    - any meal you'd remove from rotation?
+* Capture answers in writing
+* Settle ingredient cost (use app's calculated total), send invoice, get paid
+* Inventory check: all Friday containers back? anything broken? rescue pantry depleted?
+* Decisions for week 2: pricing? cadence? menu changes?
+
+
+POLICIES (reference, not checkbox)
+==================================
+
+FOOD SAFETY
+- Cool to <4C before sealing glass containers (lids off, 1-2 hours)
+- Never warm-pack stacked sealed containers
+- Deliveries always cold with ice packs
+- Late cook session = deliver next day, not same evening
+
+LABELING
+- Post-it on lid: name + meal + day (e.g. "Ana - Mon Lunch")
+- Reapply each cycle, don't try to make labels survive washing
+
+CONTAINERS (pilot)
+- 2 sets owned, no buffer
+- Shortage even ONCE in week 1-2 = buy 3rd set before week 3
+
+PRICING (week 1 only)
+- Ingredient cost only, markup_multiplier = 1.0
+- You absorb partial-package waste
+- Week 2+ requires real pricing conversation
+
+FAILURE HANDLING
+- Cook fails -> rescue meal (oats + fruit + nut butter or eggs)
+- Container breaks in transport -> refund affected meal, no remake
+- You're sick -> skip meals, eat the loss (pilot only)
+- Client cancels mid-week -> eat/freeze cooked food, no charge for future
+
+RESCUE PANTRY (always on hand)
+- Rolled oats
+- Fruit (banana, apples)
+- Nut butter
+- Eggs
+
+FEEDBACK CAPTURE
+- In-week: one phone note, one line per comment
+- End-of-week: Saturday debrief, structured questions
+- Friend-clients under-report - ask explicit questions
+
+APP USAGE
+- Meal plans = source of truth, don't change mid-week
+- Prep page: check off tasks as you do them
+- Containers/deliveries page: log every delivery (sent + returned)
+- Shopping list: generate Saturday week 0 only
+
+OPEN ITEMS FOR AFTER WEEK 1
+- Real pricing conversation
+- Per-plan nutrition targets feature in app (TODO at meal-plans/[id]/page.tsx:5)
+- Decision on 3rd container set
+- Cadence review
+- Menu evolution from Saturday debrief

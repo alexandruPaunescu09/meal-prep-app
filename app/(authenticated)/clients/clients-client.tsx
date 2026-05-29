@@ -140,6 +140,7 @@ function ClientForm({
     email: client?.email ?? "",
     phone: client?.phone ?? "",
     calorie_target: client?.calorie_target ?? (null as number | null),
+    weight_kg: client?.weight_kg ?? (null as number | null),
     restrictions: client?.restrictions ?? "",
     allergies: client?.allergies ?? "",
     preferences: client?.preferences ?? "",
@@ -156,6 +157,7 @@ function ClientForm({
       email: form.email || null,
       phone: form.phone || null,
       calorie_target: form.calorie_target,
+      weight_kg: form.weight_kg,
       restrictions: form.restrictions || null,
       allergies: form.allergies || null,
       preferences: form.preferences || null,
@@ -232,23 +234,45 @@ function ClientForm({
               />
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Calorie Target (kcal/day)
-            </label>
-            <input
-              type="number"
-              value={form.calorie_target ?? ""}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  calorie_target: e.target.value
-                    ? parseInt(e.target.value)
-                    : null,
-                })
-              }
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Calorie Target (kcal/day)
+              </label>
+              <input
+                type="number"
+                value={form.calorie_target ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    calorie_target: e.target.value
+                      ? parseInt(e.target.value)
+                      : null,
+                  })
+                }
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Weight (kg)
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={form.weight_kg ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    weight_kg: e.target.value
+                      ? parseFloat(e.target.value)
+                      : null,
+                  })
+                }
+                placeholder="e.g. 70"
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

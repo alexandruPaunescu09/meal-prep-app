@@ -67,6 +67,7 @@ export interface Client {
   email: string | null;
   phone: string | null;
   calorie_target: number | null;
+  weight_kg: number | null;
   restrictions: string | null;
   allergies: string | null;
   preferences: string | null;
@@ -81,6 +82,11 @@ export interface MealPlan {
   client_id: string | null;
   week_start: string;
   markup_multiplier: number;
+  calorie_target: number | null;
+  protein_per_kg: number | null;
+  carbs_per_kg: number | null;
+  fat_per_kg: number | null;
+  fiber_per_kg: number | null;
   created_at: string;
   client?: Client;
 }
