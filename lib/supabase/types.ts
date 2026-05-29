@@ -84,9 +84,7 @@ export interface MealPlan {
   markup_multiplier: number;
   calorie_target: number | null;
   protein_per_kg: number | null;
-  carbs_per_kg: number | null;
   fat_per_kg: number | null;
-  fiber_per_kg: number | null;
   created_at: string;
   client?: Client;
 }

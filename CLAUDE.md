@@ -123,7 +123,7 @@ middleware.ts               # Auth check on all routes
 
 **`meal_plans`**
 - `id` UUID PK, `name` TEXT, `client_id` FK→clients SET NULL, `week_start` DATE, `markup_multiplier` NUMERIC (default 2.5)
-- `calorie_target` INT (kcal/day), `protein_per_kg` NUMERIC, `carbs_per_kg` NUMERIC, `fat_per_kg` NUMERIC, `fiber_per_kg` NUMERIC — per-plan nutrition targets; macros multiply by `clients.weight_kg`
+- `calorie_target` INT (kcal/day), `protein_per_kg` NUMERIC, `fat_per_kg` NUMERIC — per-plan nutrition targets; macros multiply by `clients.weight_kg`. Carbs and fiber targets are derived (carbs from calories−protein−fat; fiber as 10–14 g/1000 kcal range).
 
 **`meal_plan_entries`**
 - `meal_plan_id` FK→meal_plans CASCADE, `day_of_week` INT (1-7), `meal_type` meal_type
@@ -364,3 +364,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | Removed recipe category (was meal_type enum) — recipes no longer classified by meal time | `supabase/migrations/20250518000000_drop_recipe_category.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `components/recipe-form.tsx`, `app/(authenticated)/recipes/recipes-client.tsx`, `app/(authenticated)/meal-plans/[id]/*` |
 | 2025-05-15 | Drag-and-drop in meal plan grid: entries can be dragged between day/meal slots (@dnd-kit) | `package.json`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2026-05-29 | Per-meal-plan nutrition targets: client weight (kg) + per-kg macro ratios on plans, weekly-average comparison in summary | `supabase/migrations/20260529000000_nutrition_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/(authenticated)/meal-plans/[id]/page.tsx` |
+| 2026-05-29 | Carbs target derived from calories − protein − fat (over-allocation hint); fiber target is a 10–14 g/1000 kcal range with in-range badge | `supabase/migrations/20260529000001_drop_derived_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |

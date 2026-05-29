@@ -48,9 +48,7 @@ export const mealPlanSchema = z.object({
   markup_multiplier: z.number().positive(),
   calorie_target: z.number().int().positive().nullable().optional(),
   protein_per_kg: z.number().positive().nullable().optional(),
-  carbs_per_kg: z.number().positive().nullable().optional(),
   fat_per_kg: z.number().positive().nullable().optional(),
-  fiber_per_kg: z.number().positive().nullable().optional(),
 });
 
 export type MealPlanFormData = z.infer<typeof mealPlanSchema>;

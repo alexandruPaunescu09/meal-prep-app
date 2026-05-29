@@ -149,21 +149,41 @@ export function calculateWeek(
 export interface ResolvedTargets {
   calories: number | null;
   protein: number | null;
+  /** Derived: (calories - protein*4 - fat*9) / 4. Null if any input missing. */
   carbs: number | null;
+  /** True when protein+fat already exceed the calorie budget (carbs would be negative). */
+  carbsOverAllocated: boolean;
   fat: number | null;
-  fiber: number | null;
+  /** Derived range: 10..14 g per 1000 kcal. Null if calories missing. */
+  fiber: { min: number; max: number } | null;
 }
 
 export function resolveTargets(
-  plan: Pick<MealPlan, "calorie_target" | "protein_per_kg" | "carbs_per_kg" | "fat_per_kg" | "fiber_per_kg">,
+  plan: Pick<MealPlan, "calorie_target" | "protein_per_kg" | "fat_per_kg">,
   client: Pick<Client, "weight_kg"> | null | undefined
 ): ResolvedTargets {
   const kg = client?.weight_kg ?? null;
-  return {
-    calories: plan.calorie_target ?? null,
-    protein: kg != null && plan.protein_per_kg != null ? kg * plan.protein_per_kg : null,
-    carbs: kg != null && plan.carbs_per_kg != null ? kg * plan.carbs_per_kg : null,
-    fat: kg != null && plan.fat_per_kg != null ? kg * plan.fat_per_kg : null,
-    fiber: kg != null && plan.fiber_per_kg != null ? kg * plan.fiber_per_kg : null,
-  };
+  const calories = plan.calorie_target ?? null;
+  const protein =
+    kg != null && plan.protein_per_kg != null ? kg * plan.protein_per_kg : null;
+  const fat = kg != null && plan.fat_per_kg != null ? kg * plan.fat_per_kg : null;
+
+  let carbs: number | null = null;
+  let carbsOverAllocated = false;
+  if (calories != null && protein != null && fat != null) {
+    const remaining = calories - protein * 4 - fat * 9;
+    if (remaining < 0) {
+      carbsOverAllocated = true;
+      carbs = 0;
+    } else {
+      carbs = remaining / 4;
+    }
+  }
+
+  const fiber =
+    calories != null
+      ? { min: (calories * 10) / 1000, max: (calories * 14) / 1000 }
+      : null;
+
+  return { calories, protein, carbs, carbsOverAllocated, fat, fiber };
 }

@@ -427,6 +427,11 @@ export default function MealPlanGrid({
             actual={weekTotals.averageDaily.carbs}
             target={targets.carbs}
             unit="g"
+            hint={
+              targets.carbsOverAllocated
+                ? "protein + fat exceed calories"
+                : undefined
+            }
           />
           <TargetCell
             label="Avg Fat/day"
@@ -434,10 +439,10 @@ export default function MealPlanGrid({
             target={targets.fat}
             unit="g"
           />
-          <TargetCell
+          <RangeTargetCell
             label="Avg Fiber/day"
             actual={weekTotals.averageDaily.fiber}
-            target={targets.fiber}
+            range={targets.fiber}
             unit="g"
           />
         </div>
@@ -575,12 +580,14 @@ function TargetCell({
   target,
   unit,
   roundActual,
+  hint,
 }: {
   label: string;
   actual: number;
   target: number | null;
   unit: string;
   roundActual?: boolean;
+  hint?: string;
 }) {
   const fmt = (n: number) => (roundActual ? Math.round(n).toString() : n.toFixed(0));
 
@@ -591,7 +598,9 @@ function TargetCell({
         <p className="text-lg font-bold text-gray-900">
           {fmt(actual)}{unit}
         </p>
-        <p className="text-[10px] text-gray-400 mt-0.5">no target set</p>
+        <p className="text-[10px] text-gray-400 mt-0.5">
+          {hint ?? "no target set"}
+        </p>
       </div>
     );
   }
@@ -618,6 +627,67 @@ function TargetCell({
         className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded ${badgeClass}`}
       >
         {sign}{fmt(delta)}{unit} ({Math.round(pct)}%)
+      </span>
+      {hint && (
+        <p className="text-[10px] text-amber-600 mt-0.5">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+function RangeTargetCell({
+  label,
+  actual,
+  range,
+  unit,
+}: {
+  label: string;
+  actual: number;
+  range: { min: number; max: number } | null;
+  unit: string;
+}) {
+  const fmt = (n: number) => n.toFixed(0);
+
+  if (range == null) {
+    return (
+      <div>
+        <p className="text-xs text-gray-500">{label}</p>
+        <p className="text-lg font-bold text-gray-900">
+          {fmt(actual)}{unit}
+        </p>
+        <p className="text-[10px] text-gray-400 mt-0.5">no target set</p>
+      </div>
+    );
+  }
+
+  let badgeClass: string;
+  let label2: string;
+  if (actual >= range.min && actual <= range.max) {
+    badgeClass = "bg-emerald-50 text-emerald-700";
+    label2 = "in range";
+  } else {
+    const nearest = actual < range.min ? range.min : range.max;
+    const deviation = Math.abs((actual - nearest) / nearest) * 100;
+    if (deviation > 20) badgeClass = "bg-red-50 text-red-700";
+    else badgeClass = "bg-amber-50 text-amber-700";
+    const delta = actual - nearest;
+    const sign = delta >= 0 ? "+" : "";
+    label2 = `${sign}${fmt(delta)}${unit} vs ${actual < range.min ? "min" : "max"}`;
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-lg font-bold text-gray-900">
+        {fmt(actual)}{unit}
+        <span className="text-xs font-normal text-gray-400">
+          {" "}/ {fmt(range.min)}–{fmt(range.max)}{unit}
+        </span>
+      </p>
+      <span
+        className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded ${badgeClass}`}
+      >
+        {label2}
       </span>
     </div>
   );
@@ -817,9 +887,7 @@ function PlanSettings({
     markup_multiplier: plan.markup_multiplier,
     calorie_target: plan.calorie_target ?? (null as number | null),
     protein_per_kg: plan.protein_per_kg ?? (null as number | null),
-    carbs_per_kg: plan.carbs_per_kg ?? (null as number | null),
     fat_per_kg: plan.fat_per_kg ?? (null as number | null),
-    fiber_per_kg: plan.fiber_per_kg ?? (null as number | null),
   });
 
   async function handleSubmit(e: React.FormEvent) {
@@ -836,9 +904,7 @@ function PlanSettings({
         markup_multiplier: form.markup_multiplier,
         calorie_target: form.calorie_target,
         protein_per_kg: form.protein_per_kg,
-        carbs_per_kg: form.carbs_per_kg,
         fat_per_kg: form.fat_per_kg,
-        fiber_per_kg: form.fiber_per_kg,
       })
       .eq("id", plan.id);
 
@@ -929,8 +995,9 @@ function PlanSettings({
               Nutrition Targets
             </h3>
             <p className="text-xs text-gray-500 mb-3">
-              Macro targets multiply by client&apos;s weight (kg). Compared
-              against the weekly daily average.
+              Protein and fat multiply by client&apos;s weight (kg). Carbs are
+              derived from calories − protein − fat. Fiber target is 10–14 g
+              per 1000 kcal. All compared against the weekly daily average.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -974,26 +1041,6 @@ function PlanSettings({
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Carbs (g/kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.carbs_per_kg ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      carbs_per_kg: e.target.value
-                        ? parseFloat(e.target.value)
-                        : null,
-                    })
-                  }
-                  placeholder="e.g. 3"
-                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
                   Fat (g/kg)
                 </label>
                 <input
@@ -1009,26 +1056,6 @@ function PlanSettings({
                     })
                   }
                   placeholder="e.g. 0.8"
-                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Fiber (g/kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.fiber_per_kg ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fiber_per_kg: e.target.value
-                        ? parseFloat(e.target.value)
-                        : null,
-                    })
-                  }
-                  placeholder="e.g. 0.4"
                   className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
                 />
               </div>
