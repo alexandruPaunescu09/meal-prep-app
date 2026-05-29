@@ -196,6 +196,7 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 | `recipe-form.tsx` | Create/edit recipe | Ingredient picker, container type dropdown, live cost/nutrition |
 | `nutrition-search.tsx` | Search nutrition APIs | Confidence badges, source labels, macro preview |
 | `delivery-form.tsx` | Log container delivery | Expected returns from last delivery, send/return quantities |
+| `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start |
 
 ---
 
@@ -365,3 +366,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2025-05-15 | Drag-and-drop in meal plan grid: entries can be dragged between day/meal slots (@dnd-kit) | `package.json`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2026-05-29 | Per-meal-plan nutrition targets: client weight (kg) + per-kg macro ratios on plans, weekly-average comparison in summary | `supabase/migrations/20260529000000_nutrition_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/(authenticated)/meal-plans/[id]/page.tsx` |
 | 2026-05-29 | Carbs target derived from calories − protein − fat (over-allocation hint); fiber target is a 10–14 g/1000 kcal range with in-range badge | `supabase/migrations/20260529000001_drop_derived_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
+| 2026-05-29 | Weekly shopping list: aggregates ingredients across all meal plans sharing a week_start | `components/weekly-shopping-modal.tsx`, `app/(authenticated)/meal-plans/meal-plans-client.tsx` |

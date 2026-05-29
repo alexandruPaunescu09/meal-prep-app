@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { MealPlan, Client } from "@/lib/supabase/types";
-import { Plus, Trash2, Calendar, X } from "lucide-react";
+import { Plus, Trash2, Calendar, X, ShoppingCart } from "lucide-react";
+import WeeklyShoppingModal from "@/components/weekly-shopping-modal";
 
 type MealPlanWithClient = MealPlan & { client: Client | null };
 
@@ -18,6 +19,13 @@ export default function MealPlansClient({
   const router = useRouter();
   const supabase = createClient();
   const [showForm, setShowForm] = useState(false);
+  const [showWeekly, setShowWeekly] = useState(false);
+
+  const weeks = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of mealPlans) set.add(p.week_start);
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [mealPlans]);
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
@@ -34,13 +42,24 @@ export default function MealPlansClient({
             {mealPlans.length} plan{mealPlans.length !== 1 ? "s" : ""}
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          New Plan
-        </button>
+        <div className="flex items-center gap-2">
+          {weeks.length > 0 && (
+            <button
+              onClick={() => setShowWeekly(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              Weekly Shopping
+            </button>
+          )}
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            New Plan
+          </button>
+        </div>
       </div>
 
       {mealPlans.length === 0 ? (
@@ -94,6 +113,13 @@ export default function MealPlansClient({
 
       {showForm && (
         <NewPlanForm clients={clients} onClose={() => setShowForm(false)} />
+      )}
+
+      {showWeekly && (
+        <WeeklyShoppingModal
+          weeks={weeks}
+          onClose={() => setShowWeekly(false)}
+        />
       )}
     </div>
   );
