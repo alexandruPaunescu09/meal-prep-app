@@ -15,6 +15,7 @@ import {
 } from "@/lib/supabase/types";
 import { calculateWeek, resolveTargets, ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
+import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
 import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical } from "lucide-react";
 import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
@@ -476,6 +477,7 @@ export default function MealPlanGrid({
         <ShoppingListModal
           entries={entries}
           categories={categories}
+          weekStart={plan.week_start}
           onClose={() => setShowShoppingList(false)}
         />
       )}
@@ -1105,28 +1107,21 @@ function PlanSettings({
 function ShoppingListModal({
   entries,
   categories,
+  weekStart,
   onClose,
 }: {
   entries: FullEntry[];
   categories: Category[];
+  weekStart: string;
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  const { checkedItems, toggle: toggleItem } = useShoppingChecks(weekStart);
   const { groups, totalCost } = useMemo(() => {
     const labels: Record<string, string> = {};
     for (const c of categories) labels[c.slug] = c.name;
     return generateShoppingList(entries, labels);
   }, [entries, categories]);
-
-  function toggleItem(ingredientId: string) {
-    setCheckedItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(ingredientId)) next.delete(ingredientId);
-      else next.add(ingredientId);
-      return next;
-    });
-  }
 
   function handleCopy() {
     const filteredGroups = groups

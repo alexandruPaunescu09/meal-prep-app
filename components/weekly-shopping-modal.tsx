@@ -13,6 +13,7 @@ import {
   generateShoppingList,
   shoppingListToText,
 } from "@/lib/calculations/shopping-list";
+import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
 import { Copy, Check, X, Loader2 } from "lucide-react";
 
 type FullEntry = MealPlanEntry & {
@@ -41,7 +42,7 @@ export default function WeeklyShoppingModal({
   const [plans, setPlans] = useState<PlanInWeek[]>([]);
   const [entries, setEntries] = useState<FullEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+  const { checkedItems, toggle: toggleItem } = useShoppingChecks(selectedWeek || null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -64,7 +65,6 @@ export default function WeeklyShoppingModal({
     let cancelled = false;
     async function loadWeek() {
       setLoading(true);
-      setCheckedItems(new Set());
 
       const { data: plansData } = await supabase
         .from("meal_plans")
@@ -115,15 +115,6 @@ export default function WeeklyShoppingModal({
     for (const c of categories) labels[c.slug] = c.name;
     return generateShoppingList(entries, labels);
   }, [entries, categories]);
-
-  function toggleItem(ingredientId: string) {
-    setCheckedItems((prev) => {
-      const next = new Set(prev);
-      if (next.has(ingredientId)) next.delete(ingredientId);
-      else next.add(ingredientId);
-      return next;
-    });
-  }
 
   function handleCopy() {
     const filteredGroups = groups

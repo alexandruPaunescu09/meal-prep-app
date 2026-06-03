@@ -60,6 +60,7 @@ lib/
 │   ├── recipe.ts           # calculateRecipe() → cost + nutrition per portion
 │   ├── meal-plan.ts        # calculateDay(), calculateWeek() → aggregated totals
 │   ├── shopping-list.ts    # generateShoppingList() → grouped ingredient list
+│   ├── cooking-plan.ts     # generateCookingPlan() → recipes (scaled ingredients + per-client breakdown) + direct ingredients
 │   ├── containers.ts       # calculateClientBalance(), calculateExpectedReturns(), calculateChargeableAmount()
 │   └── prep.ts             # generatePrepTasks() → weekly prep task generation from meal plans
 ├── nutrition/
@@ -160,6 +161,16 @@ middleware.ts               # Auth check on all routes
 - `recipe_names` TEXT[], `completed` BOOLEAN, `completed_at` TIMESTAMPTZ (nullable)
 - Index: `(week_start, prep_date)`
 
+**`shopping_check_state`**
+- `week_start` DATE, `ingredient_id` FK→ingredients CASCADE, `checked_at` TIMESTAMPTZ
+- PK: `(week_start, ingredient_id)`. Row presence = checked. Persists shopping-list check-offs across reloads; keyed per week so checks are shared across all plans for that week.
+- Index: `(week_start)`
+
+**`cooking_check_state`**
+- `week_start` DATE, `recipe_id` FK→recipes CASCADE, `checked_at` TIMESTAMPTZ
+- PK: `(week_start, recipe_id)`. Row presence = recipe marked cooked. Same pattern as `shopping_check_state`, keyed per week so checks are shared across all plans for that week.
+- Index: `(week_start)`
+
 ### RLS
 All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 
@@ -197,6 +208,7 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 | `nutrition-search.tsx` | Search nutrition APIs | Confidence badges, source labels, macro preview |
 | `delivery-form.tsx` | Log container delivery | Expected returns from last delivery, send/return quantities |
 | `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start |
+| `weekly-cooking-modal.tsx` | Cross-plan cooking plan | Week dropdown, aggregates recipe portions + scaled ingredients across plans, per-client weight breakdown, persistent cooked check-offs |
 
 ---
 
@@ -367,3 +379,5 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2026-05-29 | Per-meal-plan nutrition targets: client weight (kg) + per-kg macro ratios on plans, weekly-average comparison in summary | `supabase/migrations/20260529000000_nutrition_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/(authenticated)/meal-plans/[id]/page.tsx` |
 | 2026-05-29 | Carbs target derived from calories − protein − fat (over-allocation hint); fiber target is a 10–14 g/1000 kcal range with in-range badge | `supabase/migrations/20260529000001_drop_derived_targets.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/calculations/meal-plan.ts`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2026-05-29 | Weekly shopping list: aggregates ingredients across all meal plans sharing a week_start | `components/weekly-shopping-modal.tsx`, `app/(authenticated)/meal-plans/meal-plans-client.tsx` |
+| 2026-06-02 | Persist shopping list check-offs in Supabase, keyed per week (shared across plans for the same week) | `supabase/migrations/20260602000000_shopping_check_state.sql`, `lib/supabase/types.ts`, `lib/hooks/use-shopping-checks.ts`, `components/weekly-shopping-modal.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
+| 2026-06-03 | Weekly Cooking Plan: cross-plan modal aggregating recipe portions + scaled ingredients across plans for a week, per-client weight breakdown, persistent cooked check-offs | `supabase/migrations/20260603000000_cooking_check_state.sql`, `lib/calculations/cooking-plan.ts`, `lib/hooks/use-cooking-checks.ts`, `lib/supabase/types.ts`, `components/weekly-cooking-modal.tsx`, `app/(authenticated)/meal-plans/meal-plans-client.tsx` |

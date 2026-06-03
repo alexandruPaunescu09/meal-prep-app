@@ -202,3 +202,15 @@ export interface PrepTask {
   created_at: string;
   ingredient?: Ingredient;
 }
+
+export interface ShoppingCheckState {
+  week_start: string;
+  ingredient_id: string;
+  checked_at: string;
+}
+
+export interface CookingCheckState {
+  week_start: string;
+  recipe_id: string;
+  checked_at: string;
+}

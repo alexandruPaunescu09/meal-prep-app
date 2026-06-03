@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { MealPlan, Client } from "@/lib/supabase/types";
-import { Plus, Trash2, Calendar, X, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, Calendar, X, ShoppingCart, ChefHat } from "lucide-react";
 import WeeklyShoppingModal from "@/components/weekly-shopping-modal";
+import WeeklyCookingModal from "@/components/weekly-cooking-modal";
 
 type MealPlanWithClient = MealPlan & { client: Client | null };
 
@@ -20,6 +21,7 @@ export default function MealPlansClient({
   const supabase = createClient();
   const [showForm, setShowForm] = useState(false);
   const [showWeekly, setShowWeekly] = useState(false);
+  const [showCooking, setShowCooking] = useState(false);
 
   const weeks = useMemo(() => {
     const set = new Set<string>();
@@ -44,13 +46,22 @@ export default function MealPlansClient({
         </div>
         <div className="flex items-center gap-2">
           {weeks.length > 0 && (
-            <button
-              onClick={() => setShowWeekly(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              Weekly Shopping
-            </button>
+            <>
+              <button
+                onClick={() => setShowWeekly(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                Weekly Shopping
+              </button>
+              <button
+                onClick={() => setShowCooking(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+              >
+                <ChefHat className="w-4 h-4" />
+                Weekly Cooking
+              </button>
+            </>
           )}
           <button
             onClick={() => setShowForm(true)}
@@ -119,6 +130,13 @@ export default function MealPlansClient({
         <WeeklyShoppingModal
           weeks={weeks}
           onClose={() => setShowWeekly(false)}
+        />
+      )}
+
+      {showCooking && (
+        <WeeklyCookingModal
+          weeks={weeks}
+          onClose={() => setShowCooking(false)}
         />
       )}
     </div>
