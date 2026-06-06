@@ -32,8 +32,41 @@ export default function RecipesClient({
   }
 
   async function handleDelete(id: string, name: string) {
+    const { data: refs, error: refErr } = await supabase
+      .from("meal_plan_entries")
+      .select("meal_plan:meal_plans(id, name)")
+      .eq("recipe_id", id);
+
+    if (refErr) {
+      alert(`Could not check references for "${name}": ${refErr.message}`);
+      return;
+    }
+
+    if (refs && refs.length > 0) {
+      const planNames = Array.from(
+        new Set(
+          refs.flatMap((r: { meal_plan: { id: string; name: string }[] | { id: string; name: string } | null }) => {
+            const mp = r.meal_plan;
+            if (!mp) return [];
+            return Array.isArray(mp) ? mp.map((p) => p.name) : [mp.name];
+          })
+        )
+      );
+      const entryWord = refs.length === 1 ? "entry" : "entries";
+      const plansSuffix = planNames.length > 0 ? ` (${planNames.join(", ")})` : "";
+      alert(
+        `Cannot delete "${name}" — it is used in ${refs.length} meal plan ${entryWord}${plansSuffix}. Remove it from those plans first.`
+      );
+      return;
+    }
+
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
-    await supabase.from("recipes").delete().eq("id", id);
+
+    const { error } = await supabase.from("recipes").delete().eq("id", id);
+    if (error) {
+      alert(`Delete failed: ${error.message}`);
+      return;
+    }
     router.refresh();
   }
 
