@@ -57,18 +57,30 @@ export async function POST(req: NextRequest) {
       redirectTo,
     });
     if (error) {
-      // If user already exists (resend path), generate a recovery link instead.
-      if (error.message?.toLowerCase().includes("already")) {
-        const { error: linkErr } = await svc.auth.admin.generateLink({
-          type: "recovery",
+      // If the user already exists, send a magic link instead (which DOES email).
+      // generateLink() only returns a URL; it does not deliver email by itself.
+      const msg = error.message?.toLowerCase() ?? "";
+      const alreadyExists =
+        msg.includes("already") ||
+        msg.includes("registered") ||
+        (error as { status?: number }).status === 422;
+
+      if (alreadyExists) {
+        const { error: otpErr } = await svc.auth.signInWithOtp({
           email: client.email,
-          options: { redirectTo },
+          options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
         });
-        if (linkErr) {
-          return NextResponse.json({ error: linkErr.message }, { status: 500 });
+        if (otpErr) {
+          return NextResponse.json(
+            { error: `resend failed: ${otpErr.message}` },
+            { status: 500 }
+          );
         }
       } else {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json(
+          { error: `invite failed: ${error.message}` },
+          { status: 500 }
+        );
       }
     }
 
