@@ -47,10 +47,18 @@ export interface Recipe {
   portions: number;
   final_weight: number | null;
   notes: string | null;
+  customer_description: string | null;
   container_type_id: string | null;
   container_type?: ContainerType;
   created_at: string;
   updated_at: string;
+}
+
+export interface RecipeRatingStats {
+  recipe_id: string;
+  avg_rating: number;
+  review_count: number;
+  last_reviewed_at: string;
 }
 
 export interface RecipeIngredient {
@@ -73,6 +81,20 @@ export interface Client {
   preferences: string | null;
   notes: string | null;
   container_tolerance: number;
+  invited_at: string | null;
+  created_at: string;
+}
+
+export type PortalStatus = "not_invited" | "invited" | "active" | "disabled";
+
+export interface ClientWithPortalStatus extends Client {
+  portal_status: PortalStatus;
+}
+
+export interface Profile {
+  id: string;
+  role: "admin" | "customer";
+  client_id: string | null;
   created_at: string;
 }
 
@@ -213,4 +235,40 @@ export interface CookingCheckState {
   week_start: string;
   recipe_id: string;
   checked_at: string;
+}
+
+export type ReviewSentiment = "positive" | "negative" | "neutral";
+
+export interface ReviewTag {
+  id: string;
+  label: string;
+  sentiment: ReviewSentiment;
+  sort_order: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface MealReview {
+  id: string;
+  meal_plan_entry_id: string;
+  client_id: string;
+  recipe_id: string | null;
+  rating: number;
+  comment: string | null;
+  photo_path: string | null;
+  admin_read_at: string | null;
+  created_at: string;
+  updated_at: string;
+  tags?: ReviewTag[];
+  client?: Client;
+  recipe?: Recipe;
+}
+
+export type MealStatus = "eaten" | "skipped";
+
+export interface MealEntryStatus {
+  meal_plan_entry_id: string;
+  client_id: string;
+  status: MealStatus;
+  updated_at: string;
 }

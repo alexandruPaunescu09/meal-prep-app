@@ -36,6 +36,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const [name, setName] = useState(recipe?.name ?? "");
   const [portions, setPortions] = useState(recipe?.portions ?? 1);
   const [notes, setNotes] = useState(recipe?.notes ?? "");
+  const [customerDescription, setCustomerDescription] = useState(recipe?.customer_description ?? "");
   const [finalWeight, setFinalWeight] = useState<number | null>(recipe?.final_weight ?? null);
   const [containerTypeId, setContainerTypeId] = useState<string | null>(
     recipe?.container_type_id ?? null
@@ -120,7 +121,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     if (recipe) {
       const { error: updateErr } = await supabase
         .from("recipes")
-        .update({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
+        .update({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, customer_description: customerDescription || null, container_type_id: containerTypeId })
         .eq("id", recipe.id);
 
       if (updateErr) {
@@ -150,7 +151,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     } else {
       const { data: newRecipe, error: createErr } = await supabase
         .from("recipes")
-        .insert({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, container_type_id: containerTypeId })
+        .insert({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, customer_description: customerDescription || null, container_type_id: containerTypeId })
         .select("id")
         .single();
 
@@ -370,6 +371,21 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               </p>
             </div>
           )}
+
+          {/* Customer-facing description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Customer description
+            </label>
+            <textarea
+              value={customerDescription}
+              onChange={(e) => setCustomerDescription(e.target.value)}
+              rows={2}
+              placeholder="Shown to clients in the portal — short blurb about the dish."
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm resize-none"
+            />
+            <p className="text-xs text-gray-500 mt-1">Visible in the customer portal. Notes below stay internal.</p>
+          </div>
 
           {/* Notes */}
           <div>

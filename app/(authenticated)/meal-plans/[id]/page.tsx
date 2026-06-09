@@ -1,5 +1,5 @@
 import { createServer } from "@/lib/supabase/server";
-import { Client, Ingredient, Category } from "@/lib/supabase/types";
+import { Client, Ingredient, Category, MealReview, MealEntryStatus } from "@/lib/supabase/types";
 import { notFound } from "next/navigation";
 import MealPlanGrid from "./meal-plan-grid";
 
@@ -43,6 +43,14 @@ export default async function MealPlanDetailPage({
     supabase.from("ingredient_categories").select("*").order("sort_order"),
   ]);
 
+  const entryIds = ((entries as { id: string }[]) ?? []).map((e) => e.id);
+  const [{ data: reviews }, { data: statuses }] = entryIds.length
+    ? await Promise.all([
+        supabase.from("meal_reviews").select("*").in("meal_plan_entry_id", entryIds),
+        supabase.from("meal_entry_status").select("*").in("meal_plan_entry_id", entryIds),
+      ])
+    : [{ data: [] as MealReview[] }, { data: [] as MealEntryStatus[] }];
+
   return (
     <MealPlanGrid
       plan={plan as any}
@@ -51,6 +59,8 @@ export default async function MealPlanDetailPage({
       clients={(clients as Client[]) ?? []}
       ingredients={(ingredients as Ingredient[]) ?? []}
       categories={(categories as Category[]) ?? []}
+      reviews={(reviews as MealReview[]) ?? []}
+      statuses={(statuses as MealEntryStatus[]) ?? []}
     />
   );
 }

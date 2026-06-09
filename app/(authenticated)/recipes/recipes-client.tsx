@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, Fragment, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Recipe, RecipeIngredient, Ingredient } from "@/lib/supabase/types";
+import {
+  Recipe,
+  RecipeIngredient,
+  Ingredient,
+  RecipeRatingStats,
+} from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Copy, Star } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -14,9 +19,16 @@ type RecipeWithIngredients = Recipe & {
 
 export default function RecipesClient({
   recipes,
+  ratingStats,
 }: {
   recipes: RecipeWithIngredients[];
+  ratingStats: RecipeRatingStats[];
 }) {
+  const ratingMap = useMemo(() => {
+    const m = new Map<string, RecipeRatingStats>();
+    for (const s of ratingStats) m.set(s.recipe_id, s);
+    return m;
+  }, [ratingStats]);
   const router = useRouter();
   const supabase = createClient();
   const [showForm, setShowForm] = useState(false);
@@ -78,6 +90,7 @@ export default function RecipesClient({
         portions: recipe.portions,
         final_weight: recipe.final_weight,
         notes: recipe.notes,
+        customer_description: recipe.customer_description,
         container_type_id: recipe.container_type_id,
       })
       .select("id")
@@ -144,6 +157,7 @@ export default function RecipesClient({
           <div className="md:hidden space-y-2">
             {recipes.map((recipe) => {
               const calc = getCalc(recipe);
+              const stats = ratingMap.get(recipe.id);
               return (
                 <div
                   key={recipe.id}
@@ -155,6 +169,15 @@ export default function RecipesClient({
                   <div className="flex items-start justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="font-medium text-gray-900">{recipe.name}</p>
+                      {stats && stats.review_count > 0 && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
+                          <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                          {stats.avg_rating.toFixed(1)}
+                          <span className="text-gray-400">
+                            ({stats.review_count})
+                          </span>
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 ml-2">
                       <button
@@ -296,6 +319,7 @@ export default function RecipesClient({
                 <tbody>
                   {recipes.map((recipe) => {
                     const calc = getCalc(recipe);
+                    const stats = ratingMap.get(recipe.id);
                     return (
                       <Fragment key={recipe.id}>
                         <tr
@@ -311,7 +335,16 @@ export default function RecipesClient({
                               ) : (
                                 <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
                               )}
-                              {recipe.name}
+                              <span>{recipe.name}</span>
+                              {stats && stats.review_count > 0 && (
+                                <span className="text-xs text-amber-600 flex items-center gap-0.5 ml-1">
+                                  <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                  {stats.avg_rating.toFixed(1)}
+                                  <span className="text-gray-400">
+                                    ({stats.review_count})
+                                  </span>
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-4 py-3 text-right text-gray-600">

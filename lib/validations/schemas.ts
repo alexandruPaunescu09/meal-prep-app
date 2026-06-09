@@ -25,6 +25,7 @@ export const recipeSchema = z.object({
   name: z.string().min(1, "Name is required"),
   portions: z.number().int().positive("Must be >= 1"),
   notes: z.string().nullable().optional(),
+  customer_description: z.string().nullable().optional(),
 });
 
 export type RecipeFormData = z.infer<typeof recipeSchema>;
@@ -66,3 +67,36 @@ export const prepRuleSchema = z.object({
 });
 
 export type PrepRuleFormData = z.infer<typeof prepRuleSchema>;
+
+export const reviewSchema = z.object({
+  meal_plan_entry_id: z.string().uuid(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(2000).nullable().optional(),
+  tag_ids: z.array(z.string().uuid()).optional(),
+  photo_path: z.string().nullable().optional(),
+});
+
+export type ReviewFormData = z.infer<typeof reviewSchema>;
+
+export const reviewTagSchema = z.object({
+  label: z.string().min(1).max(80),
+  sentiment: z.enum(["positive", "negative", "neutral"]),
+  sort_order: z.number().int().nonnegative().default(0),
+  active: z.boolean().default(true),
+});
+
+export type ReviewTagFormData = z.infer<typeof reviewTagSchema>;
+
+export const mealStatusSchema = z.object({
+  meal_plan_entry_id: z.string().uuid(),
+  status: z.enum(["eaten", "skipped"]).nullable(),
+});
+
+export type MealStatusFormData = z.infer<typeof mealStatusSchema>;
+
+export const inviteSchema = z.object({
+  client_id: z.string().uuid(),
+  action: z.enum(["invite", "resend", "revoke"]).default("invite"),
+});
+
+export type InviteFormData = z.infer<typeof inviteSchema>;

@@ -12,6 +12,7 @@ import {
   Users,
   Package,
   ClipboardList,
+  Star,
   LogOut,
   Menu,
   X,
@@ -24,11 +25,18 @@ const navigation = [
   { name: "Recipes", href: "/recipes", icon: CookingPot },
   { name: "Meal Plans", href: "/meal-plans", icon: CalendarDays },
   { name: "Prep", href: "/prep", icon: ClipboardList },
+  { name: "Reviews", href: "/reviews", icon: Star, badgeKey: "reviews" as const },
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Containers", href: "/containers", icon: Package },
 ];
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  children,
+  unreadReviews = 0,
+}: {
+  children: React.ReactNode;
+  unreadReviews?: number;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
@@ -74,6 +82,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             const isActive =
               pathname === item.href ||
               (item.href !== "/" && pathname.startsWith(item.href));
+            const badge =
+              "badgeKey" in item && item.badgeKey === "reviews" && unreadReviews > 0
+                ? unreadReviews
+                : null;
             return (
               <Link
                 key={item.name}
@@ -86,7 +98,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <item.icon className="w-5 h-5" />
-                {item.name}
+                <span className="flex-1">{item.name}</span>
+                {badge != null && (
+                  <span className="text-xs font-semibold bg-emerald-500 text-white px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                    {badge}
+                  </span>
+                )}
               </Link>
             );
           })}

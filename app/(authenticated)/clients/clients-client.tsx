@@ -3,19 +3,45 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Client } from "@/lib/supabase/types";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Client, ClientWithPortalStatus } from "@/lib/supabase/types";
+import { portalStatusColor, portalStatusLabel } from "@/lib/portal/status";
+import { Plus, Pencil, Trash2, X, Mail, RefreshCw, Ban } from "lucide-react";
 
-export default function ClientsClient({ clients }: { clients: Client[] }) {
+export default function ClientsClient({ clients }: { clients: ClientWithPortalStatus[] }) {
   const router = useRouter();
   const supabase = createClient();
   const [showForm, setShowForm] = useState(false);
   const [editClient, setEditClient] = useState<Client | undefined>();
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("clients").delete().eq("id", id);
     router.refresh();
+  }
+
+  async function invite(client: ClientWithPortalStatus, action: "invite" | "resend" | "revoke") {
+    if (!client.email) {
+      alert("Add an email before inviting this client to the portal.");
+      return;
+    }
+    if (action === "revoke" && !confirm(`Revoke portal access for ${client.name}?`)) return;
+    setBusyId(client.id);
+    try {
+      const r = await fetch("/api/portal/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: client.id, action }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(j.error ?? "Action failed");
+      } else {
+        router.refresh();
+      }
+    } finally {
+      setBusyId(null);
+    }
   }
 
   function openEdit(client: Client) {
@@ -80,6 +106,13 @@ export default function ClientsClient({ clients }: { clients: Client[] }) {
                   </button>
                 </div>
               </div>
+
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${portalStatusColor(client.portal_status)}`}>
+                  Portal: {portalStatusLabel(client.portal_status)}
+                </span>
+              </div>
+
               {client.calorie_target && (
                 <p className="text-sm text-gray-600">
                   Target: {client.calorie_target} kcal/day
@@ -111,6 +144,40 @@ export default function ClientsClient({ clients }: { clients: Client[] }) {
                   {client.notes}
                 </p>
               )}
+
+              <div className="mt-3 pt-3 border-t flex flex-wrap gap-2">
+                {client.portal_status === "not_invited" && (
+                  <button
+                    disabled={!client.email || busyId === client.id}
+                    onClick={() => invite(client, "invite")}
+                    className="text-xs px-2.5 py-1 rounded border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 flex items-center gap-1"
+                    title={!client.email ? "Add email first" : "Send portal invite"}
+                  >
+                    <Mail className="w-3 h-3" />
+                    Invite to portal
+                  </button>
+                )}
+                {client.portal_status === "invited" && (
+                  <button
+                    disabled={busyId === client.id}
+                    onClick={() => invite(client, "resend")}
+                    className="text-xs px-2.5 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Resend invite
+                  </button>
+                )}
+                {(client.portal_status === "active" || client.portal_status === "invited") && (
+                  <button
+                    disabled={busyId === client.id}
+                    onClick={() => invite(client, "revoke")}
+                    className="text-xs px-2.5 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 flex items-center gap-1"
+                  >
+                    <Ban className="w-3 h-3" />
+                    Revoke access
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

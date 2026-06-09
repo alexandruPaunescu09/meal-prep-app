@@ -1,5 +1,6 @@
 import { createServer } from "@/lib/supabase/server";
-import { Client } from "@/lib/supabase/types";
+import { Client, ClientWithPortalStatus } from "@/lib/supabase/types";
+import { deriveClientPortalStatuses } from "@/lib/portal/status";
 import ClientsClient from "./clients-client";
 
 export default async function ClientsPage() {
@@ -9,5 +10,10 @@ export default async function ClientsPage() {
     .select("*")
     .order("name");
 
-  return <ClientsClient clients={(clients as Client[]) ?? []} />;
+  const enriched = await deriveClientPortalStatuses(
+    supabase,
+    (clients as Client[]) ?? []
+  );
+
+  return <ClientsClient clients={enriched as ClientWithPortalStatus[]} />;
 }

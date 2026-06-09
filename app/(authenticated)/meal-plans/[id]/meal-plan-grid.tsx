@@ -12,11 +12,14 @@ import {
   Client,
   MealType,
   Category,
+  MealReview,
+  MealEntryStatus,
+  MealStatus,
 } from "@/lib/supabase/types";
 import { calculateWeek, resolveTargets, ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
 import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
-import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical } from "lucide-react";
+import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical, Star, CheckCircle2, MinusCircle } from "lucide-react";
 import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
 import {
@@ -61,6 +64,8 @@ export default function MealPlanGrid({
   clients,
   ingredients,
   categories,
+  reviews = [],
+  statuses = [],
 }: {
   plan: PlanWithClient;
   entries: FullEntry[];
@@ -68,6 +73,8 @@ export default function MealPlanGrid({
   clients: Client[];
   ingredients: Ingredient[];
   categories: Category[];
+  reviews?: MealReview[];
+  statuses?: MealEntryStatus[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -80,6 +87,17 @@ export default function MealPlanGrid({
   const [addingEntry, setAddingEntry] = useState(false);
   const [removingEntry, setRemovingEntry] = useState<string | null>(null);
   const [activeEntry, setActiveEntry] = useState<FullEntry | null>(null);
+
+  const reviewMap = useMemo(() => {
+    const m = new Map<string, MealReview>();
+    for (const r of reviews) m.set(r.meal_plan_entry_id, r);
+    return m;
+  }, [reviews]);
+  const statusMap = useMemo(() => {
+    const m = new Map<string, MealStatus>();
+    for (const s of statuses) m.set(s.meal_plan_entry_id, s.status);
+    return m;
+  }, [statuses]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -253,14 +271,31 @@ export default function MealPlanGrid({
                         <p className="text-xs text-gray-300 italic">Empty</p>
                       ) : (
                         <div className="space-y-1">
-                          {slotEntries.map((entry) => (
+                          {slotEntries.map((entry) => {
+                            const review = reviewMap.get(entry.id);
+                            const status = statusMap.get(entry.id);
+                            return (
                             <div
                               key={entry.id}
                               className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 transition-opacity ${removingEntry === entry.id ? "opacity-50 pointer-events-none" : ""}`}
                             >
                               <div className="min-w-0">
-                                <p className="text-xs font-medium text-gray-900 truncate">
-                                  {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
+                                <p className="text-xs font-medium text-gray-900 truncate flex items-center gap-1">
+                                  {status === "eaten" && (
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                                  )}
+                                  {status === "skipped" && (
+                                    <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                  )}
+                                  <span className="truncate">
+                                    {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
+                                  </span>
+                                  {review && (
+                                    <span className="text-[10px] text-amber-600 flex items-center gap-0.5 flex-shrink-0">
+                                      <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+                                      {review.rating}
+                                    </span>
+                                  )}
                                 </p>
                                 <p className="text-[10px] text-gray-500">
                                   {entry.recipe
@@ -280,7 +315,8 @@ export default function MealPlanGrid({
                                 )}
                               </button>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -323,7 +359,7 @@ export default function MealPlanGrid({
                       <DroppableSlot key={`${day}-${mealType}`} day={day} mealType={mealType}>
                         <div className="space-y-1 min-h-[48px]">
                           {slotEntries.map((entry) => (
-                            <DraggableEntry key={entry.id} entry={entry} removingEntry={removingEntry} onRemove={removeEntry} />
+                            <DraggableEntry key={entry.id} entry={entry} removingEntry={removingEntry} onRemove={removeEntry} review={reviewMap.get(entry.id)} status={statusMap.get(entry.id)} />
                           ))}
                           <button
                             onClick={() => setSlotPicker({ day, mealType })}
@@ -533,7 +569,7 @@ function DroppableSlot({ day, mealType, children }: { day: number; mealType: Mea
   );
 }
 
-function DraggableEntry({ entry, removingEntry, onRemove }: { entry: FullEntry; removingEntry: string | null; onRemove: (id: string) => void }) {
+function DraggableEntry({ entry, removingEntry, onRemove, review, status }: { entry: FullEntry; removingEntry: string | null; onRemove: (id: string) => void; review?: MealReview; status?: MealStatus }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: entry.id });
   return (
     <div
@@ -551,8 +587,22 @@ function DraggableEntry({ entry, removingEntry, onRemove }: { entry: FullEntry; 
           <GripVertical className="w-3 h-3 text-gray-400" />
         </button>
         <div className="min-w-0">
-          <p className="text-xs font-medium text-gray-900 truncate">
-            {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
+          <p className="text-xs font-medium text-gray-900 truncate flex items-center gap-1">
+            {status === "eaten" && (
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+            )}
+            {status === "skipped" && (
+              <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" />
+            )}
+            <span className="truncate">
+              {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
+            </span>
+            {review && (
+              <span className="text-[10px] text-amber-600 flex items-center gap-0.5 flex-shrink-0">
+                <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+                {review.rating}
+              </span>
+            )}
           </p>
           <p className="text-[10px] text-gray-500">
             {entry.recipe
