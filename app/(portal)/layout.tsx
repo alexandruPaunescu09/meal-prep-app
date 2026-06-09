@@ -33,6 +33,10 @@ export default async function PortalLayout({
     redirect("/");
   }
 
+  if (user.user_metadata?.password_set !== true) {
+    redirect("/portal/set-password");
+  }
+
   const { data: client } = await supabase
     .from("clients")
     .select("name")

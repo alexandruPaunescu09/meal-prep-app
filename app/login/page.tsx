@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { LogIn } from "lucide-react";
 
 export default function LoginPage() {
@@ -93,6 +94,13 @@ export default function LoginPage() {
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
+
+          <Link
+            href="/login/forgot-password"
+            className="block text-center text-sm text-emerald-700 hover:underline"
+          >
+            Forgot password?
+          </Link>
         </form>
       </div>
     </div>
