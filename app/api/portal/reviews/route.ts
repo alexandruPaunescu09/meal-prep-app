@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServer } from "@/lib/supabase/server";
 import { reviewSchema } from "@/lib/validations/schemas";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/data/tags";
 
 export async function POST(req: NextRequest) {
   const supabase = await createServer();
@@ -63,6 +65,11 @@ export async function POST(req: NextRequest) {
       await supabase.from("meal_review_tags").insert(rows);
     }
   }
+
+  // Mark admin-side review caches as stale so the inbox + unread-count badge
+  // pick up the new review on the next admin navigation. `profile: "max"`
+  // gives stale-while-revalidate (the badge updates within seconds).
+  revalidateTag(CACHE_TAGS.mealReviews, "max");
 
   return NextResponse.json({ id: saved.id, client_id: saved.client_id });
 }

@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { PrepRule, Ingredient, Category } from "@/lib/supabase/types";
+import { invalidatePrepRules } from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import PrepRuleForm from "@/components/prep-rule-form";
@@ -39,6 +40,7 @@ export default function PrepRulesClient({ rules, ingredients, categories }: Prop
   async function handleDelete(id: string) {
     if (!confirm("Delete this prep rule?")) return;
     await supabase.from("prep_rules").delete().eq("id", id);
+    await invalidatePrepRules();
     router.refresh();
   }
 

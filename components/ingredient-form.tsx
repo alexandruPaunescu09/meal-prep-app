@@ -10,6 +10,7 @@ import {
   NutritionSearchResult,
 } from "@/lib/supabase/types";
 import NutritionSearch from "./nutrition-search";
+import { invalidateIngredients } from "@/lib/actions/revalidate";
 import { Search, X, ChevronDown, ChevronUp } from "lucide-react";
 
 interface IngredientFormProps {
@@ -153,6 +154,7 @@ export default function IngredientForm({
       setError(result.error.message);
       setSaving(false);
     } else {
+      await invalidateIngredients();
       router.refresh();
       onClose();
     }

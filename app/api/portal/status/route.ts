@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServer } from "@/lib/supabase/server";
 import { mealStatusSchema } from "@/lib/validations/schemas";
+import { revalidateTag } from "next/cache";
+import { CACHE_TAGS } from "@/lib/data/tags";
 
 export async function POST(req: NextRequest) {
   const supabase = await createServer();
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest) {
       .delete()
       .eq("meal_plan_entry_id", body.meal_plan_entry_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    revalidateTag(CACHE_TAGS.mealEntryStatuses, "max");
     return NextResponse.json({ ok: true });
   }
 
@@ -51,5 +54,6 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  revalidateTag(CACHE_TAGS.mealEntryStatuses, "max");
   return NextResponse.json({ ok: true });
 }

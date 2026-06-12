@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ContainerType, ClientContainerBalance } from "@/lib/supabase/types";
+import { invalidateContainerTypes } from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, X, Package, AlertTriangle } from "lucide-react";
 
 export default function ContainersClient({
@@ -21,6 +22,7 @@ export default function ContainersClient({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("container_types").delete().eq("id", id);
+    await invalidateContainerTypes();
     router.refresh();
   }
 
@@ -200,6 +202,7 @@ function ContainerForm({
       setError(result.error.message);
       setSaving(false);
     } else {
+      await invalidateContainerTypes();
       router.refresh();
       onClose();
     }

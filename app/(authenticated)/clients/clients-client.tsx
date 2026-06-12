@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Client, ClientWithPortalStatus } from "@/lib/supabase/types";
 import { portalStatusColor, portalStatusLabel } from "@/lib/portal/status";
+import {
+  invalidateClients,
+  invalidateProfiles,
+} from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, X, Mail, RefreshCw, Ban } from "lucide-react";
 
 export default function ClientsClient({ clients }: { clients: ClientWithPortalStatus[] }) {
@@ -17,6 +21,7 @@ export default function ClientsClient({ clients }: { clients: ClientWithPortalSt
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("clients").delete().eq("id", id);
+    await invalidateClients();
     router.refresh();
   }
 
@@ -37,6 +42,9 @@ export default function ClientsClient({ clients }: { clients: ClientWithPortalSt
         const j = await r.json().catch(() => ({}));
         alert(j.error ?? "Action failed");
       } else {
+        // Invite/revoke flips portal_status by writing to profiles.
+        await invalidateProfiles();
+        await invalidateClients();
         router.refresh();
       }
     } finally {
@@ -245,6 +253,7 @@ function ClientForm({
       setError(result.error.message);
       setSaving(false);
     } else {
+      await invalidateClients();
       router.refresh();
       onClose();
     }

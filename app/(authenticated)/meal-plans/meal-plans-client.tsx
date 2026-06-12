@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { MealPlan, Client } from "@/lib/supabase/types";
+import { invalidateMealPlans } from "@/lib/actions/revalidate";
 import { Plus, Trash2, Calendar, X, ShoppingCart, ChefHat } from "lucide-react";
 import WeeklyShoppingModal from "@/components/weekly-shopping-modal";
 import WeeklyCookingModal from "@/components/weekly-cooking-modal";
@@ -32,6 +33,7 @@ export default function MealPlansClient({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("meal_plans").delete().eq("id", id);
+    await invalidateMealPlans();
     router.refresh();
   }
 
@@ -189,6 +191,7 @@ function NewPlanForm({
       return;
     }
 
+    await invalidateMealPlans();
     router.push(`/meal-plans/${data.id}`);
   }
 

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Ingredient, Category } from "@/lib/supabase/types";
 import IngredientForm from "@/components/ingredient-form";
+import { invalidateIngredients } from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings } from "lucide-react";
 import Link from "next/link";
 
@@ -41,6 +42,7 @@ export default function IngredientsClient({
   async function handleDelete(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
     await supabase.from("ingredients").delete().eq("id", id);
+    await invalidateIngredients();
     router.refresh();
   }
 

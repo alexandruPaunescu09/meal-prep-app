@@ -10,6 +10,7 @@ import {
   ContainerType,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
+import { invalidateRecipes } from "@/lib/actions/revalidate";
 import { X, Plus, Trash2, Search } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
@@ -176,6 +177,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       }
     }
 
+    await invalidateRecipes();
     router.refresh();
     onClose();
   }

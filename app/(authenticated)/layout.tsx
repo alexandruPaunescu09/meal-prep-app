@@ -1,12 +1,15 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AppShell from "@/components/app-shell";
+import { getUnreadReviewCount } from "@/lib/data/reviews";
 
 export default async function AuthenticatedLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Auth + role verification must stay cookie-bound — these confirm the
+  // actual session, so they cannot be cached.
   const supabase = await createServer();
   const {
     data: { user },
@@ -26,10 +29,9 @@ export default async function AuthenticatedLayout({
     redirect("/portal");
   }
 
-  const { count: unreadReviews } = await supabase
-    .from("meal_reviews")
-    .select("id", { count: "exact", head: true })
-    .is("admin_read_at", null);
+  // Cached read; runs after the auth gate above, so it is safe to share
+  // across all admin sessions.
+  const unreadReviews = await getUnreadReviewCount();
 
-  return <AppShell unreadReviews={unreadReviews ?? 0}>{children}</AppShell>;
+  return <AppShell unreadReviews={unreadReviews}>{children}</AppShell>;
 }

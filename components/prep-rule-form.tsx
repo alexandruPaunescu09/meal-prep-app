@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { PrepRule, Ingredient, Category, PrepType } from "@/lib/supabase/types";
+import { invalidatePrepRules } from "@/lib/actions/revalidate";
 import { X } from "lucide-react";
 
 const PREP_TYPES: { value: PrepType; label: string }[] = [
@@ -72,6 +73,7 @@ export default function PrepRuleForm({ rule, ingredients, categories, onClose }:
       setError(result.error.message);
       setSaving(false);
     } else {
+      await invalidatePrepRules();
       router.refresh();
       onClose();
     }

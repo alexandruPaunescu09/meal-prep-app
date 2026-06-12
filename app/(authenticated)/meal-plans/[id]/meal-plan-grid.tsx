@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import {
 import { calculateWeek, resolveTargets, ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
 import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
+import { invalidateMealPlan, invalidateMealPlans } from "@/lib/actions/revalidate";
 import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical, Star, CheckCircle2, MinusCircle } from "lucide-react";
 import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
@@ -59,7 +60,7 @@ interface SlotPickerState {
 
 export default function MealPlanGrid({
   plan,
-  entries,
+  entries: serverEntries,
   recipes,
   clients,
   ingredients,
@@ -87,6 +88,16 @@ export default function MealPlanGrid({
   const [addingEntry, setAddingEntry] = useState(false);
   const [removingEntry, setRemovingEntry] = useState<string | null>(null);
   const [activeEntry, setActiveEntry] = useState<FullEntry | null>(null);
+
+  // Optimistic mirror of `serverEntries`. Mutations update this immediately
+  // for an instant UI response; the corresponding Supabase write runs in the
+  // background and we revalidate the cached meal-plan-detail tag on success.
+  // When the server prop changes (e.g. a settings/duplicate modal triggered
+  // a router.refresh() and the page re-rendered with fresh data) we resync.
+  const [entries, setEntries] = useState<FullEntry[]>(serverEntries);
+  useEffect(() => {
+    setEntries(serverEntries);
+  }, [serverEntries]);
 
   const reviewMap = useMemo(() => {
     const m = new Map<string, MealReview>();
@@ -131,49 +142,160 @@ export default function MealPlanGrid({
     if (!entry) return;
     if (entry.day_of_week === newDay && entry.meal_type === newMealType) return;
 
-    await supabase
+    // Optimistic move — snapshot, apply locally, fire mutation, revalidate.
+    const snapshot = entries;
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id === entryId
+          ? { ...e, day_of_week: newDay, meal_type: newMealType }
+          : e
+      )
+    );
+
+    const { error } = await supabase
       .from("meal_plan_entries")
       .update({ day_of_week: newDay, meal_type: newMealType })
       .eq("id", entryId);
-    router.refresh();
+
+    if (error) {
+      setEntries(snapshot);
+      alert(`Move failed: ${error.message}`);
+      return;
+    }
+    invalidateMealPlan(plan.id);
   }
 
   async function addEntry(recipeId: string, portions: number) {
     if (!slotPicker) return;
-    setAddingEntry(true);
-    await supabase.from("meal_plan_entries").insert({
-      meal_plan_id: plan.id,
-      day_of_week: slotPicker.day,
-      meal_type: slotPicker.mealType,
-      recipe_id: recipeId,
-      portions,
-    });
+    const recipe = recipes.find((r) => r.id === recipeId);
+    const slot = slotPicker;
     setSlotPicker(null);
+    setAddingEntry(true);
+
+    // Insert an optimistic row with a temp id; reconcile when the server
+    // returns the canonical row.
+    const tempId = `temp-${crypto.randomUUID()}`;
+    const optimistic: FullEntry = {
+      id: tempId,
+      meal_plan_id: plan.id,
+      day_of_week: slot.day,
+      meal_type: slot.mealType,
+      recipe_id: recipeId,
+      ingredient_id: null,
+      quantity: null,
+      portions,
+      // recipe is hydrated minimally for display until the server re-fetch
+      // brings the full join back in via the cache revalidation.
+      recipe: recipe
+        ? ({
+            id: recipe.id,
+            name: recipe.name,
+            portions: recipe.portions,
+            recipe_ingredients: [],
+          } as unknown as FullEntry["recipe"])
+        : undefined,
+    } as FullEntry;
+    setEntries((prev) => [...prev, optimistic]);
+
+    const { data, error } = await supabase
+      .from("meal_plan_entries")
+      .insert({
+        meal_plan_id: plan.id,
+        day_of_week: slot.day,
+        meal_type: slot.mealType,
+        recipe_id: recipeId,
+        portions,
+      })
+      .select("id")
+      .single();
+
     setAddingEntry(false);
+
+    if (error || !data) {
+      setEntries((prev) => prev.filter((e) => e.id !== tempId));
+      alert(`Add failed: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    // Replace the temp row with the canonical id so subsequent mutations
+    // (drag, delete) target the real row in the database.
+    setEntries((prev) =>
+      prev.map((e) => (e.id === tempId ? { ...e, id: data.id } : e))
+    );
+    // Revalidate the cached detail bundle, then refresh so the new row
+    // gets its full nested recipe_ingredients/ingredient join (needed for
+    // cost + nutrition). The optimistic row is already visible, so the
+    // refresh reads as a silent enrichment, not a flash.
+    await invalidateMealPlan(plan.id);
     router.refresh();
   }
 
   async function removeEntry(entryId: string) {
+    const snapshot = entries;
     setRemovingEntry(entryId);
-    await supabase.from("meal_plan_entries").delete().eq("id", entryId);
+    setEntries((prev) => prev.filter((e) => e.id !== entryId));
+
+    const { error } = await supabase
+      .from("meal_plan_entries")
+      .delete()
+      .eq("id", entryId);
     setRemovingEntry(null);
-    router.refresh();
+
+    if (error) {
+      setEntries(snapshot);
+      alert(`Delete failed: ${error.message}`);
+      return;
+    }
+    invalidateMealPlan(plan.id);
   }
 
   async function addIngredientEntry(ingredientId: string, quantity: number) {
     if (!slotPicker) return;
+    const ingredient = ingredients.find((i) => i.id === ingredientId);
+    const slot = slotPicker;
+    setSlotPicker(null);
     setAddingEntry(true);
-    await supabase.from("meal_plan_entries").insert({
+
+    const tempId = `temp-${crypto.randomUUID()}`;
+    const optimistic: FullEntry = {
+      id: tempId,
       meal_plan_id: plan.id,
-      day_of_week: slotPicker.day,
-      meal_type: slotPicker.mealType,
+      day_of_week: slot.day,
+      meal_type: slot.mealType,
+      recipe_id: null,
       ingredient_id: ingredientId,
       quantity,
       portions: 1,
-    });
-    setSlotPicker(null);
+      ingredient,
+    } as FullEntry;
+    setEntries((prev) => [...prev, optimistic]);
+
+    const { data, error } = await supabase
+      .from("meal_plan_entries")
+      .insert({
+        meal_plan_id: plan.id,
+        day_of_week: slot.day,
+        meal_type: slot.mealType,
+        ingredient_id: ingredientId,
+        quantity,
+        portions: 1,
+      })
+      .select("id")
+      .single();
+
     setAddingEntry(false);
-    router.refresh();
+
+    if (error || !data) {
+      setEntries((prev) => prev.filter((e) => e.id !== tempId));
+      alert(`Add failed: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    setEntries((prev) =>
+      prev.map((e) => (e.id === tempId ? { ...e, id: data.id } : e))
+    );
+    // Direct ingredient entries already carry full ingredient nutrition in
+    // the optimistic row, so we can skip the immediate refresh; the cache
+    // revalidates so the next navigation sees the new entry.
+    invalidateMealPlan(plan.id);
   }
 
 
@@ -964,6 +1086,10 @@ function PlanSettings({
       setError(updateErr.message);
       setSaving(false);
     } else {
+      // Plan-level edits affect both the list (via name/client/week) and
+      // the cached detail bundle, so bust both.
+      await invalidateMealPlan(plan.id);
+      await invalidateMealPlans();
       router.refresh();
       onClose();
     }
@@ -1359,6 +1485,7 @@ function DuplicatePlanModal({
       }
     }
 
+    await invalidateMealPlans();
     router.push(`/meal-plans/${newPlan.id}`);
   }
 

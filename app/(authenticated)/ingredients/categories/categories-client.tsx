@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Category } from "@/lib/supabase/types";
+import { invalidateCategories } from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
@@ -73,6 +74,7 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
 
     setSaving(false);
     setShowForm(false);
+    await invalidateCategories();
     router.refresh();
   }
 
@@ -84,6 +86,7 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
     }
     if (!confirm(`Delete category "${cat.name}"?`)) return;
     await supabase.from("ingredient_categories").delete().eq("id", cat.id);
+    await invalidateCategories();
     router.refresh();
   }
 
@@ -94,6 +97,7 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
       supabase.from("ingredient_categories").update({ sort_order: prev.sort_order }).eq("id", cat.id),
       supabase.from("ingredient_categories").update({ sort_order: cat.sort_order }).eq("id", prev.id),
     ]);
+    await invalidateCategories();
     router.refresh();
   }
 
@@ -104,6 +108,7 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
       supabase.from("ingredient_categories").update({ sort_order: next.sort_order }).eq("id", cat.id),
       supabase.from("ingredient_categories").update({ sort_order: cat.sort_order }).eq("id", next.id),
     ]);
+    await invalidateCategories();
     router.refresh();
   }
 

@@ -11,6 +11,7 @@ import {
 } from "@/lib/supabase/types";
 import { Star, Camera, Filter } from "lucide-react";
 import ReviewDetailModal from "@/components/admin/review-detail-modal";
+import { invalidateMealReviews } from "@/lib/actions/revalidate";
 
 type FullReview = MealReview & { client?: Client; recipe?: Recipe };
 
@@ -60,6 +61,7 @@ export default function ReviewsClient({
       .from("meal_reviews")
       .update({ admin_read_at: new Date().toISOString() })
       .eq("id", id);
+    await invalidateMealReviews();
     router.refresh();
   }
 

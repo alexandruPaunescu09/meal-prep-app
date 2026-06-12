@@ -1,41 +1,43 @@
-import { createServer } from "@/lib/supabase/server";
 import Link from "next/link";
+import { getIngredientCount } from "@/lib/data/ingredients";
+import { getRecipeCount } from "@/lib/data/recipes";
+import { getMealPlanCount } from "@/lib/data/meal-plans";
+import { getClientCount } from "@/lib/data/clients";
 
 export default async function DashboardPage() {
-  const supabase = await createServer();
-
-  const [ingredients, recipes, mealPlans, clients] = await Promise.all([
-    supabase.from("ingredients").select("id", { count: "exact", head: true }),
-    supabase.from("recipes").select("id", { count: "exact", head: true }),
-    supabase.from("meal_plans").select("id", { count: "exact", head: true }),
-    supabase.from("clients").select("id", { count: "exact", head: true }),
-  ]);
+  const [ingredientCount, recipeCount, mealPlanCount, clientCount] =
+    await Promise.all([
+      getIngredientCount(),
+      getRecipeCount(),
+      getMealPlanCount(),
+      getClientCount(),
+    ]);
 
   const stats = [
     {
       label: "Ingredients",
-      value: ingredients.count ?? 0,
+      value: ingredientCount,
       href: "/ingredients",
       color: "text-emerald-700",
       bg: "bg-emerald-50",
     },
     {
       label: "Recipes",
-      value: recipes.count ?? 0,
+      value: recipeCount,
       href: "/recipes",
       color: "text-blue-700",
       bg: "bg-blue-50",
     },
     {
       label: "Meal Plans",
-      value: mealPlans.count ?? 0,
+      value: mealPlanCount,
       href: "/meal-plans",
       color: "text-purple-700",
       bg: "bg-purple-50",
     },
     {
       label: "Clients",
-      value: clients.count ?? 0,
+      value: clientCount,
       href: "/clients",
       color: "text-amber-700",
       bg: "bg-amber-50",

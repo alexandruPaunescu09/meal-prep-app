@@ -1,13 +1,7 @@
-import { createServer } from "@/lib/supabase/server";
-import { ReviewTag } from "@/lib/supabase/types";
 import TagsClient from "./tags-client";
+import { getReviewTags } from "@/lib/data/reviews";
 
 export default async function ReviewTagsPage() {
-  const supabase = await createServer();
-  const { data } = await supabase
-    .from("review_tags")
-    .select("*")
-    .order("sort_order");
-
-  return <TagsClient initialTags={(data as ReviewTag[]) ?? []} />;
+  const tags = await getReviewTags();
+  return <TagsClient initialTags={tags} />;
 }

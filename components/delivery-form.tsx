@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ContainerType } from "@/lib/supabase/types";
+import { invalidateContainerDeliveries } from "@/lib/actions/revalidate";
 import { X } from "lucide-react";
 
 interface ContainerLine {
@@ -142,6 +143,7 @@ export default function DeliveryForm({
       }
     }
 
+    await invalidateContainerDeliveries();
     router.refresh();
     onClose();
   }

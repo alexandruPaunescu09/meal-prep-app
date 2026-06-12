@@ -1,12 +1,7 @@
-import { createServer } from "@/lib/supabase/server";
 import PrepClient from "./prep-client";
+import { getPrepRules } from "@/lib/data/prep";
 
 export default async function PrepPage() {
-  const supabase = await createServer();
-
-  const { data: rules } = await supabase
-    .from("prep_rules")
-    .select("*, ingredient:ingredients(id, name, category)");
-
-  return <PrepClient rules={(rules as any[]) ?? []} />;
+  const rules = await getPrepRules();
+  return <PrepClient rules={rules as any[]} />;
 }

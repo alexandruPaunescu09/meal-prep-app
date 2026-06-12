@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { ReviewSentiment, ReviewTag } from "@/lib/supabase/types";
+import { invalidateReviewTags } from "@/lib/actions/revalidate";
 import { Plus, Eye, EyeOff, Pencil, X } from "lucide-react";
 import Link from "next/link";
 
@@ -17,6 +18,7 @@ export default function TagsClient({ initialTags }: { initialTags: ReviewTag[] }
       .from("review_tags")
       .update({ active: !tag.active })
       .eq("id", tag.id);
+    await invalidateReviewTags();
     router.refresh();
   }
 
@@ -132,6 +134,7 @@ function TagForm({
       setSaving(false);
       return;
     }
+    await invalidateReviewTags();
     router.refresh();
     onClose();
   }

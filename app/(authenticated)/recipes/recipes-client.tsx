@@ -11,6 +11,7 @@ import {
 } from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
+import { invalidateRecipes } from "@/lib/actions/revalidate";
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Copy, Star } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
@@ -79,6 +80,7 @@ export default function RecipesClient({
       alert(`Delete failed: ${error.message}`);
       return;
     }
+    await invalidateRecipes();
     router.refresh();
   }
 
@@ -108,6 +110,7 @@ export default function RecipesClient({
       );
     }
 
+    await invalidateRecipes();
     router.refresh();
   }
 
