@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
       email,
       password,
       email_confirm: true,
+      user_metadata: { password_set: true },
     });
     if (createErr) {
       return NextResponse.json(
@@ -197,6 +198,7 @@ export async function POST(req: NextRequest) {
         email,
         password,
         email_confirm: true,
+        user_metadata: { password_set: true },
       });
       if (createErr) {
         return NextResponse.json(
@@ -230,6 +232,7 @@ export async function POST(req: NextRequest) {
     email,
     password,
     email_confirm: true,
+    user_metadata: { password_set: true },
   });
 
   if (createErr || !created?.user) {
