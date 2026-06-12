@@ -82,6 +82,7 @@ export interface Client {
   notes: string | null;
   container_tolerance: number;
   invited_at: string | null;
+  registered_at: string | null;
   created_at: string;
 }
 

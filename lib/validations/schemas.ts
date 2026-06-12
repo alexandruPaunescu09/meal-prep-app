@@ -100,3 +100,18 @@ export const inviteSchema = z.object({
 });
 
 export type InviteFormData = z.infer<typeof inviteSchema>;
+
+export const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().nullable().optional(),
+  weight_kg: z.number().positive().nullable().optional(),
+  calorie_target: z.number().int().positive().nullable().optional(),
+  restrictions: z.string().nullable().optional(),
+  allergies: z.string().nullable().optional(),
+  preferences: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export type RegisterFormData = z.infer<typeof registerSchema>;
