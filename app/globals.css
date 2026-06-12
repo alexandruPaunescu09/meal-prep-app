@@ -24,3 +24,21 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Browser autofill (Chrome/Safari) paints text in its own faded color and
+ * background, ignoring Tailwind classes. Force the text to render in the
+ * dark gray we use everywhere, with a transition trick so the yellow autofill
+ * background also fades out. Applies app-wide. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active {
+  -webkit-text-fill-color: #111827; /* tailwind gray-900 */
+  caret-color: #111827;
+  -webkit-box-shadow: 0 0 0 1000px white inset;
+  transition: background-color 5000s ease-in-out 0s;
+}
