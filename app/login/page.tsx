@@ -101,6 +101,13 @@ export default function LoginPage() {
           >
             Forgot password?
           </Link>
+
+          <p className="text-center text-sm text-gray-500">
+            Don&apos;t have an account?{" "}
+            <Link href="/intake" className="text-emerald-700 hover:underline">
+              Sign up
+            </Link>
+          </p>
         </form>
       </div>
     </div>
