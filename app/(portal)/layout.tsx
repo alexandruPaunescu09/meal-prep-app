@@ -1,6 +1,7 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import TopBar from "@/components/portal/top-bar";
+import TopNav from "@/components/portal/top-nav";
 import BottomTabs from "@/components/portal/bottom-tabs";
 
 export const metadata = {
@@ -48,6 +49,7 @@ export default async function PortalLayout({
   return (
     <div className="min-h-full bg-gray-50 pb-20 md:pb-0">
       <TopBar greeting={greeting} />
+      <TopNav />
       <main className="max-w-3xl mx-auto px-4 py-4">{children}</main>
       <BottomTabs />
     </div>
