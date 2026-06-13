@@ -38,6 +38,23 @@ function pickIntakeFields(
   };
 }
 
+// For updates against an existing client row: only include fields the customer
+// actually filled in, so admin-entered values aren't clobbered by null on
+// re-register. `name` is required by the schema so it's always present.
+function pickIntakeUpdates(
+  body: ReturnType<typeof registerSchema.parse>
+): Partial<IntakeFields> {
+  const out: Partial<IntakeFields> = { name: body.name };
+  if (body.phone != null) out.phone = body.phone;
+  if (body.weight_kg != null) out.weight_kg = body.weight_kg;
+  if (body.calorie_target != null) out.calorie_target = body.calorie_target;
+  if (body.restrictions != null) out.restrictions = body.restrictions;
+  if (body.allergies != null) out.allergies = body.allergies;
+  if (body.preferences != null) out.preferences = body.preferences;
+  if (body.notes != null) out.notes = body.notes;
+  return out;
+}
+
 export async function POST(req: NextRequest) {
   // 1. Validate input.
   let body;
@@ -48,6 +65,7 @@ export async function POST(req: NextRequest) {
   }
 
   const intakeFields = pickIntakeFields(body);
+  const intakeUpdates = pickIntakeUpdates(body);
   const email = body.email.trim().toLowerCase();
   const password = body.password;
 
@@ -118,7 +136,7 @@ export async function POST(req: NextRequest) {
     if (clientId) {
       await svc
         .from("clients")
-        .update({ ...intakeFields, registered_at: new Date().toISOString() })
+        .update({ ...intakeUpdates, registered_at: new Date().toISOString() })
         .eq("id", clientId);
     }
 
@@ -146,7 +164,7 @@ export async function POST(req: NextRequest) {
 
     await svc
       .from("clients")
-      .update({ ...intakeFields, registered_at: new Date().toISOString() })
+      .update({ ...intakeUpdates, registered_at: new Date().toISOString() })
       .eq("id", existingClient.id);
 
     const { error: signInErr } = await supabase.auth.signInWithPassword({
@@ -209,7 +227,7 @@ export async function POST(req: NextRequest) {
 
       await svc
         .from("clients")
-        .update({ ...intakeFields, registered_at: new Date().toISOString() })
+        .update({ ...intakeUpdates, registered_at: new Date().toISOString() })
         .eq("id", raceClient.id);
 
       const { error: signInErr } = await supabase.auth.signInWithPassword({
