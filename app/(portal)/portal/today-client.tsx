@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Ingredient,
   MealEntryStatus,
@@ -47,6 +47,32 @@ export default function TodayClient({
   reviews: MealReview[];
 }) {
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+
+  // pendingDate: the date the user has tapped/picked but for which the
+  // server-rendered prop hasn't caught up yet. Drives the scrubber's
+  // selected-pill style, the calendar's spinner, and the cards-area
+  // skeleton. Cleared by the effect below when selectedDate matches.
+  const [pendingDate, setPendingDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingDate && pendingDate === selectedDate) {
+      setPendingDate(null);
+    }
+  }, [selectedDate, pendingDate]);
+
+  // A 100ms gate — fast loads (cache hit, etc.) never flash skeletons.
+  // showSkeleton becomes true only if the navigation is still in-flight
+  // 100ms after the user's tap.
+  const isPending = pendingDate !== null && pendingDate !== selectedDate;
+  const [showSkeleton, setShowSkeleton] = useState(false);
+  useEffect(() => {
+    if (!isPending) {
+      setShowSkeleton(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSkeleton(true), 100);
+    return () => clearTimeout(t);
+  }, [isPending]);
 
   const sorted = useMemo(() => sortByMealType(entries), [entries]);
   const planDateSet = useMemo(() => new Set(planDates), [planDates]);
@@ -102,6 +128,8 @@ export default function TodayClient({
         selectedDate={selectedDate}
         todayDate={todayDate}
         planDates={planDateSet}
+        pendingDate={pendingDate}
+        onPendingChange={setPendingDate}
       />
 
       <section>
@@ -119,7 +147,16 @@ export default function TodayClient({
         </p>
       </section>
 
-      {cards.length === 0 ? (
+      {showSkeleton ? (
+        <div className="space-y-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="bg-gray-100 rounded-2xl border border-gray-200 h-24 animate-pulse"
+            />
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
         <div className="bg-white rounded-2xl border p-6 text-center text-gray-500 text-sm">
           {planId
             ? "No meals scheduled for this day."

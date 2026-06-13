@@ -42,3 +42,15 @@ textarea:-webkit-autofill:active {
   -webkit-box-shadow: 0 0 0 1000px white inset;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Tap-pulse: applied to a pill in DayScrubber on tap to give immediate
+ * tactile acknowledgment. Animation restarts via key bump on the element. */
+@keyframes tap-pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.animate-tap-pulse {
+  animation: tap-pulse 120ms ease-out;
+}

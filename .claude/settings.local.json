@@ -6,7 +6,18 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(npx next *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(git stash *)",
+      "Bash(cat /tmp/lint_after.txt)",
+      "Bash(cat /tmp/lint_before.txt)",
+      "Bash(awk '/meal-plan-grid.tsx$/{flag=1;next} /^\\\\//{flag=0} flag')",
+      "Bash(grep -E -A 6 \"meal-plan-grid\\\\.tsx$\")",
+      "Bash(echo \"BEFORE EXIT: $?\")",
+      "Bash(echo \"---exit:$?---\")",
+      "Bash(grep -A 2 \"today-client.tsx$\\\\|today-client.tsx:\")",
+      "Bash(echo \"---lint exit: $?---\")",
+      "Bash(echo \"---build exit: $?---\")"
     ]
   }
 }

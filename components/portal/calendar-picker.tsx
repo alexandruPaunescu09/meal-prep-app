@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import {
   formatLocalDate,
   parseLocalDate,
@@ -31,6 +31,19 @@ export default function CalendarPicker({
   const initial = parseLocalDate(selectedDate) ?? parseLocalDate(todayDate)!;
   const [viewYear, setViewYear] = useState(initial.getFullYear());
   const [viewMonth, setViewMonth] = useState(initial.getMonth()); // 0..11
+
+  // The date the user just clicked, while we wait for the parent's
+  // selectedDate prop to catch up. Used to render a spinner on that
+  // cell and to disable other cells.
+  const [picking, setPicking] = useState<string | null>(null);
+
+  useEffect(() => {
+    // When the parent's selectedDate matches what we picked, the
+    // navigation has landed — close the picker.
+    if (picking && compareLocalDate(selectedDate, picking) === 0) {
+      onClose();
+    }
+  }, [selectedDate, picking, onClose]);
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -133,10 +146,22 @@ export default function CalendarPicker({
                 <button
                   key={c.dateStr}
                   type="button"
-                  onClick={() => onPick(c.dateStr)}
-                  className={`${base} ${stateClass} ${dimMonth}`}
+                  disabled={picking !== null}
+                  onClick={() => {
+                    setPicking(c.dateStr);
+                    onPick(c.dateStr);
+                  }}
+                  className={`${base} ${stateClass} ${dimMonth} ${
+                    picking !== null && picking !== c.dateStr
+                      ? "pointer-events-none opacity-60"
+                      : ""
+                  }`}
                 >
-                  {c.date.getDate()}
+                  {picking === c.dateStr ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    c.date.getDate()
+                  )}
                 </button>
               );
             })}

@@ -87,6 +87,12 @@ export default function MealPlanGrid({
   const [showDelivery, setShowDelivery] = useState(false);
   const [addingEntry, setAddingEntry] = useState(false);
   const [removingEntry, setRemovingEntry] = useState<string | null>(null);
+  // editingEntry: id of the entry whose inline editor is currently open
+  // (at most one at a time across desktop and mobile). null = no edit open.
+  const [editingEntry, setEditingEntry] = useState<string | null>(null);
+  // savingEntry: id of the entry whose updateEntry write is in flight.
+  // Drives the row's dim state. Cleared on success or rollback.
+  const [savingEntry, setSavingEntry] = useState<string | null>(null);
   const [activeEntry, setActiveEntry] = useState<FullEntry | null>(null);
 
   // Optimistic mirror of `serverEntries`. Mutations update this immediately
@@ -298,6 +304,40 @@ export default function MealPlanGrid({
     invalidateMealPlan(plan.id);
   }
 
+  async function updateEntry(
+    entryId: string,
+    patch: { portions?: number; quantity?: number }
+  ) {
+    // Prevent rapid same-id calls from corrupting the rollback snapshot:
+    // a second call mid-flight would capture state that already includes
+    // the first optimistic patch.
+    if (savingEntry === entryId) return;
+    // Editor closes immediately; the "saving" dim communicates in-flight.
+    setEditingEntry(null);
+    const snapshot = entries;
+    setSavingEntry(entryId);
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e))
+    );
+
+    const { error } = await supabase
+      .from("meal_plan_entries")
+      .update(patch)
+      .eq("id", entryId);
+
+    setSavingEntry(null);
+
+    if (error) {
+      setEntries(snapshot);
+      alert(`Update failed: ${error.message}`);
+      return;
+    }
+    // Recipe + ingredient nutrition is already in the in-memory entry, so
+    // weekly totals recompute correctly without a refresh. Just bust the
+    // cached detail bundle for the next navigation.
+    invalidateMealPlan(plan.id);
+  }
+
 
   return (
     <div>
@@ -399,7 +439,25 @@ export default function MealPlanGrid({
                             return (
                             <div
                               key={entry.id}
-                              className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 transition-opacity ${removingEntry === entry.id ? "opacity-50 pointer-events-none" : ""}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                if (entry.id.startsWith("temp-")) return;
+                                if (savingEntry === entry.id) return;
+                                setEditingEntry(entry.id);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter" && e.key !== " ") return;
+                                e.preventDefault();
+                                if (entry.id.startsWith("temp-")) return;
+                                if (savingEntry === entry.id) return;
+                                setEditingEntry(entry.id);
+                              }}
+                              className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 transition-opacity ${
+                                removingEntry === entry.id || savingEntry === entry.id
+                                  ? "opacity-50 pointer-events-none"
+                                  : ""
+                              }`}
                             >
                               <div className="min-w-0">
                                 <p className="text-xs font-medium text-gray-900 truncate flex items-center gap-1">
@@ -426,7 +484,10 @@ export default function MealPlanGrid({
                                 </p>
                               </div>
                               <button
-                                onClick={() => removeEntry(entry.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeEntry(entry.id);
+                                }}
                                 disabled={removingEntry === entry.id}
                                 className="p-1 rounded hover:bg-red-100"
                               >
@@ -481,7 +542,30 @@ export default function MealPlanGrid({
                       <DroppableSlot key={`${day}-${mealType}`} day={day} mealType={mealType}>
                         <div className="space-y-1 min-h-[48px]">
                           {slotEntries.map((entry) => (
-                            <DraggableEntry key={entry.id} entry={entry} removingEntry={removingEntry} onRemove={removeEntry} review={reviewMap.get(entry.id)} status={statusMap.get(entry.id)} />
+                            <DraggableEntry
+                              key={entry.id}
+                              entry={entry}
+                              removingEntry={removingEntry}
+                              savingEntry={savingEntry}
+                              editingEntry={editingEntry}
+                              onRemove={removeEntry}
+                              onStartEdit={(id) => {
+                                if (activeEntry) return; // don't open editor mid-drag
+                                setEditingEntry(id);
+                              }}
+                              onSubmitEdit={(id, value) => {
+                                const entry = entries.find((e) => e.id === id);
+                                if (!entry) return;
+                                if (entry.recipe) {
+                                  updateEntry(id, { portions: value });
+                                } else {
+                                  updateEntry(id, { quantity: value });
+                                }
+                              }}
+                              onCancelEdit={() => setEditingEntry(null)}
+                              review={reviewMap.get(entry.id)}
+                              status={statusMap.get(entry.id)}
+                            />
                           ))}
                           <button
                             onClick={() => setSlotPicker({ day, mealType })}
@@ -673,6 +757,21 @@ export default function MealPlanGrid({
           onClose={() => setShowDelivery(false)}
         />
       )}
+
+      {/* Mobile quantity-edit popover (mobile only — desktop uses inline editor) */}
+      {editingEntry && (() => {
+        const e = entries.find((x) => x.id === editingEntry);
+        if (!e) return null;
+        return (
+          <div className="md:hidden">
+            <MobileQuantityPopover
+              entry={e}
+              onSave={(patch) => updateEntry(editingEntry, patch)}
+              onCancel={() => setEditingEntry(null)}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -691,13 +790,255 @@ function DroppableSlot({ day, mealType, children }: { day: number; mealType: Mea
   );
 }
 
-function DraggableEntry({ entry, removingEntry, onRemove, review, status }: { entry: FullEntry; removingEntry: string | null; onRemove: (id: string) => void; review?: MealReview; status?: MealStatus }) {
+function InlineQuantityEditor({
+  initialValue,
+  kind,
+  onSave,
+  onCancel,
+}: {
+  initialValue: number;
+  kind: "portions" | "quantity";
+  onSave: (value: number) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(String(initialValue));
+  // Validation matches SlotPicker exactly: portions step=0.1 min=0.1, quantity step=1 min=1.
+  const min = kind === "portions" ? 0.1 : 1;
+  const step = kind === "portions" ? "0.1" : "1";
+  const parsed = parseFloat(value);
+  const valid = !isNaN(parsed) && parsed >= min;
+
+  // Commit if changed and valid; otherwise close via the cancel path so we
+  // don't fire a no-op write. The editor closes either way.
+  function commit() {
+    if (!valid) {
+      onCancel();
+      return;
+    }
+    if (parsed === initialValue) {
+      onCancel();
+      return;
+    }
+    onSave(parsed);
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input
+        type="number"
+        autoFocus
+        value={value}
+        min={min}
+        step={step}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        onBlur={commit}
+        // Stop pointerdown from reaching the draggable wrapper so typing
+        // inside the input doesn't initiate a drag.
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="w-14 px-1 py-0 text-[10px] border rounded text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+      />
+      <button
+        type="button"
+        disabled={!valid}
+        // mousedown so this fires before the input's blur — symmetric with Cancel.
+        // Without this, the blur handler runs commit() first and the editor
+        // unmounts before this onClick ever runs (works by accident; this is
+        // explicit).
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          commit();
+        }}
+        className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+        aria-label="Save"
+      >
+        <Check className="w-3 h-3 text-emerald-600" />
+      </button>
+      <button
+        type="button"
+        // mousedown fires before the input's blur, so the cancel actually
+        // cancels rather than letting blur silently commit.
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        }}
+        className="p-0.5 rounded hover:bg-red-100"
+        aria-label="Cancel"
+      >
+        <X className="w-3 h-3 text-red-500" />
+      </button>
+    </span>
+  );
+}
+
+function MobileQuantityPopover({
+  entry,
+  onSave,
+  onCancel,
+}: {
+  entry: FullEntry;
+  onSave: (patch: { portions?: number; quantity?: number }) => void;
+  onCancel: () => void;
+}) {
+  const isRecipe = !!entry.recipe;
+  const [portions, setPortions] = useState(String(entry.portions ?? 1));
+  const [quantity, setQuantity] = useState(
+    entry.quantity != null ? String(entry.quantity) : "0"
+  );
+  const portionsNum = parseFloat(portions);
+  const quantityNum = parseFloat(quantity);
+  const portionsValid = !isNaN(portionsNum) && portionsNum >= 0.1;
+  const quantityValid = !isNaN(quantityNum) && quantityNum >= 1;
+  const valid = isRecipe
+    ? portionsValid
+    : portionsValid && quantityValid;
+  const title = isRecipe
+    ? entry.recipe?.name ?? "Recipe"
+    : entry.ingredient?.name ?? "Ingredient";
+
+  function submit() {
+    if (!valid) return;
+    if (isRecipe) {
+      if (portionsNum === entry.portions) {
+        onCancel();
+        return;
+      }
+      onSave({ portions: portionsNum });
+    } else {
+      const qChanged = quantityNum !== entry.quantity;
+      const pChanged = portionsNum !== entry.portions;
+      if (!qChanged && !pChanged) {
+        onCancel();
+        return;
+      }
+      const patch: { portions?: number; quantity?: number } = {};
+      if (qChanged) patch.quantity = quantityNum;
+      if (pChanged) patch.portions = portionsNum;
+      onSave(patch);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="text-sm font-semibold text-gray-900 truncate">
+            Edit {title}
+          </h3>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="p-1 rounded hover:bg-gray-100"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4 text-gray-500" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          {!isRecipe && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Quantity (g)
+              </label>
+              <input
+                type="number"
+                min={1}
+                step="1"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                autoFocus
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Portions</label>
+            <input
+              type="number"
+              min={0.1}
+              step="0.1"
+              value={portions}
+              onChange={(e) => setPortions(e.target.value)}
+              className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+              autoFocus={isRecipe}
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 px-4 pb-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2 px-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!valid}
+            className="flex-1 py-2 px-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraggableEntry({
+  entry,
+  removingEntry,
+  savingEntry,
+  editingEntry,
+  onRemove,
+  onStartEdit,
+  onSubmitEdit,
+  onCancelEdit,
+  review,
+  status,
+}: {
+  entry: FullEntry;
+  removingEntry: string | null;
+  savingEntry: string | null;
+  editingEntry: string | null;
+  onRemove: (id: string) => void;
+  onStartEdit: (id: string) => void;
+  onSubmitEdit: (id: string, value: number) => void;
+  onCancelEdit: () => void;
+  review?: MealReview;
+  status?: MealStatus;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: entry.id });
+  const isEditing = editingEntry === entry.id;
+  const isSaving = savingEntry === entry.id;
+  // Disable starting an edit on a not-yet-committed row (temp ids).
+  const editable = !entry.id.startsWith("temp-");
+  const editKind: "portions" | "quantity" = entry.recipe ? "portions" : "quantity";
+  const editInitial = entry.recipe ? entry.portions : entry.quantity ?? 0;
+
   return (
     <div
       ref={setNodeRef}
       className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 group transition-opacity ${
-        removingEntry === entry.id ? "opacity-50 pointer-events-none" : ""
+        removingEntry === entry.id || isSaving ? "opacity-50 pointer-events-none" : ""
       } ${isDragging ? "opacity-30" : ""}`}
     >
       <div className="flex items-center gap-1 min-w-0 flex-1">
@@ -726,11 +1067,29 @@ function DraggableEntry({ entry, removingEntry, onRemove, review, status }: { en
               </span>
             )}
           </p>
-          <p className="text-[10px] text-gray-500">
-            {entry.recipe
-              ? `×${entry.portions}`
-              : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
-          </p>
+          {isEditing ? (
+            <InlineQuantityEditor
+              initialValue={editInitial}
+              kind={editKind}
+              onSave={(v) => onSubmitEdit(entry.id, v)}
+              onCancel={onCancelEdit}
+            />
+          ) : (
+            <button
+              type="button"
+              disabled={!editable}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (editable) onStartEdit(entry.id);
+              }}
+              className={`text-[10px] text-gray-500 ${editable ? "hover:text-emerald-700 cursor-text" : "cursor-default"} text-left`}
+              title={editable ? "Edit quantity" : undefined}
+            >
+              {entry.recipe
+                ? `×${entry.portions}`
+                : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
+            </button>
+          )}
         </div>
       </div>
       <button
