@@ -88,3 +88,35 @@ export function addDaysLocal(dateStr: string, days: number): string {
   dt.setDate(dt.getDate() + days);
   return formatLocalDate(dt);
 }
+
+/**
+ * Parse a YYYY-MM-DD string into a local-time Date (no timezone shifts).
+ * Returns null if the string is malformed or doesn't denote a real calendar date.
+ */
+export function parseLocalDate(s: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map((p) => parseInt(p, 10));
+  const dt = new Date(y, m - 1, d);
+  if (
+    dt.getFullYear() !== y ||
+    dt.getMonth() !== m - 1 ||
+    dt.getDate() !== d
+  ) {
+    return null;
+  }
+  return dt;
+}
+
+/** True iff `s` is a valid YYYY-MM-DD calendar date. */
+export function isValidLocalDate(s: string): boolean {
+  return parseLocalDate(s) !== null;
+}
+
+/**
+ * Compare two YYYY-MM-DD strings as calendar dates.
+ * Returns negative if a < b, 0 if equal, positive if a > b.
+ * Lexicographic comparison is correct for this format.
+ */
+export function compareLocalDate(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}

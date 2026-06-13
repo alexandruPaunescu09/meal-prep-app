@@ -33,11 +33,13 @@ export default function MealDetailSheet({
   entry,
   existingReview,
   existingStatus,
+  isFuture,
   onClose,
 }: {
   entry: FullEntry;
   existingReview: MealReview | null;
   existingStatus: MealStatus | null;
+  isFuture: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -106,34 +108,36 @@ export default function MealDetailSheet({
             <p className="text-sm text-gray-700 leading-relaxed">{description}</p>
           )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Did you eat this?</h3>
-            <div className="grid grid-cols-3 gap-2">
-              <SegBtn
-                active={status === null}
-                onClick={() => chooseStatus(null)}
-                disabled={savingStatus}
-                icon={<Circle className="w-4 h-4" />}
-                label="Pending"
-              />
-              <SegBtn
-                active={status === "eaten"}
-                onClick={() => chooseStatus("eaten")}
-                disabled={savingStatus}
-                tone="emerald"
-                icon={<Check className="w-4 h-4" />}
-                label="Eaten"
-              />
-              <SegBtn
-                active={status === "skipped"}
-                onClick={() => chooseStatus("skipped")}
-                disabled={savingStatus}
-                tone="gray"
-                icon={<Slash className="w-4 h-4" />}
-                label="Skipped"
-              />
-            </div>
-          </section>
+          {!isFuture && (
+            <section>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Did you eat this?</h3>
+              <div className="grid grid-cols-3 gap-2">
+                <SegBtn
+                  active={status === null}
+                  onClick={() => chooseStatus(null)}
+                  disabled={savingStatus}
+                  icon={<Circle className="w-4 h-4" />}
+                  label="Pending"
+                />
+                <SegBtn
+                  active={status === "eaten"}
+                  onClick={() => chooseStatus("eaten")}
+                  disabled={savingStatus}
+                  tone="emerald"
+                  icon={<Check className="w-4 h-4" />}
+                  label="Eaten"
+                />
+                <SegBtn
+                  active={status === "skipped"}
+                  onClick={() => chooseStatus("skipped")}
+                  disabled={savingStatus}
+                  tone="gray"
+                  icon={<Slash className="w-4 h-4" />}
+                  label="Skipped"
+                />
+              </div>
+            </section>
+          )}
 
           <section>
             <h3 className="text-sm font-semibold text-gray-900 mb-2">Nutrition</h3>
@@ -165,16 +169,18 @@ export default function MealDetailSheet({
             </section>
           )}
 
-          <section className="pt-2 border-t">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">
-              {existingReview ? "Your review" : "Leave a review"}
-            </h3>
-            <ReviewComposer
-              entryId={entry.id}
-              existingReview={existingReview}
-              onSaved={() => onClose()}
-            />
-          </section>
+          {!isFuture && (
+            <section className="pt-2 border-t">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                {existingReview ? "Your review" : "Leave a review"}
+              </h3>
+              <ReviewComposer
+                entryId={entry.id}
+                existingReview={existingReview}
+                onSaved={() => onClose()}
+              />
+            </section>
+          )}
         </div>
       </div>
     </div>
