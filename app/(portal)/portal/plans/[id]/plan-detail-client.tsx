@@ -12,7 +12,7 @@ import {
 } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
-import { entryNutrition, sortByMealType, addDaysLocal } from "@/lib/portal/entry-helpers";
+import { entryNutrition, sortByMealType, addDaysLocal, compareLocalDate, parseLocalDate } from "@/lib/portal/entry-helpers";
 
 type FullEntry = MealPlanEntry & {
   recipe?: Recipe & {
@@ -30,6 +30,7 @@ export default function PlanDetailClient({
   reviews,
   isCurrent,
   initialDow,
+  todayDate,
 }: {
   plan: MealPlan;
   entries: FullEntry[];
@@ -37,6 +38,7 @@ export default function PlanDetailClient({
   reviews: MealReview[];
   isCurrent: boolean;
   initialDow: number;
+  todayDate: string;
 }) {
   const [dow, setDow] = useState(initialDow);
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
@@ -71,6 +73,12 @@ export default function PlanDetailClient({
   const open = openEntryId ? entries.find((e) => e.id === openEntryId) ?? null : null;
   const openReview = open ? reviews.find((r) => r.meal_plan_entry_id === open.id) ?? null : null;
   const openStatus = open ? statuses.find((s) => s.meal_plan_entry_id === open.id) ?? null : null;
+  const openDate = open
+    ? addDaysLocal(plan.week_start, open.day_of_week - 1)
+    : null;
+  const openIsFuture = openDate
+    ? compareLocalDate(openDate, todayDate) > 0
+    : false;
 
   const start = plan.week_start;
   const end = addDaysLocal(plan.week_start, 6);
@@ -128,6 +136,7 @@ export default function PlanDetailClient({
           entry={open}
           existingReview={openReview}
           existingStatus={openStatus?.status ?? null}
+          isFuture={openIsFuture}
           onClose={() => setOpenEntryId(null)}
         />
       )}
@@ -136,8 +145,9 @@ export default function PlanDetailClient({
 }
 
 function formatRange(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
+  const s = parseLocalDate(start);
+  const e = parseLocalDate(end);
+  if (!s || !e) return `${start} – ${end}`;
   const sFmt = s.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const eFmt = e.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   return `${sFmt} – ${eFmt}`;

@@ -6,7 +6,6 @@ import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import {
   addDaysLocal,
   compareLocalDate,
-  formatLocalDate,
   parseLocalDate,
 } from "@/lib/portal/entry-helpers";
 import CalendarPicker from "./calendar-picker";

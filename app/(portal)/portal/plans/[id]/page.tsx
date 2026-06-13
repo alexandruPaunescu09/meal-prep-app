@@ -79,6 +79,7 @@ export default async function PortalPlanDetailPage({
       reviews={(reviewsRes.data as MealReview[]) ?? []}
       isCurrent={isCurrent}
       initialDow={initialDow}
+      todayDate={todayStr}
     />
   );
 }
