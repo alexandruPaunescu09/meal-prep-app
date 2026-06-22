@@ -12,7 +12,11 @@ const PUBLIC_PREFIXES = [
   "/icons",
 ];
 
-const PORTAL_PREFIX = "/portal";
+const PORTAL_PREFIXES = ["/portal", "/api/portal"];
+
+function isPortalPath(pathname: string) {
+  return PORTAL_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
 
 function isPublic(pathname: string) {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
@@ -49,7 +53,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isPortal = pathname === PORTAL_PREFIX || pathname.startsWith(PORTAL_PREFIX + "/");
+  const isPortal = isPortalPath(pathname);
 
   // Unauthenticated → /login (except public)
   if (!user && !isPublic(pathname)) {
