@@ -4,7 +4,8 @@
 # newer than the last recorded one. Never apply migrations through the SQL
 # editor again, or the history drifts and this job will try to re-run them.
 #
-# Needs one repo secret: SUPABASE_ACCESS_TOKEN (supabase.com/dashboard/account/tokens).
+# Needs one secret: SUPABASE_ACCESS_TOKEN (supabase.com/dashboard/account/tokens),
+# stored under Settings > Environments > Production > Environment secrets.
 # The pinned CLI connects through a temporary login role created with that
 # token, so no database password is required.
 name: Apply Supabase Migrations
@@ -19,6 +20,9 @@ on:
 jobs:
   migrate:
     runs-on: ubuntu-latest
+    # SUPABASE_ACCESS_TOKEN is an environment secret of the GitHub
+    # "Production" environment, so the job must declare it to see the secret.
+    environment: Production
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:

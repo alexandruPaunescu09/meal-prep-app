@@ -353,7 +353,7 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 
 ### Migrations
 - Prod migration history was reconciled on 2026-10-17: `supabase db diff --linked` confirmed prod matched the 19 migrations up to `20260612000000` (only extra object: the Supabase-managed `rls_auto_enable()` event-trigger function), then `supabase migration repair --status applied` recorded them. **Never apply migrations through the SQL editor again**: use `npx supabase db push --linked` or the workflow, otherwise the history drifts again.
-- `.github/workflows/migrate.yml` runs `db push` on every push to `main` that touches `supabase/migrations/**` (or manually via workflow_dispatch). It needs only the repo secret `SUPABASE_ACCESS_TOKEN`: the pinned CLI (2.121.0) connects through a temporary login role, so no DB password secret is used.
+- `.github/workflows/migrate.yml` runs `db push` on every push to `main` that touches `supabase/migrations/**` (or manually via workflow_dispatch). It needs only `SUPABASE_ACCESS_TOKEN`, stored as an environment secret of the GitHub **Production** environment (the job declares `environment: Production` to read it): the pinned CLI (2.121.0) connects through a temporary login role, so no DB password secret is used.
 - Test every migration locally first: Docker Desktop + `npm run db:start` + `npm run db:reset` (replays all migrations from scratch).
 
 ---
