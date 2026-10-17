@@ -211,6 +211,16 @@ export default function ImportClient({
   const [applying, setApplying] = useState(false);
   const [summary, setSummary] = useState<{ updated: number; unchanged: number; skipped: number } | null>(null);
   const [createFor, setCreateFor] = useState<number | null>(null);
+  // In-page confirmation: native confirm() is suppressed in some embedded
+  // browsers (it returns false without showing), which silently blocked
+  // Discard/Approve.
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    body: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => void;
+  } | null>(null);
 
   const totalBytes = prepared.reduce((s, p) => s + p.blob.size, 0);
   const tooBig = totalBytes > MAX_TOTAL_BYTES;
@@ -303,11 +313,19 @@ export default function ImportClient({
   const applicable = included.filter((l) => derive(l).valid);
   const invalidIncluded = included.length - applicable.length;
 
-  async function approve() {
+  function approve() {
     if (!result || applicable.length === 0) return;
-    const store = result.store;
     const date = result.invoice_date ?? "unknown date";
-    if (!confirm(`Update ${applicable.length} prices from ${store}, ${date}?`)) return;
+    setPendingConfirm({
+      title: `Update ${applicable.length} prices?`,
+      body: `From ${result.store}, ${date}. Old prices are kept in each ingredient's price history.`,
+      confirmLabel: "Update prices",
+      run: () => void applyPrices(),
+    });
+  }
+
+  async function applyPrices() {
+    if (!result || applicable.length === 0) return;
     setApplying(true);
     setError("");
     try {
@@ -352,8 +370,13 @@ export default function ImportClient({
   }
 
   function discard() {
-    if (!confirm("Discard this import? Nothing has been saved.")) return;
-    resetAll();
+    setPendingConfirm({
+      title: "Discard this import?",
+      body: "Nothing has been saved. The parsed lines will be cleared.",
+      confirmLabel: "Discard",
+      danger: true,
+      run: resetAll,
+    });
   }
 
   const createLine = createFor != null ? lines.find((l) => l.uid === createFor) : undefined;
@@ -716,6 +739,44 @@ export default function ImportClient({
             patch(createLine.uid, { ingredient_id: ing.id, include: true });
           }}
         />
+      )}
+
+      {pendingConfirm && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setPendingConfirm(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-gray-900">{pendingConfirm.title}</h2>
+            <p className="text-sm text-gray-600 mt-1">{pendingConfirm.body}</p>
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setPendingConfirm(null)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                autoFocus
+                onClick={() => {
+                  const { run } = pendingConfirm;
+                  setPendingConfirm(null);
+                  run();
+                }}
+                className={`px-4 py-2 text-white font-medium rounded-lg text-sm ${
+                  pendingConfirm.danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {pendingConfirm.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

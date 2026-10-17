@@ -1,6 +1,6 @@
 // Server-only module: imported exclusively from route handlers.
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import type { Ingredient, IngredientAlias, ParsedInvoiceLine } from "@/lib/supabase/types";
 import { postProcessLines } from "./postprocess";
@@ -99,7 +99,7 @@ export async function parseInvoice(args: {
   const model = process.env.INVOICE_PARSER_MODEL ?? "claude-haiku-5-5";
   const client = new Anthropic();
 
-  const content: Anthropic.ContentBlockParam[] = [];
+  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   const imageCount = files.filter((f) => f.mediaType !== "application/pdf").length;
   let imgIdx = 0;
   for (const f of files) {
@@ -127,12 +127,17 @@ export async function parseInvoice(args: {
 
   let response;
   try {
-    response = await client.messages.parse({
+    response = await client.beta.messages.parse({
       model,
       max_tokens: 16000,
       system: SYSTEM,
       messages: [{ role: "user", content }],
-      output_config: { format: zodOutputFormat(InvoiceSchema) },
+      output_config: { effort: "medium", format: betaZodOutputFormat(InvoiceSchema) },
+      // Server-side refusal fallback (reruns a declined request on another
+      // model). Haiku has none, so only Sonnet/Opus-class models opt in.
+      ...(model.startsWith("claude-haiku")
+        ? {}
+        : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
     });
   } catch (e) {
     if (!(e instanceof Anthropic.APIError)) throw e;
