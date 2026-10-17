@@ -4,6 +4,7 @@ import {
   getIngredients,
   getIngredientCategories,
 } from "@/lib/data/ingredients";
+import type { PrepRule, Ingredient, Category } from "@/lib/supabase/types";
 
 export default async function PrepRulesPage() {
   const [rules, ingredients, categories] = await Promise.all([
@@ -14,9 +15,9 @@ export default async function PrepRulesPage() {
 
   return (
     <PrepRulesClient
-      rules={rules as any[]}
-      ingredients={ingredients as any[]}
-      categories={categories as any[]}
+      rules={rules as PrepRule[]}
+      ingredients={ingredients as Ingredient[]}
+      categories={categories as Category[]}
     />
   );
 }

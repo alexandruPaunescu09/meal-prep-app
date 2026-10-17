@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -8,10 +9,17 @@ import {
   RecipeIngredient,
   Ingredient,
   ContainerType,
+  SaveRecipeInput,
+  SaveRecipeIngredientInput,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { X, Plus, Trash2, Search } from "lucide-react";
+import { formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
+import { Modal } from "@/components/ui/modal";
+import { IconButton } from "@/components/ui/icon-button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { Plus, Trash2, Search, Check } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -25,20 +33,50 @@ interface RecipeFormProps {
 interface IngredientEntry {
   id: string;
   ingredient: Ingredient;
-  quantity: number;
+  /** Raw text so partial input ("0.", "") is preserved while typing. */
+  qty: string;
 }
+
+const PICKER_LIMIT = 100;
+
+/** Lower = better match. */
+function relevance(ing: Ingredient, q: string): number {
+  const name = ing.name.toLowerCase();
+  const brand = (ing.brand ?? "").toLowerCase();
+  if (name.startsWith(q)) return 0;
+  if (name.split(/[\s,()-]+/).some((w) => w.startsWith(q))) return 1;
+  if (name.includes(q)) return 2;
+  if (brand.startsWith(q)) return 3;
+  if (brand.includes(q)) return 4;
+  return -1;
+}
+
+function qtyToNumber(qty: string): number {
+  return parseDecimal(qty) ?? 0;
+}
+
+const inputCls =
+  "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm";
 
 export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const router = useRouter();
   const supabase = createClient();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [ingredientsError, setIngredientsError] = useState("");
+  const [portionsError, setPortionsError] = useState("");
 
   const [name, setName] = useState(recipe?.name ?? "");
-  const [portions, setPortions] = useState(recipe?.portions ?? 1);
+  const [portionsStr, setPortionsStr] = useState(String(recipe?.portions ?? 1));
   const [notes, setNotes] = useState(recipe?.notes ?? "");
-  const [customerDescription, setCustomerDescription] = useState(recipe?.customer_description ?? "");
-  const [finalWeight, setFinalWeight] = useState<number | null>(recipe?.final_weight ?? null);
+  const [customerDescription, setCustomerDescription] = useState(
+    recipe?.customer_description ?? ""
+  );
+  const [finalWeightStr, setFinalWeightStr] = useState(
+    recipe?.final_weight != null ? String(recipe.final_weight) : ""
+  );
   const [containerTypeId, setContainerTypeId] = useState<string | null>(
     recipe?.container_type_id ?? null
   );
@@ -47,22 +85,52 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     recipe?.recipe_ingredients.map((ri) => ({
       id: ri.id,
       ingredient: ri.ingredient,
-      quantity: ri.quantity,
+      qty: String(ri.quantity),
     })) ?? []
   );
 
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
+  const [ingredientsLoaded, setIngredientsLoaded] = useState(false);
   const [containerTypes, setContainerTypes] = useState<ContainerType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [showPicker, setShowPicker] = useState(false);
+  const focusEntryId = useRef<string | null>(null);
+  const qtyRefs = useRef(new Map<string, HTMLInputElement>());
+
+  const snapshot = (
+    n: string,
+    p: string,
+    no: string,
+    cd: string,
+    fw: string,
+    ct: string | null,
+    es: IngredientEntry[]
+  ) =>
+    JSON.stringify([
+      n,
+      p,
+      no,
+      cd,
+      fw,
+      ct,
+      es.map((e) => [e.ingredient.id, e.qty]),
+    ]);
+  const [initialSnapshot] = useState(() =>
+    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries)
+  );
+  const isDirty =
+    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries) !==
+    initialSnapshot;
 
   useEffect(() => {
     supabase
       .from("ingredients")
       .select("*")
       .order("name")
-      .then(({ data }) => {
+      .then(({ data, error: err }) => {
+        if (err) toast.error(`Could not load ingredients: ${err.message}`);
         if (data) setAllIngredients(data as Ingredient[]);
+        setIngredientsLoaded(true);
       });
     supabase
       .from("container_types")
@@ -71,176 +139,231 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       .then(({ data }) => {
         if (data) setContainerTypes(data as ContainerType[]);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filteredIngredients = useMemo(() => {
-    const usedIds = new Set(entries.map((e) => e.ingredient.id));
+  // Move focus to the newly added row's quantity once the picker has closed.
+  useEffect(() => {
+    if (showPicker || !focusEntryId.current) return;
+    const id = focusEntryId.current;
+    focusEntryId.current = null;
+    const raf = requestAnimationFrame(() => {
+      const el = qtyRefs.current.get(id);
+      el?.focus();
+      el?.select();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [showPicker]);
+
+  const usedIds = useMemo(
+    () => new Set(entries.map((e) => e.ingredient.id)),
+    [entries]
+  );
+
+  const pickerResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return allIngredients;
     return allIngredients
-      .filter((i) => !usedIds.has(i.id))
-      .filter(
-        (i) =>
-          searchQuery.length === 0 ||
-          i.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-  }, [allIngredients, entries, searchQuery]);
+      .map((ing) => ({ ing, score: relevance(ing, q) }))
+      .filter((x) => x.score >= 0)
+      .sort((a, b) => a.score - b.score || a.ing.name.localeCompare(b.ing.name))
+      .map((x) => x.ing);
+  }, [allIngredients, searchQuery]);
+
+  const portions = parseInt(portionsStr, 10);
+  const portionsValid = Number.isInteger(portions) && portions >= 1;
 
   const calc: RecipeCalculation = useMemo(() => {
     return calculateRecipe(
-      entries.map((e) => ({ ingredient: e.ingredient, quantity: e.quantity })),
-      portions
+      entries.map((e) => ({ ingredient: e.ingredient, quantity: qtyToNumber(e.qty) })),
+      portionsValid ? portions : 1
     );
-  }, [entries, portions]);
+  }, [entries, portions, portionsValid]);
+
+  const finalWeight = parseDecimal(finalWeightStr);
 
   function addIngredient(ingredient: Ingredient) {
-    setEntries((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), ingredient, quantity: 100 },
-    ]);
-    setShowPicker(false);
-    setSearchQuery("");
+    if (usedIds.has(ingredient.id)) return;
+    const id = crypto.randomUUID();
+    setEntries((prev) => [...prev, { id, ingredient, qty: "100" }]);
+    focusEntryId.current = id;
+    setIngredientsError("");
   }
 
-  function updateQuantity(id: string, quantity: number) {
-    setEntries((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, quantity } : e))
-    );
+  function updateQty(id: string, qty: string) {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, qty } : e)));
   }
 
   function removeEntry(id: string) {
     setEntries((prev) => prev.filter((e) => e.id !== id));
   }
 
+  function closePicker() {
+    setShowPicker(false);
+    setSearchQuery("");
+  }
+
+  async function handleCancel() {
+    if (isDirty) {
+      const ok = await confirm({
+        title: "Discard unsaved changes?",
+        message: "Your changes will be lost.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    onClose();
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (entries.length === 0) {
-      setError("Add at least one ingredient.");
-      return;
-    }
-    setSaving(true);
+    if (saving) return;
     setError("");
+    setIngredientsError("");
+    setPortionsError("");
 
-    if (recipe) {
-      const { error: updateErr } = await supabase
-        .from("recipes")
-        .update({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, customer_description: customerDescription || null, container_type_id: containerTypeId })
-        .eq("id", recipe.id);
+    let invalid = false;
+    if (!portionsValid || !/^\d+$/.test(portionsStr.trim())) {
+      setPortionsError("Enter a whole number of portions (1 or more).");
+      invalid = true;
+    }
+    if (entries.length === 0) {
+      setIngredientsError("Add at least one ingredient.");
+      invalid = true;
+    } else if (entries.some((en) => qtyToNumber(en.qty) <= 0)) {
+      setIngredientsError("Every ingredient needs a quantity greater than 0.");
+      invalid = true;
+    }
+    if (finalWeightStr.trim() !== "" && (finalWeight == null || finalWeight < 0)) {
+      setError("Final weight must be a number.");
+      invalid = true;
+    }
+    if (invalid) return;
 
-      if (updateErr) {
-        setError(updateErr.message);
-        setSaving(false);
-        return;
-      }
+    setSaving(true);
 
-      await supabase
-        .from("recipe_ingredients")
-        .delete()
-        .eq("recipe_id", recipe.id);
+    const p_recipe: SaveRecipeInput = {
+      name: name.trim(),
+      portions,
+      final_weight: finalWeightStr.trim() === "" ? null : finalWeight,
+      notes: notes.trim() || null,
+      customer_description: customerDescription.trim() || null,
+      container_type_id: containerTypeId,
+    };
+    const p_ingredients: SaveRecipeIngredientInput[] = entries.map((en) => ({
+      ingredient_id: en.ingredient.id,
+      quantity: qtyToNumber(en.qty),
+    }));
 
-      const { error: riErr } = await supabase.from("recipe_ingredients").insert(
-        entries.map((e) => ({
-          recipe_id: recipe.id,
-          ingredient_id: e.ingredient.id,
-          quantity: e.quantity,
-        }))
-      );
+    const { error: rpcErr } = await supabase.rpc("save_recipe", {
+      p_recipe_id: recipe?.id ?? null,
+      p_recipe,
+      p_ingredients,
+    });
 
-      if (riErr) {
-        setError(riErr.message);
-        setSaving(false);
-        return;
-      }
-    } else {
-      const { data: newRecipe, error: createErr } = await supabase
-        .from("recipes")
-        .insert({ name: name.trim(), portions, final_weight: finalWeight, notes: notes || null, customer_description: customerDescription || null, container_type_id: containerTypeId })
-        .select("id")
-        .single();
-
-      if (createErr || !newRecipe) {
-        setError(createErr?.message ?? "Failed to create recipe");
-        setSaving(false);
-        return;
-      }
-
-      const { error: riErr } = await supabase.from("recipe_ingredients").insert(
-        entries.map((e) => ({
-          recipe_id: newRecipe.id,
-          ingredient_id: e.ingredient.id,
-          quantity: e.quantity,
-        }))
-      );
-
-      if (riErr) {
-        setError(riErr.message);
-        setSaving(false);
-        return;
-      }
+    if (rpcErr) {
+      setError(rpcErr.message);
+      toast.error(`Could not save recipe: ${rpcErr.message}`);
+      setSaving(false);
+      return;
     }
 
     await invalidateRecipes();
     router.refresh();
+    toast.success(recipe ? "Recipe updated" : "Recipe created");
     onClose();
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b z-10">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {recipe ? "Edit Recipe" : "New Recipe"}
-          </h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
+  const footer = (
+    <>
+      <button
+        type="button"
+        onClick={handleCancel}
+        className="py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form="recipe-form"
+        disabled={saving}
+        className="py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+      >
+        {saving ? "Saving..." : recipe ? "Update Recipe" : "Create Recipe"}
+      </button>
+    </>
+  );
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+  return (
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        title={recipe ? "Edit Recipe" : "New Recipe"}
+        size="xl"
+        dirty={isDirty}
+        footer={footer}
+      >
+        <form id="recipe-form" onSubmit={handleSubmit} noValidate className="space-y-5">
           {/* Name + Portions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="recipe-name" className="block text-sm font-medium text-gray-700 mb-1">
                 Name *
               </label>
               <input
+                id="recipe-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                className={inputCls}
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="recipe-portions" className="block text-sm font-medium text-gray-700 mb-1">
                 Portions *
               </label>
               <input
-                type="number"
-                min={1}
-                value={portions}
-                onChange={(e) => setPortions(parseInt(e.target.value) || 1)}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                required
+                id="recipe-portions"
+                type="text"
+                inputMode="numeric"
+                value={portionsStr}
+                onChange={(e) => {
+                  setPortionsStr(e.target.value);
+                  setPortionsError("");
+                }}
+                aria-invalid={portionsError ? true : undefined}
+                aria-describedby={portionsError ? "recipe-portions-err" : undefined}
+                className={inputCls}
               />
+              {portionsError && (
+                <p id="recipe-portions-err" className="text-xs text-red-600 mt-1">
+                  {portionsError}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Container Type */}
           {containerTypes.length > 0 && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="recipe-container" className="block text-sm font-medium text-gray-700 mb-1">
                 Container Type
               </label>
               <select
+                id="recipe-container"
                 value={containerTypeId ?? ""}
-                onChange={(e) =>
-                  setContainerTypeId(e.target.value || null)
-                }
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                onChange={(e) => setContainerTypeId(e.target.value || null)}
+                className={inputCls}
               >
                 <option value="">No container assigned</option>
                 {containerTypes.map((ct) => (
                   <option key={ct.id} value={ct.id}>
-                    {ct.name}{ct.volume_ml ? ` (${ct.volume_ml}ml)` : ""}
+                    {ct.name}
+                    {ct.volume_ml ? ` (${ct.volume_ml}ml)` : ""}
                   </option>
                 ))}
               </select>
@@ -249,20 +372,20 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
 
           {/* Final Weight */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="recipe-weight" className="block text-sm font-medium text-gray-700 mb-1">
               Final Weight (g)
             </label>
             <input
-              type="number"
-              step="any"
-              min={0}
-              value={finalWeight ?? ""}
-              onChange={(e) => setFinalWeight(e.target.value === "" ? null : parseFloat(e.target.value))}
+              id="recipe-weight"
+              type="text"
+              inputMode="decimal"
+              value={finalWeightStr}
+              onChange={(e) => setFinalWeightStr(e.target.value)}
               placeholder="Optional — total cooked/prepared weight"
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              className={inputCls}
             />
-            {finalWeight && portions > 0 && (
-              <p className="text-xs text-gray-400 mt-1">
+            {finalWeight != null && finalWeight > 0 && portionsValid && (
+              <p className="text-xs text-gray-500 mt-1">
                 {Math.round(finalWeight / portions)}g per portion
               </p>
             )}
@@ -270,76 +393,92 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
 
           {/* Ingredients */}
           <div className="border-t pt-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between gap-3 mb-3">
               <h3 className="text-sm font-semibold text-gray-700">
                 Ingredients ({entries.length})
               </h3>
-              <button
-                type="button"
-                onClick={() => setShowPicker(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Ingredient
-              </button>
+              <div className="flex items-center gap-3">
+                {ingredientsError && (
+                  <p role="alert" className="text-xs text-red-600">
+                    {ingredientsError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowPicker(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Ingredient
+                </button>
+              </div>
             </div>
 
             {entries.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">
+              <p className="text-sm text-gray-500 text-center py-4">
                 No ingredients added yet.
               </p>
             ) : (
               <div className="space-y-2">
-                {entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
-                  >
-                    <span className="flex-1 text-sm font-medium text-gray-900">
-                      {entry.ingredient.name}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        step="any"
-                        min={0}
-                        value={entry.quantity}
-                        onChange={(e) =>
-                          updateQuantity(
-                            entry.id,
-                            parseFloat(e.target.value) || 0
-                          )
-                        }
-                        className="w-20 px-2 py-1 border rounded text-sm text-gray-900 text-right focus:ring-1 focus:ring-emerald-500 outline-none"
-                      />
-                      <span className="text-xs text-gray-500 w-6">
-                        {entry.ingredient.unit}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeEntry(entry.id)}
-                      className="p-1 rounded hover:bg-red-50"
+                {entries.map((entry) => {
+                  const q = qtyToNumber(entry.qty);
+                  const rowCost = q * entry.ingredient.price_per_unit;
+                  const rowKcal = ((entry.ingredient.calories ?? 0) * q) / 100;
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gray-50 rounded-lg px-3 py-2"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex-1 min-w-[8rem]">
+                        <p className="text-sm font-medium text-gray-900">
+                          {entry.ingredient.name}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {formatLei(rowCost)} · {Math.round(rowKcal)} kcal
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          ref={(el) => {
+                            if (el) qtyRefs.current.set(entry.id, el);
+                            else qtyRefs.current.delete(entry.id);
+                          }}
+                          type="text"
+                          inputMode="decimal"
+                          aria-label={`Quantity of ${entry.ingredient.name} in ${entry.ingredient.unit}`}
+                          value={entry.qty}
+                          onChange={(e) => updateQty(entry.id, e.target.value)}
+                          className="w-20 px-2 py-1.5 border rounded text-sm text-gray-900 text-right focus:ring-1 focus:ring-emerald-500 outline-none"
+                        />
+                        <span className="text-xs text-gray-500 w-9">
+                          {entry.ingredient.unit}
+                        </span>
+                      </div>
+                      <IconButton
+                        label={`Remove ${entry.ingredient.name}`}
+                        tone="danger"
+                        onClick={() => removeEntry(entry.id)}
+                      >
+                        <Trash2 size={16} />
+                      </IconButton>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Live calculation sidebar */}
+          {/* Live summary (sticky while editing ingredients) */}
           {entries.length > 0 && (
-            <div className="border-t pt-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            <div className="sticky bottom-0 z-10 bg-white/95 backdrop-blur border-t pt-3 pb-1">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">
                 Per Portion Summary
               </h3>
-              <div className="grid grid-cols-4 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-5 gap-2">
                 <div className="bg-emerald-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Cost</p>
                   <p className="text-sm font-bold text-emerald-700">
-                    {calc.costPerPortion.toFixed(2)} lei
+                    {formatLei(calc.costPerPortion)}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
@@ -351,144 +490,154 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Protein</p>
                   <p className="text-sm font-bold text-gray-900">
-                    {calc.perPortion.protein.toFixed(1)}g
+                    {formatNumber(calc.perPortion.protein, 1)}g
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Carbs</p>
                   <p className="text-sm font-bold text-gray-900">
-                    {calc.perPortion.carbs.toFixed(1)}g
+                    {formatNumber(calc.perPortion.carbs, 1)}g
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Fat</p>
                   <p className="text-sm font-bold text-gray-900">
-                    {calc.perPortion.fat.toFixed(1)}g
+                    {formatNumber(calc.perPortion.fat, 1)}g
                   </p>
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-2">
-                Total cost: {calc.totalCost.toFixed(2)} lei for {portions} portion
-                {portions > 1 ? "s" : ""}
+              <p className="text-xs text-gray-500 mt-1.5">
+                Total cost: {formatLei(calc.totalCost)} for {portionsValid ? portions : 1} portion
+                {(portionsValid ? portions : 1) > 1 ? "s" : ""}
               </p>
             </div>
           )}
 
           {/* Customer-facing description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="recipe-desc" className="block text-sm font-medium text-gray-700 mb-1">
               Customer description
             </label>
             <textarea
+              id="recipe-desc"
               value={customerDescription}
               onChange={(e) => setCustomerDescription(e.target.value)}
               rows={2}
               placeholder="Shown to clients in the portal — short blurb about the dish."
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm resize-none"
+              className={`${inputCls} resize-none`}
             />
-            <p className="text-xs text-gray-500 mt-1">Visible in the customer portal. Notes below stay internal.</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Visible in the customer portal. Notes below stay internal.
+            </p>
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="recipe-notes" className="block text-sm font-medium text-gray-700 mb-1">
               Notes
             </label>
             <textarea
+              id="recipe-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm resize-none"
+              className={`${inputCls} resize-none`}
             />
           </div>
 
-          {/* Error */}
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
+            <p role="alert" className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
               {error}
             </p>
           )}
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
-            >
-              {saving ? "Saving..." : recipe ? "Update Recipe" : "Create Recipe"}
-            </button>
-          </div>
         </form>
-      </div>
+      </Modal>
 
-      {/* Ingredient picker dropdown */}
-      {showPicker && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[60vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <h3 className="text-sm font-semibold text-gray-900">
-                Pick Ingredient
-              </h3>
-              <button
-                onClick={() => {
-                  setShowPicker(false);
-                  setSearchQuery("");
-                }}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-            <div className="px-4 py-2 border-b">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search ingredients..."
-                  className="w-full pl-10 pr-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2">
-              {filteredIngredients.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-4">
-                  No ingredients available.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {filteredIngredients.map((ing) => (
-                    <button
-                      key={ing.id}
-                      type="button"
-                      onClick={() => addIngredient(ing)}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors"
-                    >
-                      <span className="font-medium text-gray-900">
-                        {ing.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        {ing.category.replace("_", " ")} •{" "}
-                        {ing.price_per_unit.toFixed(4)} lei/{ing.unit}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+      {/* Ingredient picker (multi-add) */}
+      <Modal
+        open={showPicker}
+        onClose={closePicker}
+        title="Pick Ingredients"
+        size="md"
+        footer={
+          <button
+            type="button"
+            onClick={closePicker}
+            className="py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+          >
+            Done{entries.length > 0 ? ` (${entries.length} added)` : ""}
+          </button>
+        }
+      >
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or brand..."
+            aria-label="Search ingredients"
+            className="w-full pl-10 pr-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+          />
         </div>
-      )}
-    </div>
+        {!ingredientsLoaded ? (
+          <p className="text-sm text-gray-500 text-center py-4">Loading ingredients...</p>
+        ) : allIngredients.length === 0 ? (
+          <div className="text-center py-4">
+            <p className="text-sm text-gray-500">Your ingredient library is empty.</p>
+            <Link
+              href="/ingredients?new=1"
+              className="mt-2 inline-block text-sm font-medium text-emerald-600 hover:text-emerald-700"
+            >
+              Create your first ingredient
+            </Link>
+          </div>
+        ) : pickerResults.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">
+            No ingredients match &ldquo;{searchQuery}&rdquo;.
+          </p>
+        ) : (
+          <>
+            <ul className="space-y-1">
+              {pickerResults.slice(0, PICKER_LIMIT).map((ing) => {
+                const added = usedIds.has(ing.id);
+                return (
+                  <li key={ing.id}>
+                    <button
+                      type="button"
+                      disabled={added}
+                      onClick={() => addIngredient(ing)}
+                      className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-emerald-50 disabled:hover:bg-transparent text-sm transition-colors"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium text-gray-900">{ing.name}</span>
+                        {ing.brand && (
+                          <span className="ml-1 text-xs text-gray-500">({ing.brand})</span>
+                        )}
+                        <span className="block text-xs text-gray-500">
+                          {humanizeSlug(ing.category)} ·{" "}
+                          {formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                        </span>
+                      </span>
+                      {added && (
+                        <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 shrink-0">
+                          <Check className="w-3.5 h-3.5" />
+                          Added
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {pickerResults.length > PICKER_LIMIT && (
+              <p className="text-xs text-gray-500 text-center pt-2">
+                Showing {PICKER_LIMIT} of {pickerResults.length} — type to narrow down.
+              </p>
+            )}
+          </>
+        )}
+      </Modal>
+    </>
   );
 }

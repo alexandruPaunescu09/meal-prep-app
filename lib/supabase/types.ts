@@ -317,3 +317,40 @@ export interface ApplyInvoiceLine {
   quantity_purchased: number;
   raw_name: string;
 }
+
+// ---- Atomic RPC payloads (migration 20261018000000_ux_integrity_rpcs) ----
+
+/** supabase.rpc("save_recipe", { p_recipe_id, p_recipe, p_ingredients }) -> recipe id (uuid) */
+export interface SaveRecipeInput {
+  name: string;
+  portions: number;
+  final_weight: number | null;
+  notes: string | null;
+  customer_description: string | null;
+  container_type_id: string | null;
+}
+
+export interface SaveRecipeIngredientInput {
+  ingredient_id: string;
+  quantity: number;
+}
+
+/** supabase.rpc("clone_week", { p_source_week, p_target_week }) */
+export interface CloneWeekResult {
+  created: string[];
+  skipped: number;
+}
+
+/** Items for supabase.rpc("log_container_delivery", { ..., p_items }) -> delivery id (uuid) */
+export interface LogContainerDeliveryItem {
+  container_type_id: string;
+  quantity_sent: number;
+  quantity_returned: number;
+}
+
+/** supabase.rpc("regenerate_prep_tasks", { p_week_start, p_tasks }) */
+export interface RegeneratePrepResult {
+  inserted: number;
+  preserved_completed: number;
+  dropped_completed: number;
+}

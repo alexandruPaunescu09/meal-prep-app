@@ -185,6 +185,13 @@ middleware.ts               # Auth check on all routes
 
 ### Functions
 - `apply_invoice_prices(p_invoice jsonb, p_lines jsonb) RETURNS jsonb` — `SECURITY INVOKER`, admin-only (`is_admin()` else raises `forbidden`; EXECUTE revoked from PUBLIC, granted to `authenticated`). Validates each line (ingredient_id present, `package_price` and `quantity_purchased` non-NULL and > 0, else raises and rolls everything back). Atomically inserts the `invoices` row, and for each line: if `package_price` or `quantity_purchased` differs from the stored values it ALWAYS updates both (counted as `updated`), otherwise counts `unchanged`; the OLD values are logged to `ingredient_price_history` only when price-per-unit differs (exact comparison, so a pure package-size change writes no history). Upserts the `(store, raw_name)` alias. Returns `{invoice_id, updated, unchanged}`. Never writes the generated `price_per_unit`.
+- Atomic UI write RPCs (`20261018000000_ux_integrity_rpcs.sql`, same house pattern: `SECURITY INVOKER`, `is_admin()` guard, EXECUTE revoked from PUBLIC / granted to `authenticated`; TS payload types in `lib/supabase/types.ts`):
+  - `save_recipe(p_recipe_id uuid, p_recipe jsonb, p_ingredients jsonb) RETURNS uuid` — insert (id null) or update a recipe and replace its `recipe_ingredients` in one transaction. Missing `p_recipe` keys are written as NULL, so callers always send every key.
+  - `duplicate_meal_plan(p_source_id, p_name, p_client_id, p_week_start, p_markup_multiplier) RETURNS uuid` — copies the plan's nutrition targets + all entry content (not statuses/reviews).
+  - `clone_week(p_source_week date, p_target_week date) RETURNS jsonb` — duplicates every plan of a week; skips clients that already have a plan in the target week. Returns `{created: uuid[], skipped}`.
+  - `log_container_delivery(p_client_id, p_meal_plan_id, p_delivery_date, p_notes, p_items jsonb) RETURNS uuid` — delivery + items in one insert; all-zero items skipped.
+  - `regenerate_prep_tasks(p_week_start date, p_tasks jsonb) RETURNS jsonb` — replaces a week's prep tasks; new tasks inherit `completed`/`completed_at` from an old task with the same `(ingredient_id, prep_type, prep_date)`. Returns `{inserted, preserved_completed, dropped_completed}`.
+- The same migration adds `meal_reviews` policy "Customer delete own" (`client_id = current_client_id()`; `meal_review_tags` cascade).
 
 ### RLS
 Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_admin()` for full CRUD; customer-readable tables additionally allow reads via `current_client_id()` (portal users). `profiles.role` ('admin' | 'customer') drives both helpers. New tables must follow this pattern.
@@ -212,6 +219,8 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | `/api/export/meal-plan?id=` | GET | Yes | Generate + download meal plan PDF |
 | `/api/export/meal-plan?id=` | POST | Yes | Generate PDF + email to client |
 | `/api/intake` | POST | No | Public client onboarding form submission |
+| `/api/portal/reviews` | POST / DELETE | Customer | Upsert a meal review (always send the intended `photo_path`) / delete own review (`?id=`; removes the photo from `meal-review-photos` first) |
+| `/api/portal/status` | POST | Customer | Set meal status (eaten/skipped/null); client helper `saveMealStatus()` queues offline |
 | `/api/og/meal-plan?id=&format=` | GET | No | Generate OG image (legacy, story/landscape) |
 
 ---
@@ -226,8 +235,14 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | `nutrition-search.tsx` | Search nutrition APIs | Confidence badges, source labels, macro preview |
 | `barcode-scanner.tsx` | Full-screen camera barcode scanner | `barcode-detector` (native or zxing-wasm ponyfill, wasm self-hosted at `/zxing/`), EAN-13/8, UPC-A/E, manual entry fallback, HTTPS required |
 | `delivery-form.tsx` | Log container delivery | Expected returns from last delivery, send/return quantities |
-| `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start |
+| `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start; renders `ShoppingListPanel` |
+| `shopping-list-panel.tsx` | Shared shopping list body | Check-offs (`useShoppingChecks`), Copy / Print / Hide checked / Clear checks, totals; used by the weekly modal and the meal-plan grid |
 | `weekly-cooking-modal.tsx` | Cross-plan cooking plan | Week dropdown, aggregates recipe portions + scaled ingredients across plans, per-client weight breakdown, persistent cooked check-offs |
+| `ui/modal.tsx` | Shared dialog | `role="dialog"`, Escape, focus trap + restore, body scroll lock, `dirty` discard guard, `variant="sheet"` for portal bottom sheets; z-50 |
+| `ui/confirm-dialog.tsx` | `useConfirm()` / `useAlert()` | Promise-based replacement for `window.confirm/alert`; z-[60] |
+| `ui/toast.tsx` | `useToast()` | success/error/info with optional action (Undo/Retry), aria-live; z-[70] |
+| `ui/icon-button.tsx` | Icon-only button | Required `label` (aria-label + title), ≥40px touch target on mobile |
+| `ui/providers.tsx` | `UiProviders` | Toast + confirm providers, mounted once in the root `app/layout.tsx` |
 
 ---
 
@@ -246,6 +261,17 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 - `calculateClientBalance(client, deliveries, containerTypes)` → per-client outstanding containers, flag status
 - `calculateExpectedReturns(lastDelivery)` → what client should return this delivery
 - `calculateChargeableAmount(balance)` → lei amount for lost containers beyond tolerance
+
+### Formatting (`lib/format.ts`)
+- `formatLei` (ro-RO, grouped: "1.234,50 lei"), `formatNumber` (ro-RO decimal comma, no thousands grouping: "2200"), `formatQuantity` (<1 → one decimal, else integer), `formatPricePerUnit(ppu, unit)` (lei/kg, lei/l, lei/buc), `parseDecimal` (accepts "12,5" and "12.5")
+- Labels: `humanizeSlug` ("bread_pasta" → "Bread Pasta", fallback when no category name), `WEEKDAYS_SHORT` / `WEEKDAYS_LONG` (Monday-first, index = `day_of_week - 1`)
+- Dates in English en-GB: `formatDate`, `formatShortDate`, `formatDateTime`, `formatWeekRange` ("19–25 Oct 2026")
+- Local-date helpers returning `'YYYY-MM-DD'`: `toLocalISODate`, `mondayOf`, `addDays`, `currentWeekStart`, `nextWeekStart`, `isMonday`, `parseLocalDate` — canonical here; `lib/portal/entry-helpers.ts` only re-exports aliases. Never use `toISOString()` / `new Date("YYYY-MM-DD")` for calendar dates (UTC off-by-one in Romania).
+
+### Client helpers
+- `lib/browser.ts`: `printHtml(html)` (hidden-iframe print), `escapeHtml`, `copyText(text) → Promise<boolean>`
+- `lib/hooks/use-listbox-nav.ts`: `useListboxNav({ count, onSelect, onEscape?, enabled?, listRef? })` — ArrowUp/Down/Enter/Escape + `aria-activedescendant` ids for search pickers
+- URL state in client components: `router.replace(url, { scroll: false })`, never `window.history.replaceState` (a later `router.refresh()` restores the router's own URL)
 
 ### Nutrition Search Pipeline
 1. Parallel search: USDA + OFF (Romania-first, global English fallback if < 3 results)
@@ -268,9 +294,11 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 - **Server components**: Fetch in page.tsx via `createServer()`, pass as props
 - **Client components**: `useEffect` or event handlers via `createClient()`
 
-### Modals
-- State-controlled rendering, z-index layered (z-40 form, z-50 search)
-- Close via X button or overlay click
+### Modals & feedback
+- Use `components/ui/modal.tsx` (never a hand-rolled `fixed inset-0` div); pass `dirty` on forms with unsaved edits. Z-index scale: sidebar overlay z-40, modal z-50, confirm z-[60], toast z-[70].
+- No `window.alert/confirm/prompt` (some embedded browsers suppress them): use `useConfirm()` and `useToast()`. Check every Supabase write's `error` and surface failures with a toast (Retry where cheap); optimistic updates roll back on failure.
+- Multi-row writes that must succeed together go through an RPC (see Functions), not sequential client calls.
+- Deep links: `?new=1` opens the create form on ingredients/recipes/clients, `?edit=<id>` on ingredients/recipes, `?scan=1` on ingredients; `/meal-plans?client=&week=&new=1`; cards are anchorable as `/clients#client-<id>` and `/containers#client-<id>`.
 
 ### Responsive
 - Desktop: tables with expandable rows, sidebar always visible
@@ -432,3 +460,7 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 | 2026-10-17 | Invoice import: Discard/Approve confirmations moved from `window.confirm()` (silently returned false in the app's embedded browser, so both buttons did nothing) to an in-page modal; parser now sets `effort: "medium"` explicitly and enables the server-side refusal fallback for non-Haiku models (Sonnet test runs) | `app/(authenticated)/ingredients/import/import-client.tsx`, `lib/invoices/parse.ts`, `CLAUDE.md` |
 | 2026-10-17 | Invoice prompt: Freshful invoices list NET unit prices + VAT rate, sizes only in product names, "Discount" lines under the item they reduce, per-page subtotals and service/fee lines. Haiku was returning pre-VAT prices and empty package sizes; prompt now spells out net→gross (× (1 + VAT)), discount-before-VAT, size-from-name, final total vs page subtotal and fee lines as non-food. Verified on a real 44-line Freshful invoice: Haiku and Sonnet both 31/31 correct prices and package sizes. | `lib/invoices/parse.ts`, `CLAUDE.md` |
 | 2026-10-17 | PR #3 review fixes: `apply_invoice_prices` now updates on any price/package change (history only when price-per-unit differs; validates inputs; EXECUTE revoked from PUBLIC) instead of the 0.0001 lei threshold; ingredient-form price-history check uses exact per-unit change; Claude parse: truncated-output and timeout errors mapped (SDK timeout 100s, 1 retry), invalid calendar dates nulled/rejected (`lib/invoices/dates.ts`); review UI: editable store/date, price rounded to 2 decimals, unit-mismatch and duplicate-ingredient warnings, 10-part limit; barcode: no digits-as-name, self-match ignored, per-serving warning only with nutrition; migrate workflow limited to main + concurrency group | `supabase/migrations/20261017000001_invoice_import.sql`, `lib/invoices/{parse,postprocess,dates}.ts`, `app/api/invoices/apply/route.ts`, `app/(authenticated)/ingredients/import/import-client.tsx`, `components/ingredient-form.tsx`, `lib/nutrition/open-food-facts.ts`, `.github/workflows/migrate.yml`, `CLAUDE.md` |
+| 2026-10-17 | UX review notes: three parallel read-only passes (admin catalog/shell, admin planning/ops, customer portal/intake) with severity-ranked findings, cross-cutting themes and an implementation order | `docs/ux-review-2026-10-17.md`, `CLAUDE.md` |
+| 2026-10-17 | UX foundations: shared `Modal` / `useConfirm` / `useAlert` / `useToast` / `IconButton` (providers in root layout), `lib/format.ts` (ro-RO lei, en-GB dates, local-date-safe week helpers), global `prefers-reduced-motion` rule; atomic RPCs `save_recipe`, `duplicate_meal_plan`, `clone_week`, `log_container_delivery`, `regenerate_prep_tasks` + customer delete policy on `meal_reviews` (tested on local Docker DB; **not yet pushed** — lands via the migrate workflow on merge to main) | `components/ui/*`, `lib/format.ts`, `app/layout.tsx`, `app/globals.css`, `supabase/migrations/20261018000000_ux_integrity_rpcs.sql`, `lib/supabase/types.ts`, `CLAUDE.md` |
+| 2026-10-17 | UX review fixes (all screens, per `docs/ux-review-2026-10-17.md`): every alert/confirm → toast/confirm dialog, every modal → shared Modal, write errors surfaced with rollback; recipe save / plan duplicate / delivery / prep regenerate now atomic (prep keeps completed checks); meal plans grouped by week with client filter + "New week from last week"; grid undo-delete toast, SlotPicker multi-add, mobile Move-to, keyboard drag, per-day kcal-vs-target badges, sibling-week nav; ingredients/recipes search + sort + deep links, decimal-comma inputs with lei/kg preview, FK-aware delete messages; receipt import bulk actions, changed-items summary, in-app nav guard; categories move-then-delete (also repoints prep rules); prep week arrows + Monday snap; clients cross-links + allergy chips; container balances first, Mark all returned; reviews links to recipe/plan/client, mark unread/all read; actionable dashboard (needs attention, this week, quick actions); a11y sweep (labels, focus, targets, aria-current). Portal: one-tap Eaten, status rollback, offline queue on any network failure + sync chip, review delete + photo failure handling (also fixed resubmit wiping the photo), first-run state, progress header, loading/error pages, Jump to today, install/offline banners, profile sign out + change password, intake sections + inline validation + server-side ranges, `password_set` set for returning registrants. Skipped (product decisions): Romanian UI copy, kg/l units, archive-instead-of-delete, customer self-edit of allergies, bigger-ideas list | `app/(authenticated)/**`, `app/(portal)/**`, `app/intake/*`, `app/login/page.tsx`, `app/api/intake/route.ts`, `app/api/portal/reviews/route.ts`, `app/portal/set-password/*`, `app/manifest.ts`, `public/sw.js`, `components/*.tsx`, `components/portal/*`, `components/admin/review-detail-modal.tsx`, `lib/data/{dashboard,meal-plan-siblings,meal-plans,reviews,tags}.ts`, `lib/actions/revalidate.ts`, `lib/hooks/use-{shopping,cooking}-checks.ts`, `lib/portal/*`, `lib/validations/schemas.ts`, `CLAUDE.md` |
+| 2026-10-17 | Simplify pass over the UX diff: canonical local-date + label helpers in `lib/format.ts` (`humanizeSlug`, `WEEKDAYS_*`, `formatQuantity`; entry-helpers re-exports, no more format→calculations import chain); `formatNumber` no longer groups thousands ("2200 kcal", not "2.200"); shared `ShoppingListPanel` replaces the grid's duplicate shopping modal; `lib/browser.ts` print/clipboard helpers; `useListboxNav` hook for pickers; URL state via `router.replace` (fixes `?new=1` reappearing after save; ingredients search write debounced 300 ms); review tags fetched once per page; stable `DndContext` id (hydration warning) | `lib/format.ts`, `lib/portal/entry-helpers.ts`, `lib/browser.ts`, `lib/hooks/use-listbox-nav.ts`, `lib/calculations/shopping-list.ts`, `components/shopping-list-panel.tsx`, `components/weekly-{shopping,cooking}-modal.tsx`, `components/{ingredient,recipe,prep-rule}-form.tsx`, `components/portal/{meal-detail-sheet,review-composer}.tsx`, `app/(authenticated)/{ingredients,recipes,clients,reviews,prep}/*-client.tsx`, `app/(authenticated)/ingredients/import/import-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/(portal)/portal/plans/[id]/plan-detail-client.tsx`, `CLAUDE.md` |

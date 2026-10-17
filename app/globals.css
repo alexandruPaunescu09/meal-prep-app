@@ -54,3 +54,44 @@ textarea:-webkit-autofill:active {
 .animate-tap-pulse {
   animation: tap-pulse 120ms ease-out;
 }
+
+/* UI primitives (components/ui) entrance animations. */
+@keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ui-pop-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes ui-sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes ui-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ui-fade-in { animation: ui-fade-in 150ms ease-out; }
+.ui-pop-in { animation: ui-pop-in 150ms ease-out; }
+.ui-toast-in { animation: ui-toast-in 180ms ease-out; }
+/* Sheet slides up on mobile only; md+ behaves like a centered dialog. */
+.ui-sheet-up { animation: ui-sheet-up 220ms ease-out; }
+@media (min-width: 48rem) {
+  .ui-sheet-up { animation: ui-pop-in 150ms ease-out; }
+}
+
+/* Respect the OS "reduce motion" setting: no animation, no transitions,
+ * no smooth scrolling (covers tap-pulse, animate-pulse/spin, ui-* above). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-tap-pulse,
+  .animate-pulse {
+    animation: none !important;
+  }
+}

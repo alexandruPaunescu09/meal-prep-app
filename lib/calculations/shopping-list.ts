@@ -1,3 +1,4 @@
+import { humanizeSlug } from "@/lib/format";
 import {
   Ingredient,
   Recipe,
@@ -67,7 +68,7 @@ export function generateShoppingList(
   const groups: ShoppingListGroup[] = Array.from(grouped.entries())
     .map(([category, categoryItems]) => ({
       category,
-      label: categoryLabels?.[category] ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      label: categoryLabels?.[category] ?? humanizeSlug(category),
       items: categoryItems.sort((a, b) => a.name.localeCompare(b.name)),
       subtotal: categoryItems.reduce((sum, i) => sum + i.estimatedCost, 0),
     }))

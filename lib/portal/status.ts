@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Client, ClientWithPortalStatus, PortalStatus } from "@/lib/supabase/types";
+import type { Client, PortalStatus } from "@/lib/supabase/types";
 
 /**
  * Derive portal status for a list of clients.

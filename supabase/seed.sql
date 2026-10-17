@@ -4,6 +4,8 @@
 --
 -- Local admin login:  admin@mealprep.local / local-admin-pass
 -- (test-only credentials for the local stack; never reuse them anywhere else)
+-- QA customer (not seeded; register via /intake after a reset, matching a
+-- client with this email): qa-customer@mealprep.local / qa-customer-pass
 
 DO $$
 DECLARE

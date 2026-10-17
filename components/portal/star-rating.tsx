@@ -6,21 +6,25 @@ export default function StarRating({
   value,
   onChange,
   size = 28,
+  label = "Rating",
 }: {
   value: number;
   onChange?: (v: number) => void;
   size?: number;
+  label?: string;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div role="radiogroup" aria-label={label} className="flex items-center gap-0.5">
       {[1, 2, 3, 4, 5].map((n) => {
         const filled = value >= n;
         return (
           <button
             type="button"
+            role="radio"
             key={n}
-            onClick={() => onChange?.(value === n ? 0 : n)}
-            className="p-1 -m-1 touch-manipulation"
+            aria-checked={value === n}
+            onClick={() => onChange?.(n)}
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center touch-manipulation rounded-lg focus-visible:outline-2 focus-visible:outline-emerald-600"
             aria-label={`${n} star${n === 1 ? "" : "s"}`}
             disabled={!onChange}
           >

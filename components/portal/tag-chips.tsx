@@ -35,7 +35,7 @@ export default function TagChips({
       )}
       {negative.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-red-700 mb-1.5">What didn't</p>
+          <p className="text-xs font-medium text-red-700 mb-1.5">What didn&apos;t</p>
           <div className="flex flex-wrap gap-2">
             {negative.map((t) => (
               <Chip

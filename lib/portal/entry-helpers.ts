@@ -1,5 +1,6 @@
 import { Ingredient, MealPlanEntry, Recipe, RecipeIngredient } from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
+import { addDays, mondayOf, parseLocalDate, toLocalISODate } from "@/lib/format";
 
 type FullEntry = MealPlanEntry & {
   recipe?: Recipe & {
@@ -67,45 +68,13 @@ export function dayOfWeekIndex(d: Date): number {
   return js === 0 ? 7 : js;
 }
 
-/** Monday of the week containing `d` (local time), formatted YYYY-MM-DD. */
-export function mondayOfWeek(d: Date): string {
-  const dow = dayOfWeekIndex(d);
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - (dow - 1));
-  return formatLocalDate(monday);
-}
-
-export function formatLocalDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-export function addDaysLocal(dateStr: string, days: number): string {
-  const [y, m, d] = dateStr.split("-").map((s) => parseInt(s, 10));
-  const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() + days);
-  return formatLocalDate(dt);
-}
-
-/**
- * Parse a YYYY-MM-DD string into a local-time Date (no timezone shifts).
- * Returns null if the string is malformed or doesn't denote a real calendar date.
- */
-export function parseLocalDate(s: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const [y, m, d] = s.split("-").map((p) => parseInt(p, 10));
-  const dt = new Date(y, m - 1, d);
-  if (
-    dt.getFullYear() !== y ||
-    dt.getMonth() !== m - 1 ||
-    dt.getDate() !== d
-  ) {
-    return null;
-  }
-  return dt;
-}
+// Local-date primitives live in lib/format.ts; aliased here for existing callers.
+export {
+  parseLocalDate,
+  toLocalISODate as formatLocalDate,
+  mondayOf as mondayOfWeek,
+  addDays as addDaysLocal,
+};
 
 /** True iff `s` is a valid YYYY-MM-DD calendar date. */
 export function isValidLocalDate(s: string): boolean {

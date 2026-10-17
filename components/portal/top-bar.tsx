@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LogOut, Utensils } from "lucide-react";
 import { useEffect } from "react";
 import { attachQueueFlusher } from "@/lib/portal/write-queue";
+import SyncStatus from "./sync-status";
 
 export default function TopBar({ greeting }: { greeting: string }) {
   const supabase = createClient();
@@ -18,9 +19,11 @@ export default function TopBar({ greeting }: { greeting: string }) {
 
   useEffect(() => {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.register("/sw.js").catch((e) => {
+        console.warn("Service worker registration failed", e);
+      });
     }
-    attachQueueFlusher();
+    return attachQueueFlusher();
   }, []);
 
   return (
@@ -32,10 +35,13 @@ export default function TopBar({ greeting }: { greeting: string }) {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate">{greeting}</p>
         </div>
+        <SyncStatus />
         <button
+          type="button"
           onClick={logout}
-          className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+          className="p-3 -m-1 rounded-lg hover:bg-gray-100 text-gray-500"
           aria-label="Sign out"
+          title="Sign out"
         >
           <LogOut className="w-5 h-5" />
         </button>
