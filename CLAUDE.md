@@ -32,7 +32,8 @@ app/
 │   ├── layout.tsx          # AppShell wrapper (sidebar + nav)
 │   ├── page.tsx            # Dashboard
 │   ├── ingredients/        # Ingredients CRUD
-│   │   └── categories/     # Category management CRUD
+│   │   ├── categories/     # Category management CRUD
+│   │   └── import/         # Receipt/invoice price import (upload → review → approve)
 │   ├── recipes/            # Recipes CRUD
 │   ├── meal-plans/         # Meal plans list + [id] grid editor
 │   ├── prep/               # Prep schedule (weekly view + rules config)
@@ -40,6 +41,7 @@ app/
 │   └── containers/         # Container types CRUD + client balances
 ├── api/
 │   ├── nutrition/search/   # Nutrition API search (USDA + OFF)
+│   ├── invoices/parse|apply/ # Receipt/invoice import (stateless parse, atomic apply)
 │   ├── export/meal-plan/   # PDF generation + email delivery
 │   ├── intake/             # Public client intake form handler
 │   └── og/meal-plan/       # OG image generation (legacy)
@@ -202,6 +204,8 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
 | `/api/nutrition/search?q=` | GET | Yes | Search USDA + OFF, returns ranked results |
+| `/api/invoices/parse` | POST | Admin | Stateless: multipart `files` (≤10, ≤4 MB, jpeg/png/webp/pdf) → Claude extraction + catalog matching; no writes |
+| `/api/invoices/apply` | POST | Admin | JSON `{invoice, lines}` → `apply_invoice_prices` RPC (atomic), revalidates ingredients cache |
 | `/api/export/meal-plan?id=` | GET | Yes | Generate + download meal plan PDF |
 | `/api/export/meal-plan?id=` | POST | Yes | Generate PDF + email to client |
 | `/api/intake` | POST | No | Public client onboarding form submission |
@@ -301,6 +305,12 @@ NCS = completeness(0.3) + verification(0.2) + freshness(0.15) + consistency(0.2)
 - **Tolerance**: each client has `container_tolerance` (default 2) — max outstanding before flagging
 - **Flagging**: when total outstanding > tolerance → client is flagged (amber warning in dashboard)
 - **Charging**: containers beyond tolerance can be charged at replacement cost from `container_types.cost`
+
+### Invoice import
+- Page `/ingredients/import`. Admin uploads Lidl Plus receipt screenshots / Freshful PDFs; tall images are sliced in the browser into ≤1560 px JPEG chunks (120 px overlap), total upload ≤4 MB.
+- `POST /api/invoices/parse` is **stateless**: sends files + a compact ingredient/alias catalog to Claude (`lib/invoices/parse.ts`, structured output via zod), post-processes (`lib/invoices/postprocess.ts`: exact store alias overrides the model match with high confidence; unknown ids dropped; unit mismatch nulls the match) and returns lines with current vs new price-per-unit and % change plus a read-only `duplicateOf` check.
+- **Approval checkpoint**: the parsed result lives only in client state; nothing is written until the admin reviews/edits lines and clicks Approve, which calls `/api/invoices/apply` → `apply_invoice_prices` (writes `invoices`, logs price history, updates prices, upserts `ingredient_aliases`).
+- Env: `ANTHROPIC_API_KEY` (required), `INVOICE_PARSER_MODEL` (default `claude-haiku-5-5`).
 
 ### PDF Export
 - React PDF document (`@react-pdf/renderer`) generated server-side
@@ -408,3 +418,4 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 | 2026-06-13 | Customer portal date-change feedback: tapping a date in the strip now snaps the selection instantly (`pendingDate` lifted into `today-client.tsx`), micro-pulses the tapped pill (CSS `@keyframes tap-pulse` + key-bump remount), and slides the strip ±3 days via `translateX` + double-RAF transition. Calendar picks show a `Loader2` spinner on the picked cell, dim the others, and auto-close when `selectedDate` catches up. Cards area shows three pulsing skeletons after a 100ms gate (fast cache hits don't flash). | `app/globals.css`, `app/(portal)/portal/today-client.tsx`, `components/portal/day-scrubber.tsx`, `components/portal/calendar-picker.tsx` |
 | 2026-06-22 | Fix: portal API routes (`/api/portal/*`) were excluded from `isPortal` check in middleware, causing customer requests to be redirected to `/portal` (HTML) instead of processed — `fetch()` received HTML and threw JSON parse error. Extended `isPortal` to cover `/api/portal` prefix. | `middleware.ts` |
 | 2026-10-17 | Foundation for barcode scan + invoice price import: `ingredients.brand`, `invoices` + `ingredient_aliases` tables (admin RLS), atomic `apply_invoice_prices()` RPC, shared types, `requireAdmin()` API guard (invite route refactored), IngredientForm `brand` field + `defaults`/`onSaved` props, brand shown in ingredients list, hardened (still disabled) migrate workflow | `supabase/migrations/20261017000000_ingredient_brand.sql`, `supabase/migrations/20261017000001_invoice_import.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/auth/require-admin.ts`, `app/api/portal/invite/route.ts`, `components/ingredient-form.tsx`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.github/workflows/migrate.yml`, `CLAUDE.md` |
+| 2026-10-17 | Receipt/invoice price import: Claude-based parsing (stateless), review/approval UI with ingredient matching + create-ingredient, atomic apply, store aliases | `lib/invoices/parse.ts`, `lib/invoices/postprocess.ts`, `app/api/invoices/parse/route.ts`, `app/api/invoices/apply/route.ts`, `app/(authenticated)/ingredients/import/*`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.gitignore`, `package.json`, `CLAUDE.md` |
