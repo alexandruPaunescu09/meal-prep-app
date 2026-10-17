@@ -152,6 +152,8 @@ export default function IngredientForm({
       } = await res.json();
 
       if (data.existing) {
+        // Same product as the one being edited: nothing to report.
+        if (ingredient && data.existing.id === ingredient.id) return;
         setBarcodeNotice({ kind: "existing", ...data.existing });
         return;
       }
@@ -166,7 +168,9 @@ export default function IngredientForm({
             unit: packageSize.unit,
           }),
         }));
-        if (perServingOnly) setBarcodeNotice({ kind: "per_serving" });
+        const n = result.nutrition;
+        const hasNutrition = [n.calories, n.protein, n.carbs, n.fat].some((v) => v !== null);
+        if (perServingOnly && hasNutrition) setBarcodeNotice({ kind: "per_serving" });
       }
     } catch {
       setBarcodeNotice({
@@ -212,7 +216,7 @@ export default function IngredientForm({
         ? form.package_price / form.quantity_purchased
         : 0;
 
-      const priceChanged = Math.abs(oldPPU - newPPU) > 0.0001;
+      const priceChanged = Math.abs(oldPPU - newPPU) > 1e-12;
 
       const updatePromise = supabase
         .from("ingredients")

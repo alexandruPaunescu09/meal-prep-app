@@ -91,21 +91,34 @@ BEGIN
     v_new_qty   := (v_line->>'quantity_purchased')::numeric;
     v_raw_name  := btrim(COALESCE(v_line->>'raw_name', ''));
 
+    IF v_ing_id IS NULL THEN
+      RAISE EXCEPTION 'line is missing ingredient_id';
+    END IF;
+    IF v_new_price IS NULL OR v_new_price <= 0 THEN
+      RAISE EXCEPTION 'package_price must be greater than 0 (ingredient %)', v_ing_id;
+    END IF;
+    IF v_new_qty IS NULL OR v_new_qty <= 0 THEN
+      RAISE EXCEPTION 'quantity_purchased must be greater than 0 (ingredient %)', v_ing_id;
+    END IF;
+
     SELECT * INTO v_ing FROM ingredients WHERE id = v_ing_id FOR UPDATE;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'ingredient % not found', v_ing_id;
     END IF;
 
-    v_old_ppu := COALESCE(v_ing.package_price / NULLIF(v_ing.quantity_purchased, 0), 0);
-    v_new_ppu := COALESCE(v_new_price / NULLIF(v_new_qty, 0), 0);
+    v_old_ppu := v_ing.package_price / NULLIF(v_ing.quantity_purchased, 0);
+    v_new_ppu := v_new_price / v_new_qty;
 
-    IF abs(v_old_ppu - v_new_ppu) <= 0.0001 THEN
-      v_unchanged := v_unchanged + 1;
-    ELSE
-      INSERT INTO ingredient_price_history
-        (ingredient_id, package_price, quantity_purchased, unit, price_per_unit)
-      VALUES
-        (v_ing.id, v_ing.package_price, v_ing.quantity_purchased, v_ing.unit, v_old_ppu);
+    IF v_new_price IS DISTINCT FROM v_ing.package_price
+       OR v_new_qty IS DISTINCT FROM v_ing.quantity_purchased THEN
+      -- Log the old values only when the per-unit price really differs
+      -- (exact comparison); a pure package-size change is not a price change.
+      IF v_old_ppu IS DISTINCT FROM v_new_ppu THEN
+        INSERT INTO ingredient_price_history
+          (ingredient_id, package_price, quantity_purchased, unit, price_per_unit)
+        VALUES
+          (v_ing.id, v_ing.package_price, v_ing.quantity_purchased, v_ing.unit, COALESCE(v_old_ppu, 0));
+      END IF;
 
       -- price_per_unit is GENERATED; only write its inputs.
       UPDATE ingredients
@@ -113,6 +126,8 @@ BEGIN
       WHERE id = v_ing.id;
 
       v_updated := v_updated + 1;
+    ELSE
+      v_unchanged := v_unchanged + 1;
     END IF;
 
     IF v_raw_name <> '' THEN
@@ -131,4 +146,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION apply_invoice_prices(jsonb, jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION apply_invoice_prices(jsonb, jsonb) TO authenticated;

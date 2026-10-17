@@ -17,8 +17,15 @@ on:
     paths:
       - 'supabase/migrations/**'
 
+# Never run two migration jobs at once.
+concurrency:
+  group: supabase-migrate
+  cancel-in-progress: false
+
 jobs:
   migrate:
+    # Manual dispatch from a feature branch must not push unmerged migrations.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # SUPABASE_ACCESS_TOKEN is an environment secret of the GitHub
     # "Production" environment, so the job must declare it to see the secret.
