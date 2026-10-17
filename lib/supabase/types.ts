@@ -13,6 +13,7 @@ export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 export interface Ingredient {
   id: string;
   name: string;
+  brand: string | null;
   category: IngredientCategory;
   quantity_purchased: number;
   unit: string;
@@ -272,4 +273,47 @@ export interface MealEntryStatus {
   client_id: string;
   status: MealStatus;
   updated_at: string;
+}
+
+export interface Invoice {
+  id: string;
+  store: string;
+  invoice_date: string | null;
+  total: number | null;
+  file_names: string[];
+  parsed: unknown;
+  applied_lines: unknown;
+  model: string | null;
+  created_at: string;
+}
+
+export interface IngredientAlias {
+  id: string;
+  ingredient_id: string;
+  store: string;
+  alias: string;
+  created_at: string;
+}
+
+export type MatchConfidence = "high" | "medium" | "low";
+
+export interface ParsedInvoiceLine {
+  raw_text: string;
+  raw_name: string;
+  quantity: number | null;
+  line_total: number | null;
+  is_food: boolean;
+  ingredient_id: string | null;
+  match_confidence: MatchConfidence | null;
+  package_quantity: number | null;
+  package_unit: "g" | "ml" | "buc" | null;
+  package_price: number | null;
+  note: string | null;
+}
+
+export interface ApplyInvoiceLine {
+  ingredient_id: string;
+  package_price: number;
+  quantity_purchased: number;
+  raw_name: string;
 }

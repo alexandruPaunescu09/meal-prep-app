@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServer } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { inviteSchema } from "@/lib/validations/schemas";
 
@@ -15,18 +15,9 @@ function service() {
 
 export async function POST(req: NextRequest) {
   // Guard: only admins.
-  const supabase = await createServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (profile?.role !== "admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return auth.response;
+  const { supabase } = auth;
 
   let body;
   try {

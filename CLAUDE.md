@@ -32,7 +32,8 @@ app/
 │   ├── layout.tsx          # AppShell wrapper (sidebar + nav)
 │   ├── page.tsx            # Dashboard
 │   ├── ingredients/        # Ingredients CRUD
-│   │   └── categories/     # Category management CRUD
+│   │   ├── categories/     # Category management CRUD
+│   │   └── import/         # Receipt/invoice price import (upload → review → approve)
 │   ├── recipes/            # Recipes CRUD
 │   ├── meal-plans/         # Meal plans list + [id] grid editor
 │   ├── prep/               # Prep schedule (weekly view + rules config)
@@ -40,6 +41,8 @@ app/
 │   └── containers/         # Container types CRUD + client balances
 ├── api/
 │   ├── nutrition/search/   # Nutrition API search (USDA + OFF)
+│   ├── nutrition/barcode/  # Barcode lookup (existing ingredient or OFF v2)
+│   ├── invoices/parse|apply/ # Receipt/invoice import (stateless parse, atomic apply)
 │   ├── export/meal-plan/   # PDF generation + email delivery
 │   ├── intake/             # Public client intake form handler
 │   └── og/meal-plan/       # OG image generation (legacy)
@@ -50,6 +53,7 @@ components/
 ├── ingredient-form.tsx     # Ingredient create/edit modal
 ├── recipe-form.tsx         # Recipe create/edit modal (+ container type)
 ├── nutrition-search.tsx    # Nutrition API search modal
+├── barcode-scanner.tsx     # Camera barcode scanner overlay (+ manual entry)
 └── delivery-form.tsx       # Container delivery logging modal
 lib/
 ├── supabase/
@@ -103,7 +107,7 @@ middleware.ts               # Auth check on all routes
 - Index: `(sort_order)`
 
 **`ingredients`**
-- `id` UUID PK, `name` TEXT, `category` TEXT (references ingredient_categories.slug by convention)
+- `id` UUID PK, `name` TEXT, `brand` TEXT (nullable), `category` TEXT (references ingredient_categories.slug by convention)
 - `quantity_purchased` NUMERIC, `unit` TEXT (g/ml/buc), `package_price` NUMERIC
 - `price_per_unit` NUMERIC **GENERATED** (`package_price / NULLIF(quantity_purchased, 0)`)
 - Macros (per 100g): `calories`, `protein`, `carbs`, `fat`, `fiber`, `sugar`, `sat_fat`, `salt`
@@ -171,8 +175,19 @@ middleware.ts               # Auth check on all routes
 - PK: `(week_start, recipe_id)`. Row presence = recipe marked cooked. Same pattern as `shopping_check_state`, keyed per week so checks are shared across all plans for that week.
 - Index: `(week_start)`
 
+**`invoices`** (admin-only)
+- `id` UUID PK, `store` TEXT, `invoice_date` DATE, `total` NUMERIC, `file_names` TEXT[], `parsed` JSONB (raw model output), `applied_lines` JSONB, `model` TEXT, `created_at`
+- Index: `(store, invoice_date)`. Rows are written ONLY when the admin approves an import (via `apply_invoice_prices`).
+
+**`ingredient_aliases`** (admin-only)
+- `id` UUID PK, `ingredient_id` FK→ingredients CASCADE, `store` TEXT, `alias` TEXT (receipt/invoice name), `created_at`
+- UNIQUE `(store, lower(alias))`; index `(ingredient_id)`. Remembers how a store prints an ingredient name.
+
+### Functions
+- `apply_invoice_prices(p_invoice jsonb, p_lines jsonb) RETURNS jsonb` — `SECURITY INVOKER`, admin-only (`is_admin()` else raises `forbidden`; EXECUTE revoked from PUBLIC, granted to `authenticated`). Validates each line (ingredient_id present, `package_price` and `quantity_purchased` non-NULL and > 0, else raises and rolls everything back). Atomically inserts the `invoices` row, and for each line: if `package_price` or `quantity_purchased` differs from the stored values it ALWAYS updates both (counted as `updated`), otherwise counts `unchanged`; the OLD values are logged to `ingredient_price_history` only when price-per-unit differs (exact comparison, so a pure package-size change writes no history). Upserts the `(store, raw_name)` alias. Returns `{invoice_id, updated, unchanged}`. Never writes the generated `price_per_unit`.
+
 ### RLS
-All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
+Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_admin()` for full CRUD; customer-readable tables additionally allow reads via `current_client_id()` (portal users). `profiles.role` ('admin' | 'customer') drives both helpers. New tables must follow this pattern.
 
 ---
 
@@ -191,6 +206,9 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
 | `/api/nutrition/search?q=` | GET | Yes | Search USDA + OFF, returns ranked results |
+| `/api/nutrition/barcode?code=` | GET | Yes | Barcode (8-14 digits): `{ existing: {id,name} }` if already saved, else `{ product: BarcodeLookup }` from OFF v2, or 404 `{ error: "not_found" }` |
+| `/api/invoices/parse` | POST | Admin | Stateless: multipart `files` (≤10, ≤4 MB, jpeg/png/webp/pdf) → Claude extraction + catalog matching; no writes |
+| `/api/invoices/apply` | POST | Admin | JSON `{invoice, lines}` → `apply_invoice_prices` RPC (atomic), revalidates ingredients cache |
 | `/api/export/meal-plan?id=` | GET | Yes | Generate + download meal plan PDF |
 | `/api/export/meal-plan?id=` | POST | Yes | Generate PDF + email to client |
 | `/api/intake` | POST | No | Public client onboarding form submission |
@@ -206,6 +224,7 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 | `ingredient-form.tsx` | Create/edit ingredient | Nutrition search, price history tracking, macro inputs |
 | `recipe-form.tsx` | Create/edit recipe | Ingredient picker, container type dropdown, live cost/nutrition |
 | `nutrition-search.tsx` | Search nutrition APIs | Confidence badges, source labels, macro preview |
+| `barcode-scanner.tsx` | Full-screen camera barcode scanner | `barcode-detector` (native or zxing-wasm ponyfill, wasm self-hosted at `/zxing/`), EAN-13/8, UPC-A/E, manual entry fallback, HTTPS required |
 | `delivery-form.tsx` | Log container delivery | Expected returns from last delivery, send/return quantities |
 | `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start |
 | `weekly-cooking-modal.tsx` | Cross-plan cooking plan | Week dropdown, aggregates recipe portions + scaled ingredients across plans, per-client weight breakdown, persistent cooked check-offs |
@@ -270,6 +289,7 @@ All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
 
 ### Nutrition
 - Everything normalized **per 100g/100ml**
+- Barcode lookup: `lookupBarcode(code)` in `lib/nutrition/open-food-facts.ts` (OFF v2 API) returns `{ result, packageSize, perServingOnly }`; no NCS hard-reject (user reviews the result). Scan from the ingredient form or the Scan button on the Ingredients page. Camera access requires HTTPS: test on a phone over LAN with `next dev --experimental-https`. The zxing `.wasm` is copied to `public/zxing/` by `npm install` (`postinstall` -> `scripts/copy-zxing-wasm.mjs`; gitignored).
 - Recipe aggregation: `nutrient_total = sum(ingredient_nutrient × (quantity / 100))`
 - Per portion = total / portions
 - Micronutrients stored as flexible JSONB (vitamin_a_ug, iron_mg, etc.)
@@ -290,6 +310,13 @@ NCS = completeness(0.3) + verification(0.2) + freshness(0.15) + consistency(0.2)
 - **Tolerance**: each client has `container_tolerance` (default 2) — max outstanding before flagging
 - **Flagging**: when total outstanding > tolerance → client is flagged (amber warning in dashboard)
 - **Charging**: containers beyond tolerance can be charged at replacement cost from `container_types.cost`
+
+### Invoice import
+- Page `/ingredients/import`. Admin uploads Lidl Plus receipt screenshots / Freshful PDFs; tall images are sliced in the browser into ≤1560 px JPEG chunks (120 px overlap), total upload ≤4 MB.
+- `POST /api/invoices/parse` is **stateless**: sends files + a compact ingredient/alias catalog to Claude (`lib/invoices/parse.ts`, structured output via zod), post-processes (`lib/invoices/postprocess.ts`: exact store alias overrides the model match with high confidence; unknown ids dropped; unit mismatch nulls the match) and returns lines with current vs new price-per-unit and % change plus a read-only `duplicateOf` check.
+- **Approval checkpoint**: the parsed result lives only in client state; nothing is written until the admin reviews/edits lines and clicks Approve, which calls `/api/invoices/apply` → `apply_invoice_prices` (writes `invoices`, logs price history, updates prices, upserts `ingredient_aliases`).
+- Env: `ANTHROPIC_API_KEY` (required), `INVOICE_PARSER_MODEL` (default `claude-haiku-5-5`; `claude-sonnet-5-5` also tested). Calls use the beta Messages endpoint with `output_config.effort: "medium"`; non-Haiku models also send the server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) — Haiku has none.
+- Confirmations (Approve / Discard) use an in-page modal, not `window.confirm()`, which some embedded browsers suppress.
 
 ### PDF Export
 - React PDF document (`@react-pdf/renderer`) generated server-side
@@ -315,12 +342,19 @@ USDA_API_KEY                    # USDA FoodData Central API key
 RESEND_API_KEY                  # Resend email service (for PDF email delivery)
 CONTAINER_TOLERANCE_DEFAULT     # Max outstanding containers before flagging (default: 2)
 NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans (default: 2.5)
+ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing); must be scoped to a workspace (keys without one are rejected with "must include the anthropic-workspace-id header")
+INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: claude-haiku-5-5)
 ```
 
 ### Local Development
 - `.env.development.local` overrides `.env.local` during `next dev`
 - Local Supabase via Docker: `npm run db:start`
 - Scripts: `db:start`, `db:stop`, `db:reset`
+
+### Migrations
+- Prod migration history was reconciled on 2026-10-17: `supabase db diff --linked` confirmed prod matched the 19 migrations up to `20260612000000` (only extra object: the Supabase-managed `rls_auto_enable()` event-trigger function), then `supabase migration repair --status applied` recorded them. **Never apply migrations through the SQL editor again**: use `npx supabase db push --linked` or the workflow, otherwise the history drifts again.
+- `.github/workflows/migrate.yml` runs `db push` on every push to `main` that touches `supabase/migrations/**` (or manually via workflow_dispatch). It needs only `SUPABASE_ACCESS_TOKEN`, stored as an environment secret of the GitHub **Production** environment (the job declares `environment: Production` to read it): the pinned CLI (2.121.0) connects through a temporary login role, so no DB password secret is used.
+- Test every migration locally first: Docker Desktop + `npm run db:start` + `npm run db:reset` (replays all migrations from scratch).
 
 ---
 
@@ -390,3 +424,11 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2026-06-13 | Meal-plan inline quantity edit: click value text (`×3` / `200g`) on desktop or tap row on mobile to edit `portions`/`quantity` in place. Desktop renders an inline number input with ✓/✗ buttons (Enter/blur saves, Escape/✗ cancels via `onMouseDown` to beat blur). Mobile renders a centered popover with explicit Save/Cancel; ingredient entries expose both Quantity and Portions. Validation matches `SlotPicker` (portions ≥0.1 step 0.1; quantity ≥1 step 1). Saves via the existing optimistic snapshot/rollback pattern with same-id rapid-fire guard; new entries (`temp-` ids) and entries mid-drag are not editable. | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2026-06-13 | Customer portal date-change feedback: tapping a date in the strip now snaps the selection instantly (`pendingDate` lifted into `today-client.tsx`), micro-pulses the tapped pill (CSS `@keyframes tap-pulse` + key-bump remount), and slides the strip ±3 days via `translateX` + double-RAF transition. Calendar picks show a `Loader2` spinner on the picked cell, dim the others, and auto-close when `selectedDate` catches up. Cards area shows three pulsing skeletons after a 100ms gate (fast cache hits don't flash). | `app/globals.css`, `app/(portal)/portal/today-client.tsx`, `components/portal/day-scrubber.tsx`, `components/portal/calendar-picker.tsx` |
 | 2026-06-22 | Fix: portal API routes (`/api/portal/*`) were excluded from `isPortal` check in middleware, causing customer requests to be redirected to `/portal` (HTML) instead of processed — `fetch()` received HTML and threw JSON parse error. Extended `isPortal` to cover `/api/portal` prefix. | `middleware.ts` |
+| 2026-10-17 | Foundation for barcode scan + invoice price import: `ingredients.brand`, `invoices` + `ingredient_aliases` tables (admin RLS), atomic `apply_invoice_prices()` RPC, shared types, `requireAdmin()` API guard (invite route refactored), IngredientForm `brand` field + `defaults`/`onSaved` props, brand shown in ingredients list, hardened (still disabled) migrate workflow | `supabase/migrations/20261017000000_ingredient_brand.sql`, `supabase/migrations/20261017000001_invoice_import.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/auth/require-admin.ts`, `app/api/portal/invite/route.ts`, `components/ingredient-form.tsx`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.github/workflows/migrate.yml`, `CLAUDE.md` |
+| 2026-10-17 | Receipt/invoice price import: Claude-based parsing (stateless), review/approval UI with ingredient matching + create-ingredient, atomic apply, store aliases | `lib/invoices/parse.ts`, `lib/invoices/postprocess.ts`, `app/api/invoices/parse/route.ts`, `app/api/invoices/apply/route.ts`, `app/(authenticated)/ingredients/import/*`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.gitignore`, `package.json`, `CLAUDE.md` |
+| 2026-10-17 | Barcode scanning for ingredients: `barcode-detector` scanner overlay, `/api/nutrition/barcode`, OFF client refactor (`mapProduct`, `lookupBarcode` on v2 API with package size parsing), Scan buttons in ingredient form + Ingredients page, self-hosted zxing wasm via postinstall | `components/barcode-scanner.tsx`, `components/ingredient-form.tsx`, `app/api/nutrition/barcode/route.ts`, `lib/nutrition/open-food-facts.ts`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `scripts/copy-zxing-wasm.mjs`, `package.json`, `.gitignore` |
+| 2026-10-17 | Reconciled prod migration history: the migrate workflow had never succeeded and migrations were pasted into the SQL editor, so `schema_migrations` was empty. Verified prod schema = the 19 migration files (`db diff --linked`, public + storage), then `migration repair --status applied` for all 19. Only the two 2026-10-17 migrations are now pending. | `CLAUDE.md` |
+| 2026-10-17 | Invoice parse errors now include the Claude API's own message (and log it server-side) instead of a generic "files may be unreadable" — a user-scoped API key was being rejected for missing a workspace and the UI hid the reason | `lib/invoices/parse.ts`, `CLAUDE.md` |
+| 2026-10-17 | Invoice import: Discard/Approve confirmations moved from `window.confirm()` (silently returned false in the app's embedded browser, so both buttons did nothing) to an in-page modal; parser now sets `effort: "medium"` explicitly and enables the server-side refusal fallback for non-Haiku models (Sonnet test runs) | `app/(authenticated)/ingredients/import/import-client.tsx`, `lib/invoices/parse.ts`, `CLAUDE.md` |
+| 2026-10-17 | Invoice prompt: Freshful invoices list NET unit prices + VAT rate, sizes only in product names, "Discount" lines under the item they reduce, per-page subtotals and service/fee lines. Haiku was returning pre-VAT prices and empty package sizes; prompt now spells out net→gross (× (1 + VAT)), discount-before-VAT, size-from-name, final total vs page subtotal and fee lines as non-food. Verified on a real 44-line Freshful invoice: Haiku and Sonnet both 31/31 correct prices and package sizes. | `lib/invoices/parse.ts`, `CLAUDE.md` |
+| 2026-10-17 | PR #3 review fixes: `apply_invoice_prices` now updates on any price/package change (history only when price-per-unit differs; validates inputs; EXECUTE revoked from PUBLIC) instead of the 0.0001 lei threshold; ingredient-form price-history check uses exact per-unit change; Claude parse: truncated-output and timeout errors mapped (SDK timeout 100s, 1 retry), invalid calendar dates nulled/rejected (`lib/invoices/dates.ts`); review UI: editable store/date, price rounded to 2 decimals, unit-mismatch and duplicate-ingredient warnings, 10-part limit; barcode: no digits-as-name, self-match ignored, per-serving warning only with nutrition; migrate workflow limited to main + concurrency group | `supabase/migrations/20261017000001_invoice_import.sql`, `lib/invoices/{parse,postprocess,dates}.ts`, `app/api/invoices/apply/route.ts`, `app/(authenticated)/ingredients/import/import-client.tsx`, `components/ingredient-form.tsx`, `lib/nutrition/open-food-facts.ts`, `.github/workflows/migrate.yml`, `CLAUDE.md` |

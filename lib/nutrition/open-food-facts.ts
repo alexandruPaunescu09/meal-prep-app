@@ -3,7 +3,8 @@ import { computeNCS, OFFProductFull } from "./confidence";
 import { classifyByCategories } from "./classification";
 
 const OFF_SEARCH_URL = "https://world.openfoodfacts.org/cgi/search.pl";
-const OFF_BARCODE_URL = "https://world.openfoodfacts.org/api/v0/product";
+const OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product";
+const OFF_USER_AGENT = "MealPrepApp/1.0 (meal-prep admin app)";
 
 const OFF_FIELDS = [
   "product_name",
@@ -19,6 +20,25 @@ const OFF_FIELDS = [
   "ingredients_text",
   "categories_tags",
 ].join(",");
+
+const OFF_BARCODE_FIELDS = [
+  OFF_FIELDS,
+  "product_quantity",
+  "product_quantity_unit",
+  "quantity",
+].join(",");
+
+interface OFFProductWithQuantity extends OFFProductFull {
+  product_quantity?: number | string;
+  product_quantity_unit?: string;
+  quantity?: string;
+}
+
+export interface BarcodeLookup {
+  result: NutritionSearchResult;
+  packageSize: { quantity: number; unit: "g" | "ml" } | null;
+  perServingOnly: boolean;
+}
 
 const CORE_NUTRIENT_KEYS = [
   "energy-kcal_100g",
@@ -91,6 +111,23 @@ function countMissingCore(nutriments: Record<string, number>): number {
   return missing;
 }
 
+function mapProduct(p: OFFProductFull, nameFallback?: string): NutritionSearchResult {
+  const nutrition = extractNutrition(p.nutriments ?? {});
+  const ncs = computeNCS(p);
+  const category = classifyByCategories(p.categories_tags ?? []);
+
+  return {
+    name: p.product_name || nameFallback || "",
+    brand: p.brands || null,
+    source: "openfoodfacts" as const,
+    barcode: p.code || null,
+    nutrition,
+    completeness: completeness(nutrition),
+    confidenceScore: Math.round(ncs * 100) / 100,
+    category,
+  };
+}
+
 export async function searchOpenFoodFacts(
   query: string
 ): Promise<NutritionSearchResult[]> {
@@ -113,52 +150,67 @@ export async function searchOpenFoodFacts(
       if (countMissingCore(p.nutriments) > 2) return false;
       return true;
     })
-    .map((p) => {
-      const nutrition = extractNutrition(p.nutriments!);
-      const ncs = computeNCS(p);
-      const categories = p.categories_tags ?? [];
-      const category = classifyByCategories(categories);
-
-      return {
-        name: p.product_name!,
-        brand: p.brands || null,
-        source: "openfoodfacts" as const,
-        barcode: p.code || null,
-        nutrition,
-        completeness: completeness(nutrition),
-        confidenceScore: Math.round(ncs * 100) / 100,
-        category,
-      };
-    });
+    .map((p) => mapProduct(p));
 }
 
-export async function searchByBarcode(
-  barcode: string
-): Promise<NutritionSearchResult | null> {
-  const res = await fetch(`${OFF_BARCODE_URL}/${barcode}.json`, {
-    signal: AbortSignal.timeout(5000),
-  });
+function toBaseUnit(
+  value: number,
+  rawUnit: string
+): { quantity: number; unit: "g" | "ml" } | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const u = rawUnit.trim().toLowerCase();
+  switch (u) {
+    case "g":
+      return { quantity: value, unit: "g" };
+    case "kg":
+      return { quantity: value * 1000, unit: "g" };
+    case "ml":
+      return { quantity: value, unit: "ml" };
+    case "cl":
+      return { quantity: value * 10, unit: "ml" };
+    case "l":
+      return { quantity: value * 1000, unit: "ml" };
+    default:
+      return null;
+  }
+}
+
+function parsePackageSize(
+  p: OFFProductWithQuantity
+): { quantity: number; unit: "g" | "ml" } | null {
+  const qty = Number(p.product_quantity);
+  if (p.product_quantity !== undefined && p.product_quantity !== "" && p.product_quantity_unit) {
+    const parsed = toBaseUnit(qty, p.product_quantity_unit);
+    if (parsed) return parsed;
+  }
+  if (p.quantity) {
+    const m = p.quantity.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|cl|l)(?![a-z])/i);
+    if (m) return toBaseUnit(parseFloat(m[1].replace(",", ".")), m[2]);
+  }
+  return null;
+}
+
+export async function lookupBarcode(code: string): Promise<BarcodeLookup | null> {
+  const res = await fetch(
+    `${OFF_PRODUCT_URL}/${encodeURIComponent(code)}?fields=${OFF_BARCODE_FIELDS}`,
+    {
+      signal: AbortSignal.timeout(5000),
+      headers: { "User-Agent": OFF_USER_AGENT },
+    }
+  );
   if (!res.ok) return null;
 
   const data = await res.json();
   if (data.status !== 1 || !data.product) return null;
 
-  const p: OFFProductFull = data.product;
-  if (!p.nutriments) return null;
+  const p: OFFProductWithQuantity = data.product;
+  const result = mapProduct({ ...p, code });
+  result.brand = p.brands?.split(",")[0]?.trim() || null;
 
-  const nutrition = extractNutrition(p.nutriments);
-  const ncs = computeNCS(p);
-  const categories = p.categories_tags ?? [];
-  const category = classifyByCategories(categories);
+  const nutriments = p.nutriments ?? {};
+  const perServingOnly =
+    (!!p.nutrition_data_per && p.nutrition_data_per !== "100g") ||
+    nutriments["energy-kcal_100g"] === undefined;
 
-  return {
-    name: p.product_name || barcode,
-    brand: p.brands || null,
-    source: "openfoodfacts",
-    barcode: barcode,
-    nutrition,
-    completeness: completeness(nutrition),
-    confidenceScore: Math.round(ncs * 100) / 100,
-    category,
-  };
+  return { result, packageSize: parsePackageSize(p), perServingOnly };
 }

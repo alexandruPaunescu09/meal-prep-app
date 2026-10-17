@@ -42,3 +42,9 @@ supabase/.temp
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# receipt samples (never commit)
+samples/
+
+# zxing wasm, copied from node_modules by postinstall
+/public/zxing/

@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 export const ingredientSchema = z.object({
   name: z.string().min(1, "Name is required"),
+  brand: z.string().nullable().optional(),
   category: z.string().min(1, "Category is required"),
   quantity_purchased: z.number().positive("Must be > 0"),
   unit: z.enum(["g", "ml", "buc"]),

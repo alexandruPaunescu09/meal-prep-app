@@ -11,29 +11,73 @@ import {
 } from "@/lib/supabase/types";
 import NutritionSearch from "./nutrition-search";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
-import { Search, X, ChevronDown, ChevronUp } from "lucide-react";
+import BarcodeScanner from "./barcode-scanner";
+import { Search, X, ChevronDown, ChevronUp, ScanBarcode, Loader2 } from "lucide-react";
+import type { BarcodeLookup } from "@/lib/nutrition/open-food-facts";
+
+export interface IngredientFormState {
+  name: string;
+  brand: string;
+  category: string;
+  quantity_purchased: number;
+  unit: string;
+  package_price: number;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sat_fat: number | null;
+  salt: number | null;
+  micronutrients: Record<string, number>;
+  api_source: string | null;
+  barcode: string | null;
+}
 
 interface IngredientFormProps {
   ingredient?: Ingredient;
   categories: Category[];
   onClose: () => void;
+  /** Prefill values when creating a NEW ingredient (ignored when editing). */
+  defaults?: Partial<IngredientFormState>;
+  /** Called with the saved row after a successful save. */
+  onSaved?: (ingredient: Ingredient) => void;
+  /** Called when a scanned barcode matches an already-saved ingredient. */
+  onOpenExisting?: (id: string) => void;
+  /** Open the barcode scanner as soon as the form mounts. */
+  startWithScanner?: boolean;
 }
 
 export default function IngredientForm({
   ingredient,
   categories,
   onClose,
+  defaults,
+  onSaved,
+  onOpenExisting,
+  startWithScanner,
 }: IngredientFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const [showNutritionSearch, setShowNutritionSearch] = useState(false);
+  const [showScanner, setShowScanner] = useState(!!startWithScanner);
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [barcodeNotice, setBarcodeNotice] = useState<
+    | { kind: "existing"; id: string; name: string }
+    | { kind: "not_found" }
+    | { kind: "per_serving" }
+    | { kind: "error"; message: string }
+    | null
+  >(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<IngredientFormState>(() => ({
     name: ingredient?.name ?? "",
+    brand: ingredient?.brand ?? "",
     category: ingredient?.category ?? "other",
     quantity_purchased: ingredient?.quantity_purchased ?? 0,
     unit: ingredient?.unit ?? "g",
@@ -49,7 +93,8 @@ export default function IngredientForm({
     micronutrients: ingredient?.micronutrients ?? {},
     api_source: ingredient?.api_source ?? null as string | null,
     barcode: ingredient?.barcode ?? null as string | null,
-  });
+    ...(ingredient ? {} : defaults),
+  }));
 
   useEffect(() => {
     if (!ingredient) return;
@@ -73,6 +118,7 @@ export default function IngredientForm({
     setForm((prev) => ({
       ...prev,
       ...(prev.name.trim() === "" && { name: result.name }),
+      ...(prev.brand.trim() === "" && result.brand && { brand: result.brand }),
       calories: r(result.nutrition.calories),
       protein: r(result.nutrition.protein),
       carbs: r(result.nutrition.carbs),
@@ -88,6 +134,54 @@ export default function IngredientForm({
     setShowNutritionSearch(false);
   }
 
+  async function handleBarcodeDetected(code: string) {
+    setShowScanner(false);
+    setBarcodeLoading(true);
+    setBarcodeNotice(null);
+    try {
+      const res = await fetch(`/api/nutrition/barcode?code=${encodeURIComponent(code)}`);
+      if (res.status === 404) {
+        setForm((prev) => ({ ...prev, barcode: code }));
+        setBarcodeNotice({ kind: "not_found" });
+        return;
+      }
+      if (!res.ok) throw new Error("lookup failed");
+      const data: {
+        existing?: { id: string; name: string };
+        product?: BarcodeLookup;
+      } = await res.json();
+
+      if (data.existing) {
+        // Same product as the one being edited: nothing to report.
+        if (ingredient && data.existing.id === ingredient.id) return;
+        setBarcodeNotice({ kind: "existing", ...data.existing });
+        return;
+      }
+      if (data.product) {
+        const { result, packageSize, perServingOnly } = data.product;
+        handleNutritionSelect(result);
+        setForm((prev) => ({
+          ...prev,
+          barcode: code,
+          ...(!ingredient && packageSize && {
+            quantity_purchased: packageSize.quantity,
+            unit: packageSize.unit,
+          }),
+        }));
+        const n = result.nutrition;
+        const hasNutrition = [n.calories, n.protein, n.carbs, n.fat].some((v) => v !== null);
+        if (perServingOnly && hasNutrition) setBarcodeNotice({ kind: "per_serving" });
+      }
+    } catch {
+      setBarcodeNotice({
+        kind: "error",
+        message: "Barcode lookup failed. Check your connection and try again.",
+      });
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -95,6 +189,7 @@ export default function IngredientForm({
 
     const payload = {
       name: form.name.trim(),
+      brand: form.brand.trim() || null,
       category: form.category,
       quantity_purchased: form.quantity_purchased,
       unit: form.unit,
@@ -121,12 +216,14 @@ export default function IngredientForm({
         ? form.package_price / form.quantity_purchased
         : 0;
 
-      const priceChanged = Math.abs(oldPPU - newPPU) > 0.0001;
+      const priceChanged = Math.abs(oldPPU - newPPU) > 1e-12;
 
       const updatePromise = supabase
         .from("ingredients")
         .update(payload)
-        .eq("id", ingredient.id);
+        .eq("id", ingredient.id)
+        .select()
+        .single();
 
       if (priceChanged) {
         const [updateResult, historyResult] = await Promise.all([
@@ -147,7 +244,11 @@ export default function IngredientForm({
         result = await updatePromise;
       }
     } else {
-      result = await supabase.from("ingredients").insert(payload);
+      result = await supabase
+        .from("ingredients")
+        .insert(payload)
+        .select()
+        .single();
     }
 
     if (result.error) {
@@ -156,6 +257,7 @@ export default function IngredientForm({
     } else {
       await invalidateIngredients();
       router.refresh();
+      if (result.data) onSaved?.(result.data as Ingredient);
       onClose();
     }
   }
@@ -192,8 +294,8 @@ export default function IngredientForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Name + Category */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Name */}
+          <div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Name *
@@ -206,18 +308,28 @@ export default function IngredientForm({
                 required
               />
             </div>
+          </div>
+
+          {/* Brand + Category */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Brand
+              </label>
+              <input
+                type="text"
+                value={form.brand}
+                onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Category
               </label>
               <select
                 value={form.category}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    category: e.target.value,
-                  })
-                }
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
               >
                 {categories.map((c) => (
@@ -329,15 +441,62 @@ export default function IngredientForm({
               <h3 className="text-sm font-semibold text-gray-700">
                 Nutrition (per 100g/ml)
               </h3>
-              <button
-                type="button"
-                onClick={() => setShowNutritionSearch(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
-              >
-                <Search className="w-3.5 h-3.5" />
-                Search Nutrition API
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowScanner(true)}
+                  disabled={barcodeLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                >
+                  {barcodeLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ScanBarcode className="w-3.5 h-3.5" />
+                  )}
+                  Scan barcode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNutritionSearch(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  Search Nutrition API
+                </button>
+              </div>
             </div>
+
+            {barcodeNotice?.kind === "existing" && (
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+                <span>
+                  Already saved as <strong>{barcodeNotice.name}</strong>
+                </span>
+                {onOpenExisting && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenExisting(barcodeNotice.id)}
+                    className="shrink-0 px-2 py-1 font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Open it
+                  </button>
+                )}
+              </div>
+            )}
+            {barcodeNotice?.kind === "not_found" && (
+              <p className="mb-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
+                Not found on Open Food Facts — try the text search
+              </p>
+            )}
+            {barcodeNotice?.kind === "per_serving" && (
+              <p className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                Nutrition values may not be per 100 g — please verify them.
+              </p>
+            )}
+            {barcodeNotice?.kind === "error" && (
+              <p className="mb-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                {barcodeNotice.message}
+              </p>
+            )}
 
             {form.api_source && (
               <p className="text-xs text-gray-500 mb-3">
@@ -421,6 +580,13 @@ export default function IngredientForm({
           </div>
         </form>
       </div>
+
+      {showScanner && (
+        <BarcodeScanner
+          onDetected={handleBarcodeDetected}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
 
       {showNutritionSearch && (
         <NutritionSearch

@@ -1,26 +1,48 @@
+# Applies new migrations to production on every push to main that touches
+# supabase/migrations/**. Prod migration history was reconciled with
+# `supabase migration repair` on 2026-10-17, so `db push` only applies files
+# newer than the last recorded one. Never apply migrations through the SQL
+# editor again, or the history drifts and this job will try to re-run them.
+#
+# Needs one secret: SUPABASE_ACCESS_TOKEN (supabase.com/dashboard/account/tokens),
+# stored under Settings > Environments > Production > Environment secrets.
+# The pinned CLI connects through a temporary login role created with that
+# token, so no database password is required.
 name: Apply Supabase Migrations
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'supabase/migrations/**'
 
+# Never run two migration jobs at once.
+concurrency:
+  group: supabase-migrate
+  cancel-in-progress: false
+
 jobs:
   migrate:
+    # Manual dispatch from a feature branch must not push unmerged migrations.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # SUPABASE_ACCESS_TOKEN is an environment secret of the GitHub
+    # "Production" environment, so the job must declare it to see the secret.
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.121.0
 
       - run: supabase link --project-ref iikzgxhiiqjycvqcsrlr
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - run: supabase migration list
+
+      - run: supabase db push --dry-run
 
       - run: supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Ingredient, Category } from "@/lib/supabase/types";
 import IngredientForm from "@/components/ingredient-form";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings, ReceiptText, ScanBarcode } from "lucide-react";
 import Link from "next/link";
 
 export default function IngredientsClient({
@@ -21,6 +21,7 @@ export default function IngredientsClient({
   const [filter, setFilter] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [editIngredient, setEditIngredient] = useState<Ingredient | undefined>();
+  const [startScanner, setStartScanner] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const activeCategories = useMemo(() => {
@@ -53,20 +54,28 @@ export default function IngredientsClient({
 
   function closeForm() {
     setShowForm(false);
+    setStartScanner(false);
     setEditIngredient(undefined);
   }
 
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Ingredients</h1>
           <p className="text-sm text-gray-500 mt-1">
             {ingredients.length} ingredients in database
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/ingredients/import"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <ReceiptText className="w-4 h-4" />
+            Import receipt
+          </Link>
           <Link
             href="/ingredients/categories"
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
@@ -75,7 +84,22 @@ export default function IngredientsClient({
             Categories
           </Link>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => {
+              setEditIngredient(undefined);
+              setStartScanner(true);
+              setShowForm(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 border border-emerald-600 text-emerald-700 font-medium rounded-lg hover:bg-emerald-50 text-sm"
+          >
+            <ScanBarcode className="w-4 h-4" />
+            Scan
+          </button>
+          <button
+            onClick={() => {
+              setEditIngredient(undefined);
+              setStartScanner(false);
+              setShowForm(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -136,7 +160,12 @@ export default function IngredientsClient({
               >
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-gray-900">{ing.name}</p>
+                    <p className="font-medium text-gray-900">
+                      {ing.name}
+                      {ing.brand && (
+                        <span className="ml-1.5 text-xs font-normal text-gray-400">{ing.brand}</span>
+                      )}
+                    </p>
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                       {categoryLabels[ing.category] ?? ing.category}
                     </span>
@@ -301,6 +330,9 @@ export default function IngredientsClient({
                               <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
                             )}
                             {ing.name}
+                            {ing.brand && (
+                              <span className="text-xs font-normal text-gray-400">{ing.brand}</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -418,9 +450,17 @@ export default function IngredientsClient({
       {/* Form modal */}
       {showForm && (
         <IngredientForm
+          key={editIngredient?.id ?? "new"}
           ingredient={editIngredient}
           categories={categories}
           onClose={closeForm}
+          startWithScanner={startScanner}
+          onOpenExisting={(id) => {
+            const found = ingredients.find((i) => i.id === id);
+            if (!found) return;
+            setStartScanner(false);
+            setEditIngredient(found);
+          }}
         />
       )}
     </div>
