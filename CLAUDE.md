@@ -40,6 +40,7 @@ app/
 │   └── containers/         # Container types CRUD + client balances
 ├── api/
 │   ├── nutrition/search/   # Nutrition API search (USDA + OFF)
+│   ├── nutrition/barcode/  # Barcode lookup (existing ingredient or OFF v2)
 │   ├── export/meal-plan/   # PDF generation + email delivery
 │   ├── intake/             # Public client intake form handler
 │   └── og/meal-plan/       # OG image generation (legacy)
@@ -50,6 +51,7 @@ components/
 ├── ingredient-form.tsx     # Ingredient create/edit modal
 ├── recipe-form.tsx         # Recipe create/edit modal (+ container type)
 ├── nutrition-search.tsx    # Nutrition API search modal
+├── barcode-scanner.tsx     # Camera barcode scanner overlay (+ manual entry)
 └── delivery-form.tsx       # Container delivery logging modal
 lib/
 ├── supabase/
@@ -202,6 +204,7 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
 | `/api/nutrition/search?q=` | GET | Yes | Search USDA + OFF, returns ranked results |
+| `/api/nutrition/barcode?code=` | GET | Yes | Barcode (8-14 digits): `{ existing: {id,name} }` if already saved, else `{ product: BarcodeLookup }` from OFF v2, or 404 `{ error: "not_found" }` |
 | `/api/export/meal-plan?id=` | GET | Yes | Generate + download meal plan PDF |
 | `/api/export/meal-plan?id=` | POST | Yes | Generate PDF + email to client |
 | `/api/intake` | POST | No | Public client onboarding form submission |
@@ -217,6 +220,7 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | `ingredient-form.tsx` | Create/edit ingredient | Nutrition search, price history tracking, macro inputs |
 | `recipe-form.tsx` | Create/edit recipe | Ingredient picker, container type dropdown, live cost/nutrition |
 | `nutrition-search.tsx` | Search nutrition APIs | Confidence badges, source labels, macro preview |
+| `barcode-scanner.tsx` | Full-screen camera barcode scanner | `barcode-detector` (native or zxing-wasm ponyfill, wasm self-hosted at `/zxing/`), EAN-13/8, UPC-A/E, manual entry fallback, HTTPS required |
 | `delivery-form.tsx` | Log container delivery | Expected returns from last delivery, send/return quantities |
 | `weekly-shopping-modal.tsx` | Cross-plan shopping list | Week dropdown, aggregates entries across all plans with same week_start |
 | `weekly-cooking-modal.tsx` | Cross-plan cooking plan | Week dropdown, aggregates recipe portions + scaled ingredients across plans, per-client weight breakdown, persistent cooked check-offs |
@@ -281,6 +285,7 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 
 ### Nutrition
 - Everything normalized **per 100g/100ml**
+- Barcode lookup: `lookupBarcode(code)` in `lib/nutrition/open-food-facts.ts` (OFF v2 API) returns `{ result, packageSize, perServingOnly }`; no NCS hard-reject (user reviews the result). Scan from the ingredient form or the Scan button on the Ingredients page. Camera access requires HTTPS: test on a phone over LAN with `next dev --experimental-https`. The zxing `.wasm` is copied to `public/zxing/` by `npm install` (`postinstall` -> `scripts/copy-zxing-wasm.mjs`; gitignored).
 - Recipe aggregation: `nutrient_total = sum(ingredient_nutrient × (quantity / 100))`
 - Per portion = total / portions
 - Micronutrients stored as flexible JSONB (vitamin_a_ug, iron_mg, etc.)
@@ -408,3 +413,4 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 | 2026-06-13 | Customer portal date-change feedback: tapping a date in the strip now snaps the selection instantly (`pendingDate` lifted into `today-client.tsx`), micro-pulses the tapped pill (CSS `@keyframes tap-pulse` + key-bump remount), and slides the strip ±3 days via `translateX` + double-RAF transition. Calendar picks show a `Loader2` spinner on the picked cell, dim the others, and auto-close when `selectedDate` catches up. Cards area shows three pulsing skeletons after a 100ms gate (fast cache hits don't flash). | `app/globals.css`, `app/(portal)/portal/today-client.tsx`, `components/portal/day-scrubber.tsx`, `components/portal/calendar-picker.tsx` |
 | 2026-06-22 | Fix: portal API routes (`/api/portal/*`) were excluded from `isPortal` check in middleware, causing customer requests to be redirected to `/portal` (HTML) instead of processed — `fetch()` received HTML and threw JSON parse error. Extended `isPortal` to cover `/api/portal` prefix. | `middleware.ts` |
 | 2026-10-17 | Foundation for barcode scan + invoice price import: `ingredients.brand`, `invoices` + `ingredient_aliases` tables (admin RLS), atomic `apply_invoice_prices()` RPC, shared types, `requireAdmin()` API guard (invite route refactored), IngredientForm `brand` field + `defaults`/`onSaved` props, brand shown in ingredients list, hardened (still disabled) migrate workflow | `supabase/migrations/20261017000000_ingredient_brand.sql`, `supabase/migrations/20261017000001_invoice_import.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/auth/require-admin.ts`, `app/api/portal/invite/route.ts`, `components/ingredient-form.tsx`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.github/workflows/migrate.yml`, `CLAUDE.md` |
+| 2026-10-17 | Barcode scanning for ingredients: `barcode-detector` scanner overlay, `/api/nutrition/barcode`, OFF client refactor (`mapProduct`, `lookupBarcode` on v2 API with package size parsing), Scan buttons in ingredient form + Ingredients page, self-hosted zxing wasm via postinstall | `components/barcode-scanner.tsx`, `components/ingredient-form.tsx`, `app/api/nutrition/barcode/route.ts`, `lib/nutrition/open-food-facts.ts`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `scripts/copy-zxing-wasm.mjs`, `package.json`, `.gitignore` |
