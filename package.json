@@ -9,7 +9,8 @@
     "lint": "eslint",
     "db:start": "npx supabase start",
     "db:stop": "npx supabase stop",
-    "db:reset": "npx supabase db reset"
+    "db:reset": "npx supabase db reset",
+    "postinstall": "node scripts/copy-zxing-wasm.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
@@ -20,6 +21,7 @@
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "@vercel/og": "^0.11.1",
+    "barcode-detector": "^3.2.2",
     "lucide-react": "^1.14.0",
     "next": "16.2.6",
     "react": "19.2.4",

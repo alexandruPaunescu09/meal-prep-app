@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Ingredient, Category } from "@/lib/supabase/types";
 import IngredientForm from "@/components/ingredient-form";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings, ReceiptText } from "lucide-react";
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, Settings, ReceiptText, ScanBarcode } from "lucide-react";
 import Link from "next/link";
 
 export default function IngredientsClient({
@@ -21,6 +21,7 @@ export default function IngredientsClient({
   const [filter, setFilter] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
   const [editIngredient, setEditIngredient] = useState<Ingredient | undefined>();
+  const [startScanner, setStartScanner] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const activeCategories = useMemo(() => {
@@ -53,6 +54,7 @@ export default function IngredientsClient({
 
   function closeForm() {
     setShowForm(false);
+    setStartScanner(false);
     setEditIngredient(undefined);
   }
 
@@ -82,7 +84,22 @@ export default function IngredientsClient({
             Categories
           </Link>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => {
+              setEditIngredient(undefined);
+              setStartScanner(true);
+              setShowForm(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 border border-emerald-600 text-emerald-700 font-medium rounded-lg hover:bg-emerald-50 text-sm"
+          >
+            <ScanBarcode className="w-4 h-4" />
+            Scan
+          </button>
+          <button
+            onClick={() => {
+              setEditIngredient(undefined);
+              setStartScanner(false);
+              setShowForm(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
           >
             <Plus className="w-4 h-4" />
@@ -433,9 +450,17 @@ export default function IngredientsClient({
       {/* Form modal */}
       {showForm && (
         <IngredientForm
+          key={editIngredient?.id ?? "new"}
           ingredient={editIngredient}
           categories={categories}
           onClose={closeForm}
+          startWithScanner={startScanner}
+          onOpenExisting={(id) => {
+            const found = ingredients.find((i) => i.id === id);
+            if (!found) return;
+            setStartScanner(false);
+            setEditIngredient(found);
+          }}
         />
       )}
     </div>
