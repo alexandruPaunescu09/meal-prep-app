@@ -341,7 +341,7 @@ USDA_API_KEY                    # USDA FoodData Central API key
 RESEND_API_KEY                  # Resend email service (for PDF email delivery)
 CONTAINER_TOLERANCE_DEFAULT     # Max outstanding containers before flagging (default: 2)
 NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans (default: 2.5)
-ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing)
+ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing); must be workspace-scoped (sk-ant-api…), user keys (sk-ant-usr…) are rejected without a workspace header
 INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: claude-haiku-5-5)
 ```
 
@@ -427,3 +427,4 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 | 2026-10-17 | Receipt/invoice price import: Claude-based parsing (stateless), review/approval UI with ingredient matching + create-ingredient, atomic apply, store aliases | `lib/invoices/parse.ts`, `lib/invoices/postprocess.ts`, `app/api/invoices/parse/route.ts`, `app/api/invoices/apply/route.ts`, `app/(authenticated)/ingredients/import/*`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.gitignore`, `package.json`, `CLAUDE.md` |
 | 2026-10-17 | Barcode scanning for ingredients: `barcode-detector` scanner overlay, `/api/nutrition/barcode`, OFF client refactor (`mapProduct`, `lookupBarcode` on v2 API with package size parsing), Scan buttons in ingredient form + Ingredients page, self-hosted zxing wasm via postinstall | `components/barcode-scanner.tsx`, `components/ingredient-form.tsx`, `app/api/nutrition/barcode/route.ts`, `lib/nutrition/open-food-facts.ts`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `scripts/copy-zxing-wasm.mjs`, `package.json`, `.gitignore` |
 | 2026-10-17 | Reconciled prod migration history: the migrate workflow had never succeeded and migrations were pasted into the SQL editor, so `schema_migrations` was empty. Verified prod schema = the 19 migration files (`db diff --linked`, public + storage), then `migration repair --status applied` for all 19. Only the two 2026-10-17 migrations are now pending. | `CLAUDE.md` |
+| 2026-10-17 | Invoice parse errors now include the Claude API's own message (and log it server-side) instead of a generic "files may be unreadable" — a user-scoped API key was being rejected for missing a workspace and the UI hid the reason | `lib/invoices/parse.ts`, `CLAUDE.md` |

@@ -135,16 +135,20 @@ export async function parseInvoice(args: {
       output_config: { format: zodOutputFormat(InvoiceSchema) },
     });
   } catch (e) {
+    if (!(e instanceof Anthropic.APIError)) throw e;
+    // Surface the API's own reason (key/workspace/billing problems all arrive
+    // as 400/401/403), since the admin is the only one who sees this route.
+    const detail = (e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message;
+    console.error(`invoice parse: Claude API error (${e.status ?? "no status"}): ${detail}`);
     if (e instanceof Anthropic.RateLimitError)
       throw new InvoiceParseError("Claude API rate limit reached, try again shortly", 429);
     if (e instanceof Anthropic.AuthenticationError)
-      throw new InvoiceParseError("Claude API authentication failed (check ANTHROPIC_API_KEY)", 500);
+      throw new InvoiceParseError(`Claude API authentication failed (check ANTHROPIC_API_KEY): ${detail}`, 500);
     if (e instanceof Anthropic.BadRequestError)
-      throw new InvoiceParseError("Claude rejected the request (files may be unreadable or too large)", 400);
+      throw new InvoiceParseError(`Claude rejected the request: ${detail}`, 400);
     if (e instanceof Anthropic.APIConnectionError)
       throw new InvoiceParseError("Could not reach the Claude API", 502);
-    if (e instanceof Anthropic.APIError) throw new InvoiceParseError("Claude API error", 502);
-    throw e;
+    throw new InvoiceParseError(`Claude API error: ${detail}`, 502);
   }
 
   if (response.stop_reason === "refusal")
