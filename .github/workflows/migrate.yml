@@ -1,6 +1,11 @@
+# NOTE: This workflow must stay DISABLED (in GitHub: Actions > Apply Supabase
+# Migrations > Disable) until the production migration history is reconciled
+# with `supabase migration repair` (migrations were previously applied by hand
+# in the SQL editor, so `supabase_migrations.schema_migrations` is out of sync).
 name: Apply Supabase Migrations
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -9,18 +14,20 @@ on:
 jobs:
   migrate:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.121.0
 
-      - run: supabase link --project-ref iikzgxhiiqjycvqcsrlr
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      - run: supabase link --project-ref iikzgxhiiqjycvqcsrlr --password "$SUPABASE_DB_PASSWORD"
+
+      - run: supabase migration list
+
+      - run: supabase db push --dry-run
 
       - run: supabase db push
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

@@ -103,7 +103,7 @@ middleware.ts               # Auth check on all routes
 - Index: `(sort_order)`
 
 **`ingredients`**
-- `id` UUID PK, `name` TEXT, `category` TEXT (references ingredient_categories.slug by convention)
+- `id` UUID PK, `name` TEXT, `brand` TEXT (nullable), `category` TEXT (references ingredient_categories.slug by convention)
 - `quantity_purchased` NUMERIC, `unit` TEXT (g/ml/buc), `package_price` NUMERIC
 - `price_per_unit` NUMERIC **GENERATED** (`package_price / NULLIF(quantity_purchased, 0)`)
 - Macros (per 100g): `calories`, `protein`, `carbs`, `fat`, `fiber`, `sugar`, `sat_fat`, `salt`
@@ -171,8 +171,19 @@ middleware.ts               # Auth check on all routes
 - PK: `(week_start, recipe_id)`. Row presence = recipe marked cooked. Same pattern as `shopping_check_state`, keyed per week so checks are shared across all plans for that week.
 - Index: `(week_start)`
 
+**`invoices`** (admin-only)
+- `id` UUID PK, `store` TEXT, `invoice_date` DATE, `total` NUMERIC, `file_names` TEXT[], `parsed` JSONB (raw model output), `applied_lines` JSONB, `model` TEXT, `created_at`
+- Index: `(store, invoice_date)`. Rows are written ONLY when the admin approves an import (via `apply_invoice_prices`).
+
+**`ingredient_aliases`** (admin-only)
+- `id` UUID PK, `ingredient_id` FK→ingredients CASCADE, `store` TEXT, `alias` TEXT (receipt/invoice name), `created_at`
+- UNIQUE `(store, lower(alias))`; index `(ingredient_id)`. Remembers how a store prints an ingredient name.
+
+### Functions
+- `apply_invoice_prices(p_invoice jsonb, p_lines jsonb) RETURNS jsonb` — `SECURITY INVOKER`, admin-only (`is_admin()` else raises `forbidden`). Atomically inserts the `invoices` row, and for each line updates `package_price`/`quantity_purchased` (logging the OLD values to `ingredient_price_history` only if price-per-unit changed by > 0.0001), and upserts the `(store, raw_name)` alias. Returns `{invoice_id, updated, unchanged}`. Never writes the generated `price_per_unit`.
+
 ### RLS
-All tables: `auth.uid() IS NOT NULL` → full CRUD access (single-admin model)
+Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_admin()` for full CRUD; customer-readable tables additionally allow reads via `current_client_id()` (portal users). `profiles.role` ('admin' | 'customer') drives both helpers. New tables must follow this pattern.
 
 ---
 
@@ -315,12 +326,18 @@ USDA_API_KEY                    # USDA FoodData Central API key
 RESEND_API_KEY                  # Resend email service (for PDF email delivery)
 CONTAINER_TOLERANCE_DEFAULT     # Max outstanding containers before flagging (default: 2)
 NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans (default: 2.5)
+ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing)
+INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: claude-haiku-5-5)
 ```
 
 ### Local Development
 - `.env.development.local` overrides `.env.local` during `next dev`
 - Local Supabase via Docker: `npm run db:start`
 - Scripts: `db:start`, `db:stop`, `db:reset`
+
+### Migrations
+- `.github/workflows/migrate.yml` is **disabled** (it failed at `supabase link`); until prod migration history is reconciled with `supabase migration repair`, production migrations are applied manually in the Supabase SQL editor. Do not re-enable it before that.
+- Test every migration locally first: Docker Desktop + `npm run db:start` + `npm run db:reset` (replays all migrations from scratch).
 
 ---
 
@@ -390,3 +407,4 @@ NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans 
 | 2026-06-13 | Meal-plan inline quantity edit: click value text (`×3` / `200g`) on desktop or tap row on mobile to edit `portions`/`quantity` in place. Desktop renders an inline number input with ✓/✗ buttons (Enter/blur saves, Escape/✗ cancels via `onMouseDown` to beat blur). Mobile renders a centered popover with explicit Save/Cancel; ingredient entries expose both Quantity and Portions. Validation matches `SlotPicker` (portions ≥0.1 step 0.1; quantity ≥1 step 1). Saves via the existing optimistic snapshot/rollback pattern with same-id rapid-fire guard; new entries (`temp-` ids) and entries mid-drag are not editable. | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx` |
 | 2026-06-13 | Customer portal date-change feedback: tapping a date in the strip now snaps the selection instantly (`pendingDate` lifted into `today-client.tsx`), micro-pulses the tapped pill (CSS `@keyframes tap-pulse` + key-bump remount), and slides the strip ±3 days via `translateX` + double-RAF transition. Calendar picks show a `Loader2` spinner on the picked cell, dim the others, and auto-close when `selectedDate` catches up. Cards area shows three pulsing skeletons after a 100ms gate (fast cache hits don't flash). | `app/globals.css`, `app/(portal)/portal/today-client.tsx`, `components/portal/day-scrubber.tsx`, `components/portal/calendar-picker.tsx` |
 | 2026-06-22 | Fix: portal API routes (`/api/portal/*`) were excluded from `isPortal` check in middleware, causing customer requests to be redirected to `/portal` (HTML) instead of processed — `fetch()` received HTML and threw JSON parse error. Extended `isPortal` to cover `/api/portal` prefix. | `middleware.ts` |
+| 2026-10-17 | Foundation for barcode scan + invoice price import: `ingredients.brand`, `invoices` + `ingredient_aliases` tables (admin RLS), atomic `apply_invoice_prices()` RPC, shared types, `requireAdmin()` API guard (invite route refactored), IngredientForm `brand` field + `defaults`/`onSaved` props, brand shown in ingredients list, hardened (still disabled) migrate workflow | `supabase/migrations/20261017000000_ingredient_brand.sql`, `supabase/migrations/20261017000001_invoice_import.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/auth/require-admin.ts`, `app/api/portal/invite/route.ts`, `components/ingredient-form.tsx`, `app/(authenticated)/ingredients/ingredients-client.tsx`, `.github/workflows/migrate.yml`, `CLAUDE.md` |

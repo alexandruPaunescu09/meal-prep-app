@@ -13,16 +13,42 @@ import NutritionSearch from "./nutrition-search";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
 import { Search, X, ChevronDown, ChevronUp } from "lucide-react";
 
+export interface IngredientFormState {
+  name: string;
+  brand: string;
+  category: string;
+  quantity_purchased: number;
+  unit: string;
+  package_price: number;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sat_fat: number | null;
+  salt: number | null;
+  micronutrients: Record<string, number>;
+  api_source: string | null;
+  barcode: string | null;
+}
+
 interface IngredientFormProps {
   ingredient?: Ingredient;
   categories: Category[];
   onClose: () => void;
+  /** Prefill values when creating a NEW ingredient (ignored when editing). */
+  defaults?: Partial<IngredientFormState>;
+  /** Called with the saved row after a successful save. */
+  onSaved?: (ingredient: Ingredient) => void;
 }
 
 export default function IngredientForm({
   ingredient,
   categories,
   onClose,
+  defaults,
+  onSaved,
 }: IngredientFormProps) {
   const router = useRouter();
   const supabase = createClient();
@@ -32,8 +58,9 @@ export default function IngredientForm({
   const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<IngredientFormState>(() => ({
     name: ingredient?.name ?? "",
+    brand: ingredient?.brand ?? "",
     category: ingredient?.category ?? "other",
     quantity_purchased: ingredient?.quantity_purchased ?? 0,
     unit: ingredient?.unit ?? "g",
@@ -49,7 +76,8 @@ export default function IngredientForm({
     micronutrients: ingredient?.micronutrients ?? {},
     api_source: ingredient?.api_source ?? null as string | null,
     barcode: ingredient?.barcode ?? null as string | null,
-  });
+    ...(ingredient ? {} : defaults),
+  }));
 
   useEffect(() => {
     if (!ingredient) return;
@@ -73,6 +101,7 @@ export default function IngredientForm({
     setForm((prev) => ({
       ...prev,
       ...(prev.name.trim() === "" && { name: result.name }),
+      ...(prev.brand.trim() === "" && result.brand && { brand: result.brand }),
       calories: r(result.nutrition.calories),
       protein: r(result.nutrition.protein),
       carbs: r(result.nutrition.carbs),
@@ -95,6 +124,7 @@ export default function IngredientForm({
 
     const payload = {
       name: form.name.trim(),
+      brand: form.brand.trim() || null,
       category: form.category,
       quantity_purchased: form.quantity_purchased,
       unit: form.unit,
@@ -126,7 +156,9 @@ export default function IngredientForm({
       const updatePromise = supabase
         .from("ingredients")
         .update(payload)
-        .eq("id", ingredient.id);
+        .eq("id", ingredient.id)
+        .select()
+        .single();
 
       if (priceChanged) {
         const [updateResult, historyResult] = await Promise.all([
@@ -147,7 +179,11 @@ export default function IngredientForm({
         result = await updatePromise;
       }
     } else {
-      result = await supabase.from("ingredients").insert(payload);
+      result = await supabase
+        .from("ingredients")
+        .insert(payload)
+        .select()
+        .single();
     }
 
     if (result.error) {
@@ -156,6 +192,7 @@ export default function IngredientForm({
     } else {
       await invalidateIngredients();
       router.refresh();
+      if (result.data) onSaved?.(result.data as Ingredient);
       onClose();
     }
   }
@@ -192,8 +229,8 @@ export default function IngredientForm({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Name + Category */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Name */}
+          <div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Name *
@@ -206,18 +243,28 @@ export default function IngredientForm({
                 required
               />
             </div>
+          </div>
+
+          {/* Brand + Category */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Brand
+              </label>
+              <input
+                type="text"
+                value={form.brand}
+                onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Category
               </label>
               <select
                 value={form.category}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    category: e.target.value,
-                  })
-                }
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
               >
                 {categories.map((c) => (

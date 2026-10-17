@@ -136,7 +136,12 @@ export default function IngredientsClient({
               >
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-gray-900">{ing.name}</p>
+                    <p className="font-medium text-gray-900">
+                      {ing.name}
+                      {ing.brand && (
+                        <span className="ml-1.5 text-xs font-normal text-gray-400">{ing.brand}</span>
+                      )}
+                    </p>
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                       {categoryLabels[ing.category] ?? ing.category}
                     </span>
@@ -301,6 +306,9 @@ export default function IngredientsClient({
                               <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
                             )}
                             {ing.name}
+                            {ing.brand && (
+                              <span className="text-xs font-normal text-gray-400">{ing.brand}</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3">
