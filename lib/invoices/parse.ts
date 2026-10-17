@@ -53,10 +53,15 @@ export class InvoiceParseError extends Error {
 const SYSTEM = `You extract line items from Romanian grocery receipts (Lidl Plus screenshots) and invoices (Freshful PDFs), and match them to the admin's ingredient catalog.
 
 Rules:
-- Use prices INCLUDING VAT. Romanian decimals use commas (6,49 = 6.49); output plain numbers.
+- Use prices INCLUDING VAT (what was actually paid). Romanian decimals use commas (6,49 = 6.49); output plain numbers.
+- Invoices (e.g. Freshful) often list unit prices WITHOUT VAT ("fără TVA", "pret unitar") plus a VAT rate ("cota TVA", e.g. 11% food, 21% standard) or VAT amount column. Then package_price = net unit price × (1 + VAT rate), or the line's VAT-inclusive value ÷ quantity. Never output a net (pre-VAT) price. Sanity check: the VAT-inclusive line totals must add up to the invoice total.
 - Attach Lidl Plus discounts/coupons ("Lidl Plus", "Reducere", negative lines) to the item they belong to by lowering that item's price; do NOT output them as separate lines.
+- On Freshful invoices a line named "Discount" applies to the line DIRECTLY ABOVE it (same quantity): subtract its unit price from that item's net unit price BEFORE adding VAT (e.g. 5,58 then Discount -0,23 at 11% → (5.58 − 0.23) × 1.11 = 5.94). Do not output Discount lines. A discount below a non-food line (bag, transport) just cancels that line.
+- Multi-page invoices repeat a "Subtotal" box on each page; total is the final "Total (col. 6 + col. 7)" on the last page, not a page subtotal.
+- Services and fees (packaging cost "Cost unic ambalare", courier tips, "Taxa transport", bags/sacosa/punga, "Garantie SGR") are is_food=false.
 - Weighed items (e.g. "0,856 kg x 24,99"): the package is the actual weight bought; line_total is the amount charged.
 - package_quantity MUST be in the MATCHED ingredient's unit (g, ml or buc): convert kg to g, l to ml, and multi-packs (e.g. 6 x 125 g = 750 g). package_unit is that unit.
+- package_quantity is REQUIRED for every food line. When there is no separate size column, read the size from the product name (e.g. "Lapte 1.5% 1L" → 1000 ml, "Orez 1kg" → 1000 g, "Iaurt 4x125g" → 500 g, "Oua 10 buc" → 10 buc). Do not confuse it with the purchased count ("Cant."/"buc" column = quantity of packages). Leave it null only if the size truly cannot be determined, and say why in note.
 - package_price = price for ONE package (if quantity 2 x 6,49 then package_price 6.49 and quantity 2), after any discount.
 - quantity = number of packages bought.
 - Set is_food=false for non-food: bags (punga), SGR deposit/garantie, detergents, cosmetics, household items.
