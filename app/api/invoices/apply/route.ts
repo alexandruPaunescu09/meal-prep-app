@@ -3,11 +3,15 @@ import { revalidateTag } from "next/cache";
 import { z } from "zod/v4";
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { CACHE_TAGS } from "@/lib/data/tags";
+import { isValidIsoDate } from "@/lib/invoices/dates";
 
 const bodySchema = z.object({
   invoice: z.object({
     store: z.string().trim().min(1),
-    invoice_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    invoice_date: z
+      .string()
+      .refine(isValidIsoDate, { message: "invalid date" })
+      .nullable(),
     total: z.number().nonnegative().nullable(),
     file_names: z.array(z.string()).max(20),
     model: z.string().nullable(),

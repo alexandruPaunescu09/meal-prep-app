@@ -204,7 +204,7 @@ export async function lookupBarcode(code: string): Promise<BarcodeLookup | null>
   if (data.status !== 1 || !data.product) return null;
 
   const p: OFFProductWithQuantity = data.product;
-  const result = mapProduct({ ...p, code }, code);
+  const result = mapProduct({ ...p, code });
   result.brand = p.brands?.split(",")[0]?.trim() || null;
 
   const nutriments = p.nutriments ?? {};

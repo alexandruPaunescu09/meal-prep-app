@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import type { Ingredient, IngredientAlias, ParsedInvoiceLine } from "@/lib/supabase/types";
+import { isValidIsoDate } from "./dates";
 import { postProcessLines } from "./postprocess";
 
 const LineSchema = z.object({
@@ -102,7 +103,7 @@ export async function parseInvoice(args: {
 }): Promise<ParsedInvoice> {
   const { files, ingredients, aliases } = args;
   const model = process.env.INVOICE_PARSER_MODEL ?? "claude-haiku-5-5";
-  const client = new Anthropic();
+  const client = new Anthropic({ timeout: 100_000, maxRetries: 1 });
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   const imageCount = files.filter((f) => f.mediaType !== "application/pdf").length;
@@ -145,7 +146,17 @@ export async function parseInvoice(args: {
         : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
     });
   } catch (e) {
-    if (!(e instanceof Anthropic.APIError)) throw e;
+    if (!(e instanceof Anthropic.APIError)) {
+      // beta.messages.parse throws a plain AnthropicError when the JSON is cut off.
+      if (e instanceof Anthropic.AnthropicError) {
+        console.error(`invoice parse: unusable structured output: ${e.message}`);
+        throw new InvoiceParseError(
+          "The model's answer was cut off or malformed — try uploading fewer parts",
+          422,
+        );
+      }
+      throw e;
+    }
     // Surface the API's own reason (key/workspace/billing problems all arrive
     // as 400/401/403), since the admin is the only one who sees this route.
     const detail = (e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message;
@@ -156,6 +167,11 @@ export async function parseInvoice(args: {
       throw new InvoiceParseError(`Claude API authentication failed (check ANTHROPIC_API_KEY): ${detail}`, 500);
     if (e instanceof Anthropic.BadRequestError)
       throw new InvoiceParseError(`Claude rejected the request: ${detail}`, 400);
+    if (e instanceof Anthropic.APIConnectionTimeoutError)
+      throw new InvoiceParseError(
+        "Claude took too long to read this receipt — try again or upload fewer parts",
+        504,
+      );
     if (e instanceof Anthropic.APIConnectionError)
       throw new InvoiceParseError("Could not reach the Claude API", 502);
     throw new InvoiceParseError(`Claude API error: ${detail}`, 502);
@@ -169,8 +185,7 @@ export async function parseInvoice(args: {
   if (!parsed) throw new InvoiceParseError("The model returned no structured output", 502);
 
   const store = parsed.store.trim() || "Unknown";
-  const date =
-    parsed.invoice_date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.invoice_date) ? parsed.invoice_date : null;
+  const date = parsed.invoice_date && isValidIsoDate(parsed.invoice_date) ? parsed.invoice_date : null;
   const lines = postProcessLines(parsed.lines, store, ingredients, aliases);
 
   return { store, invoice_date: date, total: parsed.total, lines, model, raw: parsed };

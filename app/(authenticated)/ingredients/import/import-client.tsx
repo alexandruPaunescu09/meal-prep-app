@@ -21,6 +21,7 @@ const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 const CHUNK_H = 1560;
 const OVERLAP = 120;
 const MAX_W = 1600;
+const MAX_PARTS = 10; // server limit on /api/invoices/parse
 
 type ParseResponse = {
   store: string;
@@ -208,6 +209,8 @@ export default function ImportClient({
   const [dragOver, setDragOver] = useState(false);
   const [result, setResult] = useState<ParseResponse | null>(null);
   const [lines, setLines] = useState<ReviewLine[]>([]);
+  const [store, setStore] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
   const [applying, setApplying] = useState(false);
   const [summary, setSummary] = useState<{ updated: number; unchanged: number; skipped: number } | null>(null);
   const [createFor, setCreateFor] = useState<number | null>(null);
@@ -224,6 +227,7 @@ export default function ImportClient({
 
   const totalBytes = prepared.reduce((s, p) => s + p.blob.size, 0);
   const tooBig = totalBytes > MAX_TOTAL_BYTES;
+  const tooManyParts = prepared.length > MAX_PARTS;
   const byId = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
 
   useEffect(() => {
@@ -276,6 +280,8 @@ export default function ImportClient({
       if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
       const r = data as ParseResponse;
       setResult(r);
+      setStore(r.store);
+      setInvoiceDate(r.invoice_date ?? "");
       setLines(
         r.lines.map((l, i) => ({
           uid: i,
@@ -301,7 +307,7 @@ export default function ImportClient({
   function derive(l: ReviewLine) {
     const ing = l.ingredient_id ? byId.get(l.ingredient_id) : undefined;
     const qty = parseFloat(l.package_quantity.replace(",", "."));
-    const price = parseFloat(l.package_price.replace(",", "."));
+    const price = Math.round(parseFloat(l.package_price.replace(",", ".")) * 100) / 100;
     const valid = !!ing && qty > 0 && price > 0;
     const newPpu = valid ? price / qty : null;
     const oldPpu = ing && ing.price_per_unit > 0 ? ing.price_per_unit : null;
@@ -312,20 +318,30 @@ export default function ImportClient({
   const included = lines.filter((l) => l.include);
   const applicable = included.filter((l) => derive(l).valid);
   const invalidIncluded = included.length - applicable.length;
+  const storeOk = store.trim().length > 0;
+  // Lines (1-based) per ingredient among INCLUDED lines, to flag duplicates.
+  const linesByIngredient = new Map<string, number[]>();
+  lines.forEach((l, idx) => {
+    if (l.include && l.ingredient_id) {
+      const arr = linesByIngredient.get(l.ingredient_id) ?? [];
+      arr.push(idx + 1);
+      linesByIngredient.set(l.ingredient_id, arr);
+    }
+  });
 
   function approve() {
-    if (!result || applicable.length === 0) return;
-    const date = result.invoice_date ?? "unknown date";
+    if (!result || applicable.length === 0 || !storeOk) return;
+    const date = invoiceDate || "unknown date";
     setPendingConfirm({
       title: `Update ${applicable.length} prices?`,
-      body: `From ${result.store}, ${date}. Old prices are kept in each ingredient's price history.`,
+      body: `From ${store.trim()}, ${date}. Old prices are kept in each ingredient's price history.`,
       confirmLabel: "Update prices",
       run: () => void applyPrices(),
     });
   }
 
   async function applyPrices() {
-    if (!result || applicable.length === 0) return;
+    if (!result || applicable.length === 0 || !storeOk) return;
     setApplying(true);
     setError("");
     try {
@@ -334,8 +350,8 @@ export default function ImportClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           invoice: {
-            store: result.store,
-            invoice_date: result.invoice_date,
+            store: store.trim(),
+            invoice_date: invoiceDate || null,
             total: result.total,
             file_names: files.map((f) => f.name),
             model: result.model,
@@ -488,6 +504,11 @@ export default function ImportClient({
                 {prepared.length === 1 ? "" : "s"})
               </p>
               {tooBig && <p className="text-red-600">Too large. Remove files or use fewer screenshots.</p>}
+              {tooManyParts && (
+                <p className="text-red-600">
+                  Too many parts ({prepared.length}, max {MAX_PARTS}). Remove some files or use fewer screenshots.
+                </p>
+              )}
             </div>
           )}
 
@@ -498,7 +519,7 @@ export default function ImportClient({
           <div className="flex gap-2">
             <button
               onClick={submitParse}
-              disabled={parsing || preparing || prepared.length === 0 || tooBig}
+              disabled={parsing || preparing || prepared.length === 0 || tooBig || tooManyParts}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50"
             >
               {parsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ReceiptText className="w-4 h-4" />}
@@ -549,10 +570,32 @@ export default function ImportClient({
     );
   };
 
+  const lineWarnings = (l: ReviewLine) => {
+    const ingUnit = l.ingredient_id ? byId.get(l.ingredient_id)?.unit : undefined;
+    const recUnit = l.base.package_unit;
+    const dupes = l.include && l.ingredient_id ? (linesByIngredient.get(l.ingredient_id) ?? []) : [];
+    const myNo = l.uid + 1;
+    const others = dupes.filter((n) => n !== myNo);
+    return (
+      <>
+        {ingUnit && recUnit && ingUnit !== recUnit && (
+          <div className="text-xs text-amber-700">
+            Receipt unit is {recUnit}, ingredient uses {ingUnit} — check the quantity
+          </div>
+        )}
+        {others.length > 0 && (
+          <div className="text-xs text-amber-700">
+            Also on line {others.join(", ")} — only the last one will stick
+          </div>
+        )}
+      </>
+    );
+  };
+
   const qtyInputs = (l: ReviewLine) => {
     const unit = l.ingredient_id ? byId.get(l.ingredient_id)?.unit : l.base.package_unit;
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 flex-wrap">
         <input
           inputMode="decimal"
           value={l.package_quantity}
@@ -570,6 +613,7 @@ export default function ImportClient({
           aria-label="Package price"
         />
         <span className="text-xs text-gray-500">lei</span>
+        <div className="basis-full">{lineWarnings(l)}</div>
       </div>
     );
   };
@@ -590,12 +634,28 @@ export default function ImportClient({
       {header}
 
       <div className="bg-white rounded-xl border p-4 mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-        <span>
-          <span className="text-gray-500">Store:</span> <b>{result.store}</b>
-        </span>
-        <span>
-          <span className="text-gray-500">Date:</span> <b>{result.invoice_date ?? "unknown"}</b>
-        </span>
+        <label className="flex items-center gap-1.5">
+          <span className="text-gray-500">Store:</span>
+          <input
+            value={store}
+            onChange={(e) => setStore(e.target.value)}
+            required
+            aria-label="Store"
+            className={`w-32 px-2 py-1 border rounded text-sm font-medium ${
+              storeOk ? "border-gray-300" : "border-red-400 bg-red-50"
+            }`}
+          />
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className="text-gray-500">Date:</span>
+          <input
+            type="date"
+            value={invoiceDate}
+            onChange={(e) => setInvoiceDate(e.target.value)}
+            aria-label="Invoice date"
+            className="px-2 py-1 border border-gray-300 rounded text-sm"
+          />
+        </label>
         <span>
           <span className="text-gray-500">Total:</span> <b>{result.total != null ? `${fmt(result.total)} lei` : "-"}</b>
         </span>
@@ -642,7 +702,9 @@ export default function ImportClient({
                   />
                 </td>
                 <td className="p-3">
-                  <div className="font-medium text-gray-900">{l.base.raw_name}</div>
+                  <div className="font-medium text-gray-900">
+                    <span className="text-gray-400 font-normal">#{l.uid + 1}</span> {l.base.raw_name}
+                  </div>
                   <div className="text-xs text-gray-400">{l.base.raw_text}</div>
                   {!l.base.is_food && <div className="text-xs text-gray-500">Non-food</div>}
                   {l.base.match_confidence === "low" && l.ingredient_id && (
@@ -679,7 +741,9 @@ export default function ImportClient({
                 aria-label="Include line"
               />
               <div className="min-w-0">
-                <div className="font-medium text-gray-900 text-sm">{l.base.raw_name}</div>
+                <div className="font-medium text-gray-900 text-sm">
+                  <span className="text-gray-400 font-normal">#{l.uid + 1}</span> {l.base.raw_name}
+                </div>
                 <div className="text-xs text-gray-400 break-words">{l.base.raw_text}</div>
                 {!l.base.is_food && <div className="text-xs text-gray-500">Non-food</div>}
                 {l.base.match_confidence === "low" && l.ingredient_id && (
@@ -716,7 +780,7 @@ export default function ImportClient({
         </button>
         <button
           onClick={approve}
-          disabled={applying || applicable.length === 0}
+          disabled={applying || applicable.length === 0 || !storeOk}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50"
         >
           {applying && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -23,6 +23,7 @@ export function postProcessLines(
 
   return lines.map((l) => {
     const line = { ...l };
+    if (line.package_price != null) line.package_price = Math.round(line.package_price * 100) / 100;
     // Never trust ids that are not in the catalog.
     if (line.ingredient_id && !byId.has(line.ingredient_id)) {
       line.ingredient_id = null;
