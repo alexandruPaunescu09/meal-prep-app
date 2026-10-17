@@ -341,7 +341,7 @@ USDA_API_KEY                    # USDA FoodData Central API key
 RESEND_API_KEY                  # Resend email service (for PDF email delivery)
 CONTAINER_TOLERANCE_DEFAULT     # Max outstanding containers before flagging (default: 2)
 NEXT_PUBLIC_MEAL_PLAN_MARKUP_DEFAULT  # Default markup multiplier for new plans (default: 2.5)
-ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing); must be workspace-scoped (sk-ant-api…), user keys (sk-ant-usr…) are rejected without a workspace header
+ANTHROPIC_API_KEY               # Claude API key (invoice/receipt parsing); must be scoped to a workspace (keys without one are rejected with "must include the anthropic-workspace-id header")
 INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: claude-haiku-5-5)
 ```
 
