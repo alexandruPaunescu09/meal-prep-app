@@ -8,9 +8,15 @@ import { dropQueued, queueWrite } from "@/lib/portal/write-queue";
  */
 export async function saveMealStatus(
   entryId: string,
-  status: MealStatus | null
+  status: MealStatus | null,
+  /** Share of the planned portion eaten (only used with status 'eaten'; null/omitted = 1). */
+  portionFactor?: number | null
 ): Promise<"saved" | "queued"> {
-  const payload = { meal_plan_entry_id: entryId, status };
+  const payload = {
+    meal_plan_entry_id: entryId,
+    status,
+    portion_factor: status === "eaten" ? (portionFactor ?? null) : null,
+  };
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     queueWrite({ kind: "status", payload });
     return "queued";

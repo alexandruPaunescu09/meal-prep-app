@@ -173,6 +173,26 @@ export function todayInAppTz(): Date {
   return parseLocalDate(ymd) ?? new Date();
 }
 
+/**
+ * Today's calendar date ('YYYY-MM-DD') in an IANA timezone; an unknown/invalid zone falls back to
+ * APP_TIMEZONE. The portal passes the customer's browser zone (cookie) so the diary keys on their
+ * local date even though SSR runs in UTC.
+ */
+export function todayInTz(tz?: string | null, now: Date = new Date()): string {
+  const fmt = (zone: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  try {
+    return fmt(tz || APP_TIMEZONE);
+  } catch {
+    return fmt(APP_TIMEZONE);
+  }
+}
+
 /** Monday of next week (local). */
 export function nextWeekStart(): string {
   return addDays(currentWeekStart(), 7);

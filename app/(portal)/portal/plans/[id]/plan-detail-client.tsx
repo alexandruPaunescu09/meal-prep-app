@@ -6,7 +6,9 @@ import { ArrowRight, ChevronLeft } from "lucide-react";
 import { MealEntryStatus, MealPlan, MealReview, PortalEntry } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
-import { entryNutrition, sortByMealType, compareLocalDate } from "@/lib/portal/entry-helpers";
+import { sortByMealType, compareLocalDate } from "@/lib/portal/entry-helpers";
+import { planEntryNutrition } from "@/lib/calculations/diary";
+import { useMealStatus } from "@/lib/portal/use-meal-status";
 import { addDays, formatShortDate, formatWeekRange, WEEKDAYS_SHORT } from "@/lib/format";
 
 type FullEntry = PortalEntry;
@@ -30,6 +32,7 @@ export default function PlanDetailClient({
 }) {
   const [dow, setDow] = useState(initialDow);
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+  const { stateOf, saving, applyChanges } = useMealStatus(statuses);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Calendar date for each tab (index 0 = Monday = dow 1).
@@ -44,10 +47,10 @@ export default function PlanDetailClient({
   );
 
   const cards: MealCardData[] = useMemo(() => {
-    const byEntry = new Map(statuses.map((s) => [s.meal_plan_entry_id, s]));
     const reviewByEntry = new Map(reviews.map((r) => [r.meal_plan_entry_id, r]));
     return dayEntries.map((e) => {
-      const n = entryNutrition(e);
+      const n = planEntryNutrition(e);
+      const st = stateOf(e.id);
       return {
         entryId: e.id,
         mealType: e.meal_type,
@@ -59,11 +62,12 @@ export default function PlanDetailClient({
         protein: n.protein,
         carbs: n.carbs,
         fat: n.fat,
-        status: byEntry.get(e.id)?.status ?? null,
+        status: st.status,
+        portionFactor: st.factor,
         rating: reviewByEntry.get(e.id)?.rating ?? null,
       };
     });
-  }, [dayEntries, statuses, reviews]);
+  }, [dayEntries, stateOf, reviews]);
 
   // Keep the selected day's tab visible when the strip overflows horizontally.
   useEffect(() => {
@@ -84,7 +88,6 @@ export default function PlanDetailClient({
 
   const open = openEntryId ? entries.find((e) => e.id === openEntryId) ?? null : null;
   const openReview = open ? reviews.find((r) => r.meal_plan_entry_id === open.id) ?? null : null;
-  const openStatus = open ? statuses.find((s) => s.meal_plan_entry_id === open.id) ?? null : null;
   const openDate = open ? dayDates[open.day_of_week - 1] : null;
   const openIsFuture = openDate
     ? compareLocalDate(openDate, todayDate) > 0
@@ -176,7 +179,15 @@ export default function PlanDetailClient({
             <MealCard
               key={c.entryId}
               meal={c}
-              canLog={canLog}
+              saving={saving.has(c.entryId)}
+              onToggleEaten={
+                canLog
+                  ? () =>
+                      void applyChanges([
+                        { entryId: c.entryId, status: c.status === "eaten" ? null : "eaten", factor: null },
+                      ])
+                  : undefined
+              }
               onTap={() => setOpenEntryId(c.entryId)}
             />
           ))
@@ -197,7 +208,8 @@ export default function PlanDetailClient({
         <MealDetailSheet
           entry={open}
           existingReview={openReview}
-          existingStatus={openStatus?.status ?? null}
+          existingStatus={stateOf(open.id).status}
+          onChangeStatus={(status) => applyChanges([{ entryId: open.id, status, factor: null }])}
           isFuture={openIsFuture}
           date={openDate ?? undefined}
           onClose={() => setOpenEntryId(null)}

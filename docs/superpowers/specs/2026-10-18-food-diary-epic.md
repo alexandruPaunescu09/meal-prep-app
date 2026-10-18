@@ -21,7 +21,7 @@ Update this table as stories land, with the branch or PR and the date.
 |---|---|---|---|---|
 | FD-0 | Stop exposing prices and admin notes to customers | S | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
 | FD-1 | Diary foundation (tables, catalog search, diary API, calc lib, tests) | M | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
-| FD-2 | Diary day view | M | FD-1 | Not started |
+| FD-2 | Diary day view | M | FD-1 | Done 2026-10-18 on `claude/zen-mendel-997ce7` (on top of `food-diary/step-1`; not merged) |
 | FD-3 | Log food from the catalog + quick add | M | FD-2 | Not started |
 | FD-7 | Target weight | S | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
 | FD-4 | Barcode scan to log | M | FD-3 | Not started |

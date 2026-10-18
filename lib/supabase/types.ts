@@ -274,6 +274,8 @@ export interface MealEntryStatus {
   meal_plan_entry_id: string;
   client_id: string;
   status: MealStatus;
+  /** FD-2: share of the planned portion actually eaten (null = 1). Only set while status = 'eaten'. */
+  portion_factor: number | null;
   updated_at: string;
 }
 

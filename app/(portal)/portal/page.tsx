@@ -1,6 +1,8 @@
+import { cookies } from "next/headers";
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
+  FoodLogEntry,
   MealEntryStatus,
   MealPlan,
   MealReview,
@@ -8,12 +10,12 @@ import {
 import {
   addDaysLocal,
   compareLocalDate,
-  formatLocalDate,
   isValidLocalDate,
 } from "@/lib/portal/entry-helpers";
 import { resolvePlanForDate } from "@/lib/portal/plan-resolver";
+import { resolveDayTargets } from "@/lib/portal/day-targets";
+import { todayInTz } from "@/lib/format";
 import TodayClient from "./today-client";
-import Link from "next/link";
 
 export default async function PortalTodayPage({
   searchParams,
@@ -35,13 +37,14 @@ export default async function PortalTodayPage({
 
   const { data: clientRow } = await supabase
     .from("clients")
-    .select("calorie_target")
+    .select("calorie_target, weight_kg, target_weight_kg")
     .eq("id", profile.client_id)
     .maybeSingle();
-  const calorieTarget: number | null = clientRow?.calorie_target ?? null;
 
-  const today = new Date();
-  const todayStr = formatLocalDate(today);
+  // The customer's local date: SSR runs in UTC, so use the browser timezone the client stored in
+  // a cookie (todayInTz falls back to the business timezone before it is known).
+  const cookieStore = await cookies();
+  const todayStr = todayInTz(cookieStore.get("tz")?.value);
   const params = await searchParams;
   const requested = params?.date;
   const selectedDate =
@@ -85,51 +88,6 @@ export default async function PortalTodayPage({
     planDates.push(...seen);
   }
 
-  if (allPlans.length === 0) {
-    const contactEmail = process.env.NEXT_PUBLIC_TRAINER_EMAIL ?? null;
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-bold text-gray-900">Welcome</h1>
-        <div className="bg-white rounded-2xl border p-6 space-y-4">
-          <div>
-            <p className="text-gray-900 font-medium">
-              Your meal plan is being prepared.
-            </p>
-            <p className="text-sm text-gray-600 mt-1">
-              As soon as it&apos;s ready, we&apos;ll publish it here and your
-              meals for each day will show up on this page.
-            </p>
-          </div>
-          <div className="text-sm text-gray-600">
-            <p className="font-medium text-gray-900">
-              While you wait
-            </p>
-            <p className="mt-1">
-              Check that your allergies and food preferences are correct so
-              your plan fits you.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/portal/profile"
-              className="inline-flex items-center px-4 py-2 min-h-[44px] bg-emerald-600 text-white rounded-lg text-sm font-medium"
-            >
-              Review my profile
-            </Link>
-            {contactEmail && (
-              <a
-                href={`mailto:${contactEmail}`}
-                className="inline-flex items-center px-4 py-2 min-h-[44px] border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-              >
-                Contact us
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const resolved = resolvePlanForDate(allPlans, selectedDate);
 
   type TodayEntries = Parameters<typeof TodayClient>[0]["entries"];
@@ -137,12 +95,10 @@ export default async function PortalTodayPage({
   let statuses: MealEntryStatus[] = [];
   let reviews: MealReview[] = [];
   let planName: string | null = null;
-  let planId: string | null = null;
 
   if (resolved) {
     const { plan, dayOfWeek } = resolved;
     planName = plan.name;
-    planId = plan.id;
 
     const { data: entriesData } = await supabase
       .from("meal_plan_entries")
@@ -181,20 +137,31 @@ export default async function PortalTodayPage({
     }
   }
 
+  // Logged foods for the day (own rows only: RLS "Customer manage own").
+  const { data: logData } = await supabase
+    .from("food_log_entries")
+    .select("*")
+    .eq("client_id", profile.client_id)
+    .eq("log_date", selectedDate)
+    .order("created_at", { ascending: true });
+  const logEntries = (logData as FoodLogEntry[] | null) ?? [];
+
   const isFuture = compareLocalDate(selectedDate, todayStr) > 0;
 
   return (
     <TodayClient
-      planId={planId}
       planName={planName}
+      hasPlans={allPlans.length > 0}
+      contactEmail={process.env.NEXT_PUBLIC_TRAINER_EMAIL ?? null}
       selectedDate={selectedDate}
       todayDate={todayStr}
       isFuture={isFuture}
-      planDates={planDates}
-      calorieTarget={resolved?.plan.calorie_target ?? calorieTarget}
+      mealDates={planDates}
+      targets={resolveDayTargets(allPlans, clientRow, selectedDate)}
       entries={entries}
       statuses={statuses}
       reviews={reviews}
+      logEntries={logEntries}
     />
   );
 }

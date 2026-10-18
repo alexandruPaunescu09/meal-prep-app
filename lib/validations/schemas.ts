@@ -98,6 +98,8 @@ export type ReviewTagFormData = z.infer<typeof reviewTagSchema>;
 export const mealStatusSchema = z.object({
   meal_plan_entry_id: z.string().uuid(),
   status: z.enum(["eaten", "skipped"]).nullable(),
+  /** FD-2: eaten share of the planned portion; ignored unless status is 'eaten'. */
+  portion_factor: z.number().gt(0).max(5).nullable().optional(),
 });
 
 export type MealStatusFormData = z.infer<typeof mealStatusSchema>;

@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
     meal_plan_entry_id: body.meal_plan_entry_id,
     client_id: profile.client_id,
     status: body.status,
+    // Only an eaten meal can have a different amount; any other status resets it.
+    portion_factor: body.status === "eaten" ? (body.portion_factor ?? null) : null,
     updated_at: new Date().toISOString(),
   });
 

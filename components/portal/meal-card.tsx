@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Star, Check, X as XIcon, Loader2 } from "lucide-react";
 import { MealStatus } from "@/lib/supabase/types";
-import { saveMealStatus } from "@/lib/portal/save-status";
-import { useToast } from "@/components/ui/toast";
+import { formatNumber } from "@/lib/format";
+import { formatFactor } from "@/components/portal/portion-factor-sheet";
 
 interface MealCardData {
   entryId: string;
@@ -14,11 +12,14 @@ interface MealCardData {
   ingredientName: string | null;
   portions: number;
   quantity: number | null;
+  /** Planned nutrition of the whole entry (before any portion factor). */
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
   status: MealStatus | null;
+  /** Share of the planned portion eaten (null = 1). Only meaningful while eaten. */
+  portionFactor: number | null;
   rating: number | null;
 }
 
@@ -29,56 +30,34 @@ const mealTypeLabels: Record<string, string> = {
   snack: "Snack",
 };
 
+/**
+ * Plan meal inside a diary section. Controlled: the diary owns the (optimistic) status so the
+ * day summary updates in the same render. `onToggleEaten` / `onChangeAmount` are only wired when
+ * the day can be logged.
+ */
 export default function MealCard({
   meal,
   onTap,
-  canLog = false,
+  saving = false,
+  onToggleEaten,
+  onChangeAmount,
 }: {
   meal: MealCardData;
   onTap: () => void;
-  /** Show a one-tap "Eaten" toggle (false for future days). */
-  canLog?: boolean;
+  saving?: boolean;
+  /** One-tap "Eaten" toggle (omitted for future days). */
+  onToggleEaten?: () => void;
+  /** "Ate a different amount" (only offered while eaten). */
+  onChangeAmount?: () => void;
 }) {
-  const router = useRouter();
-  const toast = useToast();
-  const [status, setStatus] = useState<MealStatus | null>(meal.status);
-  const [propStatus, setPropStatus] = useState<MealStatus | null>(meal.status);
-  const [saving, setSaving] = useState(false);
-
-  // Re-sync when the server value changes (after router.refresh()).
-  if (meal.status !== propStatus) {
-    setPropStatus(meal.status);
-    setStatus(meal.status);
-  }
+  const status = meal.status;
+  const eaten = status === "eaten";
+  const factor = eaten ? (meal.portionFactor ?? 1) : 1;
+  const kcal = meal.calories * factor;
 
   const title =
     meal.recipeName ??
     (meal.ingredientName ? `${meal.ingredientName}${meal.quantity ? ` (${meal.quantity}g)` : ""}` : "—");
-
-  async function toggleEaten() {
-    if (saving) return;
-    const previous = status;
-    const next: MealStatus | null = status === "eaten" ? null : "eaten";
-    setStatus(next);
-    setSaving(true);
-    try {
-      const result = await saveMealStatus(meal.entryId, next);
-      if (result === "queued") {
-        toast.info("Saved offline — will sync when you're back online");
-      } else {
-        router.refresh();
-      }
-    } catch (e) {
-      setStatus(previous);
-      toast.error(e instanceof Error && e.message ? e.message : "Could not save", {
-        action: { label: "Retry", onClick: () => void toggleEaten() },
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const eaten = status === "eaten";
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 hover:border-emerald-300 transition-colors">
@@ -90,15 +69,15 @@ export default function MealCard({
         <div className="flex items-start justify-between gap-3 mb-2">
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wide text-gray-500 font-medium">
-              {mealTypeLabels[meal.mealType] ?? meal.mealType}
+              Plan · {mealTypeLabels[meal.mealType] ?? meal.mealType}
             </p>
             <h3 className="font-semibold text-gray-900 mt-0.5 line-clamp-2 break-words">{title}</h3>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {status === "eaten" && (
+            {eaten && (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">
                 <Check className="w-3 h-3" />
-                Eaten
+                Eaten{meal.portionFactor != null && meal.portionFactor !== 1 ? ` ${formatFactor(meal.portionFactor)}` : ""}
               </span>
             )}
             {status === "skipped" && (
@@ -121,22 +100,22 @@ export default function MealCard({
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-600">
           <span className="font-medium text-gray-900">
-            {Math.round(meal.calories)} kcal
+            {formatNumber(Math.round(kcal), 0)} kcal
             {meal.portions !== 1 && (
               <span className="font-normal text-gray-500"> (×{meal.portions} portions)</span>
             )}
           </span>
-          <span>Protein {Math.round(meal.protein)} g</span>
-          <span>Carbs {Math.round(meal.carbs)} g</span>
-          <span>Fat {Math.round(meal.fat)} g</span>
+          <span>Protein {formatNumber(Math.round(meal.protein * factor), 0)} g</span>
+          <span>Carbs {formatNumber(Math.round(meal.carbs * factor), 0)} g</span>
+          <span>Fat {formatNumber(Math.round(meal.fat * factor), 0)} g</span>
         </div>
       </button>
 
-      {canLog && (
-        <div className="px-4 pb-3 -mt-1">
+      {onToggleEaten && (
+        <div className="px-4 pb-3 -mt-1 space-y-1">
           <button
             type="button"
-            onClick={toggleEaten}
+            onClick={onToggleEaten}
             disabled={saving}
             aria-pressed={eaten}
             aria-label={`Mark ${mealTypeLabels[meal.mealType] ?? meal.mealType} (${meal.recipeName ?? meal.ingredientName ?? "meal"}) as eaten`}
@@ -146,13 +125,19 @@ export default function MealCard({
                 : "bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50"
             }`}
           >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Check className="w-4 h-4" />
-            )}
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             {eaten ? "Eaten" : "Mark as eaten"}
           </button>
+          {eaten && onChangeAmount && (
+            <button
+              type="button"
+              onClick={onChangeAmount}
+              disabled={saving}
+              className="w-full min-h-[40px] text-sm font-medium text-emerald-700 hover:underline disabled:opacity-70"
+            >
+              Ate a different amount
+            </button>
+          )}
         </div>
       )}
     </div>

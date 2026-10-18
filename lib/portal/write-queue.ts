@@ -17,7 +17,11 @@ type ReviewQueued = {
 };
 type StatusQueued = {
   kind: "status";
-  payload: { meal_plan_entry_id: string; status: "eaten" | "skipped" | null };
+  payload: {
+    meal_plan_entry_id: string;
+    status: "eaten" | "skipped" | null;
+    portion_factor?: number | null;
+  };
 };
 
 type DiaryUpsertQueued = { kind: "diary-upsert"; payload: DiaryEntryInput };
