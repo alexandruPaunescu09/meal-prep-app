@@ -21,14 +21,14 @@ export default async function ContainersPage() {
     typeof calculateClientBalance
   >[1];
 
-  const balances = clients
-    .map((client) => {
-      const clientDeliveries = allDeliveries.filter(
-        (d) => d.client_id === client.id
-      );
-      return calculateClientBalance(client, clientDeliveries, containers);
-    })
-    .filter((b) => b.totalOutstanding > 0 || b.balances.length > 0);
+  // Every client gets a card (even with nothing outstanding) so the
+  // "Containers" links on the client cards always land on something.
+  const balances = clients.map((client) => {
+    const clientDeliveries = allDeliveries.filter(
+      (d) => d.client_id === client.id
+    );
+    return calculateClientBalance(client, clientDeliveries, containers);
+  });
 
   // Deliveries arrive newest first; keep the most recent few per client.
   const deliveriesByClient: Record<string, DeliverySummary[]> = {};

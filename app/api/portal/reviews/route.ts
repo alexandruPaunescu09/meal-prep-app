@@ -36,6 +36,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  // Photos live under `<client_id>/…`; reject paths pointing anywhere else.
+  const photoPrefix = `${profile.client_id}/`;
+  if (
+    body.photo_path &&
+    (!body.photo_path.startsWith(photoPrefix) || body.photo_path.includes(".."))
+  ) {
+    return NextResponse.json({ error: "invalid photo_path" }, { status: 400 });
+  }
+
+  // Remember the current photo so a replaced/cleared one can be deleted below.
+  const { data: previous } = await supabase
+    .from("meal_reviews")
+    .select("photo_path")
+    .eq("meal_plan_entry_id", body.meal_plan_entry_id)
+    .maybeSingle<{ photo_path: string | null }>();
+
   // Upsert review by meal_plan_entry_id (unique).
   const upsertPayload = {
     meal_plan_entry_id: body.meal_plan_entry_id,
@@ -55,6 +71,15 @@ export async function POST(req: NextRequest) {
 
   if (error || !saved) {
     return NextResponse.json({ error: error?.message ?? "save failed" }, { status: 500 });
+  }
+
+  // Best effort: drop the storage object this save no longer references.
+  const oldPhoto = previous?.photo_path;
+  if (oldPhoto && oldPhoto !== saved.photo_path && oldPhoto.startsWith(photoPrefix)) {
+    const { error: rmError } = await supabase.storage
+      .from("meal-review-photos")
+      .remove([oldPhoto]);
+    if (rmError) console.error("orphaned review photo cleanup failed:", rmError.message);
   }
 
   // Replace tag links.

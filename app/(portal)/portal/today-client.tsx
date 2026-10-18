@@ -97,6 +97,14 @@ export default function TodayClient({
   }, [isPending]);
   const showSkeleton = isPending && skeletonGate;
 
+  // Offline writes just reached the server: re-fetch so the "x of y logged" and
+  // kcal-eaten header reflect them.
+  useEffect(() => {
+    const onFlushed = () => router.refresh();
+    window.addEventListener("portal:queue-flushed", onFlushed);
+    return () => window.removeEventListener("portal:queue-flushed", onFlushed);
+  }, [router]);
+
   const sorted = useMemo(() => sortByMealType(entries), [entries]);
   const planDateSet = useMemo(() => new Set(planDates), [planDates]);
 

@@ -57,10 +57,22 @@ export default async function PortalTodayPage({
 
   const allPlans = (allPlansData as MealPlan[] | null) ?? [];
 
-  // Build the set of YYYY-MM-DD dates the customer has a plan covering.
+  // YYYY-MM-DD dates that actually have meals (a plan covering a week with no
+  // entries on a given day shouldn't be marked or offered as a destination).
   const planDates: string[] = [];
-  for (const p of allPlans) {
-    for (let i = 0; i < 7; i++) planDates.push(addDaysLocal(p.week_start, i));
+  if (allPlans.length > 0) {
+    const weekByPlan = new Map(allPlans.map((p) => [p.id, p.week_start]));
+    const { data: daySlots } = await supabase
+      .from("meal_plan_entries")
+      .select("meal_plan_id, day_of_week")
+      .in("meal_plan_id", allPlans.map((p) => p.id));
+    const seen = new Set<string>();
+    for (const row of (daySlots ?? []) as { meal_plan_id: string; day_of_week: number }[]) {
+      const week = weekByPlan.get(row.meal_plan_id);
+      if (!week) continue;
+      seen.add(addDaysLocal(week, row.day_of_week - 1));
+    }
+    planDates.push(...seen);
   }
 
   if (allPlans.length === 0) {

@@ -129,7 +129,7 @@ export function Modal({
     lockScroll();
 
     // Initial focus (after paint so refs/children exist).
-    const raf = requestAnimationFrame(() => {
+    const focusInitial = () => {
       const explicit = initialFocusRefRef.current?.current;
       if (explicit) return explicit.focus();
       const pick = (root: HTMLElement | null) =>
@@ -142,7 +142,17 @@ export function Modal({
         pick(panelRef.current) ||
         panelRef.current
       )?.focus();
-    });
+    };
+    // A modal open on page load (e.g. ?new=1) can lose that first focus to
+    // hydration/route settling, so verify shortly after and retry once.
+    // Focus right away (refs are attached by now) and again after paint: rAF
+    // alone can be deferred indefinitely in a throttled/background page.
+    focusInitial();
+    const raf = requestAnimationFrame(focusInitial);
+    const retry = setTimeout(() => {
+      const panel = panelRef.current;
+      if (panel && !panel.contains(document.activeElement)) focusInitial();
+    }, 250);
 
     // Escape runs in the bubble phase so handlers inside the modal (React's root
     // listener, e.g. an open combobox) get first chance; they consume it with
@@ -183,6 +193,7 @@ export function Modal({
 
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(retry);
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onEscape);
       const i = stack.indexOf(id);

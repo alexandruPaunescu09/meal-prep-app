@@ -48,7 +48,7 @@ import { Modal } from "@/components/ui/modal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
-import { formatLei, formatWeekRange, addDays, toLocalISODate, humanizeSlug, WEEKDAYS_SHORT } from "@/lib/format";
+import { formatLei, formatWeekRange, addDays, retitleForWeek, toLocalISODate, humanizeSlug, WEEKDAYS_SHORT } from "@/lib/format";
 import type { MealPlanSiblings } from "@/lib/data/meal-plan-siblings";
 import {
   DndContext,
@@ -261,8 +261,11 @@ export default function MealPlanGrid({
     if (entry.id.startsWith("temp-")) return;
     if (entry.day_of_week === newDay && entry.meal_type === newMealType) return;
 
-    // Optimistic move — snapshot, apply locally, fire mutation, revalidate.
-    const snapshot = entries;
+    // Optimistic move — apply locally, fire mutation, revalidate. Rollback
+    // restores only this entry (never a whole-list snapshot, which could
+    // resurrect stale temp- rows or undo concurrent edits).
+    const prevDay = entry.day_of_week;
+    const prevMeal = entry.meal_type;
     setEntries((prev) =>
       prev.map((e) =>
         e.id === entryId
@@ -277,7 +280,11 @@ export default function MealPlanGrid({
       .eq("id", entryId);
 
     if (error) {
-      setEntries(snapshot);
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entryId ? { ...e, day_of_week: prevDay, meal_type: prevMeal } : e
+        )
+      );
       toast.error(`Move failed: ${error.message}`, {
         action: { label: "Retry", onClick: () => void moveEntry(entryId, newDay, newMealType) },
       });
@@ -403,6 +410,11 @@ export default function MealPlanGrid({
   }
 
   async function removeEntry(entryId: string, alreadyConfirmed = false) {
+    // Optimistic rows have no database id yet; deleting "temp-…" would no-op.
+    if (entryId.startsWith("temp-")) {
+      toast.info("Still saving this entry — try again in a moment");
+      return;
+    }
     // Ignore repeat removes of the same entry while a check/confirm is pending.
     if (removeInFlight.current.has(entryId)) return;
     removeInFlight.current.add(entryId);
@@ -446,7 +458,6 @@ export default function MealPlanGrid({
       });
       if (!ok) return;
     }
-    const snapshot = entries;
     setRemovingEntry(entryId);
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
 
@@ -457,7 +468,11 @@ export default function MealPlanGrid({
     setRemovingEntry(null);
 
     if (error) {
-      setEntries(snapshot);
+      if (removed) {
+        setEntries((prev) =>
+          prev.some((e) => e.id === entryId) ? prev : [...prev, removed]
+        );
+      }
       toast.error(`Delete failed: ${error.message}`, {
         action: { label: "Retry", onClick: () => void removeEntry(entryId, hasCustomerData) },
       });
@@ -497,7 +512,12 @@ export default function MealPlanGrid({
     if (savingEntry === entryId) return;
     // Editor closes immediately; the "saving" dim communicates in-flight.
     setEditingEntry(null);
-    const snapshot = entries;
+    const before = entries.find((e) => e.id === entryId);
+    const revert: { portions?: number; quantity?: number | null } = {};
+    if (before) {
+      if (patch.portions !== undefined) revert.portions = before.portions;
+      if (patch.quantity !== undefined) revert.quantity = before.quantity;
+    }
     setSavingEntry(entryId);
     setEntries((prev) =>
       prev.map((e) => (e.id === entryId ? { ...e, ...patch } : e))
@@ -511,7 +531,9 @@ export default function MealPlanGrid({
     setSavingEntry(null);
 
     if (error) {
-      setEntries(snapshot);
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entryId ? { ...e, ...revert } : e))
+      );
       toast.error(`Update failed: ${error.message}`, {
         action: { label: "Retry", onClick: () => void updateEntry(entryId, patch) },
       });
@@ -739,14 +761,14 @@ export default function MealPlanGrid({
       <DndContext id={dndId} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="hidden md:block bg-white rounded-xl border overflow-hidden mb-2">
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm">
+          <table className="w-full min-w-[1040px] table-fixed text-sm">
             <thead>
               <tr className="bg-gray-50 border-b">
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20"></th>
                 {WEEKDAYS_SHORT.map((day, idx) => (
                   <th
                     key={day}
-                    className={`text-center px-2 py-2 font-medium min-w-[104px] ${
+                    className={`text-center px-2 py-2 font-medium min-w-[130px] ${
                       todayDay === idx + 1 ? "text-emerald-700 bg-emerald-50" : "text-gray-600"
                     }`}
                   >
@@ -2174,8 +2196,9 @@ function DuplicatePlanModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const [nameTouched, setNameTouched] = useState(false);
   const [form, setForm] = useState({
-    name: `${plan.name} (copy)`,
+    name: retitleForWeek(plan.name, plan.week_start, addDays(plan.week_start, 7)),
     client_id: plan.client_id ?? "",
     week_start: addDays(plan.week_start, 7),
     markup_multiplier: plan.markup_multiplier,
@@ -2249,7 +2272,10 @@ function DuplicatePlanModal({
             id="dp-name"
             type="text"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => {
+              setNameTouched(true);
+              setForm({ ...form, name: e.target.value });
+            }}
             className={inputCls}
             required
           />
@@ -2280,7 +2306,18 @@ function DuplicatePlanModal({
             id="dp-week"
             type="date"
             value={form.week_start}
-            onChange={(e) => setForm({ ...form, week_start: e.target.value })}
+            onChange={(e) => {
+              const week = e.target.value;
+              // Keep the week range in an untouched name in sync with the chosen week.
+              setForm({
+                ...form,
+                week_start: week,
+                name:
+                  !nameTouched && week
+                    ? retitleForWeek(plan.name, plan.week_start, week)
+                    : form.name,
+              });
+            }}
             className={inputCls}
             required
           />

@@ -92,7 +92,12 @@ function Chip({
     ? "bg-white border-red-200 text-red-700 hover:bg-red-50"
     : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50";
   return (
-    <button type="button" onClick={onClick} className={`${base} ${styles}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`${base} ${styles}`}
+    >
       {label}
     </button>
   );

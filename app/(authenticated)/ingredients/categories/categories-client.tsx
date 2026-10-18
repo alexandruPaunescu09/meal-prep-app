@@ -216,10 +216,38 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
     }
 
     // Repoint prep rules so they follow the ingredients instead of orphaning.
-    const { error: rulesErr } = await supabase
+    // Rules identical to one the target category already has (same prep type
+    // and lead time) are dropped instead of repointed, so no duplicates appear.
+    const { data: catRules, error: loadRulesErr } = await supabase
       .from("prep_rules")
-      .update({ ingredient_category: moveToSlug })
-      .eq("ingredient_category", cat.slug);
+      .select("id, ingredient_category, prep_type, advance_days")
+      .in("ingredient_category", [cat.slug, moveToSlug]);
+    let rulesErr = loadRulesErr;
+    if (!rulesErr) {
+      const targetKeys = new Set(
+        (catRules ?? [])
+          .filter((r) => r.ingredient_category === moveToSlug)
+          .map((r) => `${r.prep_type}|${r.advance_days}`)
+      );
+      const dupIds = (catRules ?? [])
+        .filter(
+          (r) =>
+            r.ingredient_category === cat.slug &&
+            targetKeys.has(`${r.prep_type}|${r.advance_days}`)
+        )
+        .map((r) => r.id);
+      if (dupIds.length > 0) {
+        const { error } = await supabase.from("prep_rules").delete().in("id", dupIds);
+        rulesErr = error;
+      }
+    }
+    if (!rulesErr) {
+      const { error } = await supabase
+        .from("prep_rules")
+        .update({ ingredient_category: moveToSlug })
+        .eq("ingredient_category", cat.slug);
+      rulesErr = error;
+    }
     if (rulesErr) {
       // Ingredients have moved, but the category is kept so the rules still resolve.
       await invalidateCategories();
