@@ -162,6 +162,7 @@ export default function MealPlanGrid({
   const supabase = createClient();
   const toast = useToast();
   const confirm = useConfirm();
+  const removeInFlight = useRef(new Set<string>());
   const isDesktop = useIsDesktop();
   const [slotPicker, setSlotPicker] = useState<SlotPickerState | null>(null);
   // Remembered across SlotPicker opens within this page visit.
@@ -402,10 +403,39 @@ export default function MealPlanGrid({
   }
 
   async function removeEntry(entryId: string, alreadyConfirmed = false) {
+    // Ignore repeat removes of the same entry while a check/confirm is pending.
+    if (removeInFlight.current.has(entryId)) return;
+    removeInFlight.current.add(entryId);
+    try {
+      await removeEntryInner(entryId, alreadyConfirmed);
+    } finally {
+      removeInFlight.current.delete(entryId);
+    }
+  }
+
+  async function removeEntryInner(entryId: string, alreadyConfirmed: boolean) {
     const removed = entries.find((e) => e.id === entryId);
     // Reviews and eaten/skipped statuses cascade-delete with the entry and
     // cannot be restored by Undo, so confirm first and drop Undo for them.
-    const hasCustomerData = reviewMap.has(entryId) || statusMap.has(entryId);
+    // The props come from a stale-while-revalidate cache, so also check the
+    // database directly (fail safe: a query error counts as customer data).
+    let hasCustomerData = reviewMap.has(entryId) || statusMap.has(entryId);
+    if (!hasCustomerData && !alreadyConfirmed && !entryId.startsWith("temp-")) {
+      const [st, rv] = await Promise.all([
+        supabase
+          .from("meal_entry_status")
+          .select("meal_plan_entry_id")
+          .eq("meal_plan_entry_id", entryId)
+          .limit(1),
+        supabase
+          .from("meal_reviews")
+          .select("meal_plan_entry_id")
+          .eq("meal_plan_entry_id", entryId)
+          .limit(1),
+      ]);
+      hasCustomerData =
+        !!st.error || !!rv.error || (st.data?.length ?? 0) > 0 || (rv.data?.length ?? 0) > 0;
+    }
     if (hasCustomerData && !alreadyConfirmed) {
       const ok = await confirm({
         title: "Remove this meal?",
