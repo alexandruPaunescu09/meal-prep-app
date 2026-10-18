@@ -3,13 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Circle, Slash } from "lucide-react";
-import {
-  Ingredient,
-  MealPlanEntry,
-  MealReview,
-  MealStatus,
-  Recipe,
-  RecipeIngredient,
+import {  MealReview,
+  MealStatus,  PortalEntry,
 } from "@/lib/supabase/types";
 import { entryNutrition } from "@/lib/portal/entry-helpers";
 import ReviewComposer from "./review-composer";
@@ -18,12 +13,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { formatDate, formatQuantity } from "@/lib/format";
 
-type FullEntry = MealPlanEntry & {
-  recipe?: Recipe & {
-    recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
-  };
-  ingredient?: Ingredient;
-};
+type FullEntry = PortalEntry;
 
 const mealLabels: Record<string, string> = {
   breakfast: "Breakfast",

@@ -354,3 +354,29 @@ export interface RegeneratePrepResult {
   preserved_completed: number;
   dropped_completed: number;
 }
+
+// ---------------------------------------------------------------------------
+// FD-0: customer-safe shapes (rows of the `ingredients_public` / `recipes_public`
+// views). Portal code must use these so TypeScript proves no price / admin-notes
+// fields are read. Do not add package_price, price_per_unit, quantity_purchased
+// or notes here.
+// ---------------------------------------------------------------------------
+export type PublicIngredient = Omit<
+  Ingredient,
+  | "quantity_purchased"
+  | "package_price"
+  | "price_per_unit"
+  | "api_source"
+  | "created_at"
+  | "updated_at"
+>;
+
+export type PublicRecipe = Omit<Recipe, "notes" | "container_type">;
+
+/** meal_plan_entries row with portal-safe recipe/ingredient embeds. */
+export type PortalEntry = Omit<MealPlanEntry, "recipe" | "ingredient"> & {
+  recipe?: PublicRecipe & {
+    recipe_ingredients: (Omit<RecipeIngredient, "ingredient"> & { ingredient: PublicIngredient })[];
+  };
+  ingredient?: PublicIngredient;
+};
