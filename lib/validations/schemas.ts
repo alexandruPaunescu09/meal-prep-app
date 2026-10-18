@@ -107,8 +107,19 @@ export const registerSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   name: z.string().min(1, "Name is required"),
   phone: z.string().nullable().optional(),
-  weight_kg: z.number().positive().nullable().optional(),
-  calorie_target: z.number().int().positive().nullable().optional(),
+  weight_kg: z
+    .number()
+    .min(20, "Enter a weight between 20 and 300 kg, e.g. 72,5.")
+    .max(300, "Enter a weight between 20 and 300 kg, e.g. 72,5.")
+    .nullable()
+    .optional(),
+  calorie_target: z
+    .number()
+    .int("Enter a whole number between 800 and 6000.")
+    .min(800, "Enter a whole number between 800 and 6000.")
+    .max(6000, "Enter a whole number between 800 and 6000.")
+    .nullable()
+    .optional(),
   restrictions: z.string().nullable().optional(),
   allergies: z.string().nullable().optional(),
   preferences: z.string().nullable().optional(),

@@ -12,8 +12,13 @@ import {
   ChevronDown,
   CheckCircle2,
   ArrowLeft,
+  ExternalLink,
 } from "lucide-react";
+import { useListboxNav } from "@/lib/hooks/use-listbox-nav";
 import IngredientForm from "@/components/ingredient-form";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { formatLei, formatPricePerUnit, formatDate, toLocalISODate } from "@/lib/format";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
 import type { Category, Ingredient, ParsedInvoiceLine } from "@/lib/supabase/types";
 
@@ -51,8 +56,40 @@ function titleCase(s: string) {
     .trim();
 }
 
-function fmt(n: number | null | undefined, d = 2) {
-  return n == null || !isFinite(n) ? "-" : n.toFixed(d);
+const BIG_CHANGE_PCT = 30;
+const PICKER_LIMIT = 50;
+
+type ChangedItem = {
+  id: string;
+  name: string;
+  unit: string;
+  oldPpu: number | null;
+  newPpu: number;
+  pct: number | null;
+};
+
+type ViewMode = "all" | "attention-first" | "attention-only";
+
+function pctBadge(pct: number | null) {
+  if (pct == null) return <span className="text-gray-400">-</span>;
+  const big = Math.abs(pct) >= BIG_CHANGE_PCT;
+  const sign = pct > 0 ? "+" : "";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 ${
+        big ? "text-red-600 font-semibold" : pct > 0 ? "text-amber-600" : "text-emerald-600"
+      }`}
+    >
+      {big && <AlertTriangle className="w-3.5 h-3.5" aria-hidden />}
+      {sign}
+      {pct.toFixed(1)}%{big && <span className="sr-only">large change</span>}
+      {big && (
+        <span aria-hidden className="text-xs font-medium">
+          {pct > 0 ? "big increase" : "big drop"}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -110,31 +147,87 @@ function IngredientPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [flip, setFlip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const selected = ingredients.find((i) => i.id === value);
+
+  function openPicker() {
+    // Open upward when there isn't room below (avoids clipping at the viewport bottom).
+    const r = triggerRef.current?.getBoundingClientRect();
+    setFlip(!!r && window.innerHeight - r.bottom < 320 && r.top > window.innerHeight - r.bottom);
+    setActive(0);
+    setOpen(true);
+  }
+
+  function closePicker(refocus = true) {
+    setOpen(false);
+    setQ("");
+    if (refocus) triggerRef.current?.focus();
+  }
 
   useEffect(() => {
     if (!open) return;
     const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQ("");
+      }
     };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
-  const list = useMemo(() => {
+  const { list, total } = useMemo(() => {
     const t = q.trim().toLowerCase();
     const f = t
       ? ingredients.filter((i) => `${i.name} ${i.brand ?? ""}`.toLowerCase().includes(t))
       : ingredients;
-    return f.slice(0, 50);
+    return { list: f.slice(0, PICKER_LIMIT), total: f.length };
   }, [ingredients, q]);
+
+  const choose = (id: string | null) => {
+    onChange(id);
+    closePicker();
+  };
+
+  // Offset 1 when the "Clear selection" row is present.
+  const clearOffset = value ? 1 : 0;
+  const rowCount = list.length + clearOffset;
+
+  const nav = useListboxNav({
+    count: rowCount,
+    onSelect: (i) => {
+      if (clearOffset && i === 0) choose(null);
+      else {
+        const it = list[i - clearOffset];
+        if (it) choose(it.id);
+      }
+    },
+    onEscape: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closePicker();
+    },
+    enabled: open,
+    listRef,
+  });
+  const { activeIndex: active, setActiveIndex: setActive } = nav;
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && rowCount === 0) e.preventDefault();
+    nav.onKeyDown(e);
+  }
 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? closePicker(false) : openPicker())}
         className="w-full flex items-center justify-between gap-2 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-left bg-white hover:bg-gray-50"
       >
         <span className={`truncate ${selected ? "text-gray-900" : "text-gray-400"}`}>
@@ -143,48 +236,66 @@ function IngredientPicker({
         <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-72 max-w-[85vw] bg-white border rounded-lg shadow-lg">
+        <div
+          className={`absolute z-30 left-0 right-0 sm:right-auto sm:w-72 bg-white border rounded-lg shadow-lg ${
+            flip ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
           <input
             autoFocus
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setActive(0);
+            }}
+            onKeyDown={onKeyDown}
             placeholder="Search…"
+            aria-label="Search ingredients"
             className="w-full px-3 py-2 text-sm border-b outline-none rounded-t-lg"
           />
-          <ul className="max-h-60 overflow-y-auto">
+          <ul ref={listRef} role="listbox" className="max-h-60 overflow-y-auto">
             {value && (
-              <li>
+              <li role="option" aria-selected={active === 0} data-idx={0}>
                 <button
                   type="button"
-                  onClick={() => {
-                    onChange(null);
-                    setOpen(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+                  tabIndex={-1}
+                  onClick={() => choose(null)}
+                  onMouseEnter={() => setActive(0)}
+                  className={`w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 ${
+                    active === 0 ? "bg-gray-100" : ""
+                  }`}
                 >
                   Clear selection
                 </button>
               </li>
             )}
-            {list.map((i) => (
-              <li key={i.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(i.id);
-                    setOpen(false);
-                    setQ("");
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50"
-                >
-                  {i.name}
-                  {i.brand && <span className="text-gray-400"> ({i.brand})</span>}
-                  <span className="text-gray-400 text-xs"> · {i.unit}</span>
-                </button>
-              </li>
-            ))}
+            {list.map((i, n) => {
+              const idx = n + clearOffset;
+              return (
+                <li key={i.id} role="option" aria-selected={active === idx} data-idx={idx}>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => choose(i.id)}
+                    onMouseEnter={() => setActive(idx)}
+                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50 ${
+                      active === idx ? "bg-emerald-50" : ""
+                    }`}
+                  >
+                    {i.name}
+                    {i.brand && <span className="text-gray-400"> ({i.brand})</span>}
+                    <span className="text-gray-400 text-xs"> · {i.unit}</span>
+                  </button>
+                </li>
+              );
+            })}
             {list.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matches</li>}
           </ul>
+          {total > PICKER_LIMIT && (
+            <p className="px-3 py-1.5 text-xs text-gray-500 border-t">
+              Showing {PICKER_LIMIT} of {total} — refine search
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -212,18 +323,21 @@ export default function ImportClient({
   const [store, setStore] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [applying, setApplying] = useState(false);
-  const [summary, setSummary] = useState<{ updated: number; unchanged: number; skipped: number } | null>(null);
-  const [createFor, setCreateFor] = useState<number | null>(null);
-  // In-page confirmation: native confirm() is suppressed in some embedded
-  // browsers (it returns false without showing), which silently blocked
-  // Discard/Approve.
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    title: string;
-    body: string;
-    confirmLabel: string;
-    danger?: boolean;
-    run: () => void;
+  const [summary, setSummary] = useState<{
+    updated: number;
+    unchanged: number;
+    skipped: number;
+    changed: ChangedItem[];
   } | null>(null);
+  const [createFor, setCreateFor] = useState<number | null>(null);
+  const [view, setView] = useState<ViewMode>("all");
+  const confirm = useConfirm();
+  const toast = useToast();
+  const confirmRef = useRef(confirm);
+  useEffect(() => {
+    confirmRef.current = confirm;
+  }, [confirm]);
+  const skipGuard = useRef(false);
 
   const totalBytes = prepared.reduce((s, p) => s + p.blob.size, 0);
   const tooBig = totalBytes > MAX_TOTAL_BYTES;
@@ -236,8 +350,39 @@ export default function ImportClient({
       e.preventDefault();
     };
     window.addEventListener("beforeunload", h);
-    return () => window.removeEventListener("beforeunload", h);
-  }, [step]);
+
+    // In-app navigation guard (sidebar links, the back link): a parsed result is
+    // paid for and lives only in this component's state.
+    const onClick = (e: MouseEvent) => {
+      if (skipGuard.current || e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void confirmRef
+        .current({
+          title: "Leave this page?",
+          message: "The parsed receipt hasn't been saved. If you leave, you'll have to read it again.",
+          confirmLabel: "Leave",
+          cancelLabel: "Stay",
+          tone: "danger",
+        })
+        .then((ok) => {
+          if (!ok) return;
+          skipGuard.current = true;
+          router.push(url.pathname + url.search + url.hash);
+        });
+    };
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", h);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [step, router]);
 
   async function addFiles(list: FileList | File[]) {
     const incoming = Array.from(list).filter(
@@ -266,6 +411,7 @@ export default function ImportClient({
     setLines([]);
     setError("");
     setSummary(null);
+    setView("all");
     setStep("upload");
   }
 
@@ -329,15 +475,34 @@ export default function ImportClient({
     }
   });
 
-  function approve() {
+  async function approve() {
     if (!result || applicable.length === 0 || !storeOk) return;
-    const date = invoiceDate || "unknown date";
-    setPendingConfirm({
+    const date = invoiceDate ? formatDate(invoiceDate) : "unknown date";
+    const ok = await confirm({
       title: `Update ${applicable.length} prices?`,
-      body: `From ${store.trim()}, ${date}. Old prices are kept in each ingredient's price history.`,
+      message: `From ${store.trim()}, ${date}. Old prices are kept in each ingredient's price history.`,
       confirmLabel: "Update prices",
-      run: () => void applyPrices(),
     });
+    if (ok) await applyPrices();
+  }
+
+  const isBig = (pct: number | null) => pct != null && Math.abs(pct) >= BIG_CHANGE_PCT;
+  const needsAttention = (l: ReviewLine) => {
+    const d = derive(l);
+    const ingUnit = d.ing?.unit;
+    const unitMismatch = !!ingUnit && !!l.base.package_unit && ingUnit !== l.base.package_unit;
+    const lowConf = l.base.match_confidence === "low" && !!l.ingredient_id;
+    const unmatchedFood = l.base.is_food && !l.ingredient_id;
+    return lowConf || unitMismatch || unmatchedFood || isBig(d.pct) || (l.include && !d.valid);
+  };
+
+  function bulk(fn: (l: ReviewLine) => boolean | null) {
+    setLines((ls) =>
+      ls.map((l) => {
+        const r = fn(l);
+        return r === null ? l : { ...l, include: r };
+      }),
+    );
   }
 
   async function applyPrices() {
@@ -370,29 +535,48 @@ export default function ImportClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+      const changed: ChangedItem[] = [];
+      for (const l of applicable) {
+        const d = derive(l);
+        if (!d.ing || d.newPpu == null) continue;
+        if (d.oldPpu != null && Math.abs(d.newPpu - d.oldPpu) < 1e-12) continue;
+        changed.push({
+          id: d.ing.id,
+          name: d.ing.name,
+          unit: d.ing.unit,
+          oldPpu: d.oldPpu,
+          newPpu: d.newPpu,
+          pct: d.pct,
+        });
+      }
+      changed.sort((a, b) => Math.abs(b.pct ?? 0) - Math.abs(a.pct ?? 0));
       setSummary({
         updated: data.updated ?? 0,
         unchanged: data.unchanged ?? 0,
         skipped: lines.length - applicable.length,
+        changed,
       });
+      toast.success(`Updated ${data.updated ?? 0} ingredient price${data.updated === 1 ? "" : "s"}`);
       setStep("done");
       await invalidateIngredients();
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to apply prices");
+      const msg = e instanceof Error ? e.message : "Failed to apply prices";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setApplying(false);
     }
   }
 
-  function discard() {
-    setPendingConfirm({
+  async function discard() {
+    const ok = await confirm({
       title: "Discard this import?",
-      body: "Nothing has been saved. The parsed lines will be cleared.",
+      message: "Nothing has been saved. The parsed lines will be cleared.",
       confirmLabel: "Discard",
-      danger: true,
-      run: resetAll,
+      tone: "danger",
     });
+    if (ok) resetAll();
   }
 
   const createLine = createFor != null ? lines.find((l) => l.uid === createFor) : undefined;
@@ -417,7 +601,7 @@ export default function ImportClient({
     return (
       <div>
         {header}
-        <div className="bg-white rounded-xl border p-6 max-w-md">
+        <div className="bg-white rounded-xl border p-6 max-w-2xl">
           <div className="flex items-center gap-2 text-emerald-700 font-semibold mb-3">
             <CheckCircle2 className="w-5 h-5" /> Prices updated
           </div>
@@ -426,6 +610,29 @@ export default function ImportClient({
             <li>{summary.unchanged} unchanged</li>
             <li>{summary.skipped} skipped</li>
           </ul>
+          {summary.changed.length > 0 && (
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 mb-2">Price changes</h2>
+              <ul className="divide-y border rounded-lg text-sm">
+                {summary.changed.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      href={`/ingredients?edit=${c.id}`}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 hover:bg-gray-50"
+                    >
+                      <span className="font-medium text-gray-900 min-w-0 flex-1 basis-40 truncate">{c.name}</span>
+                      <span className="text-xs text-gray-600">
+                        {c.oldPpu != null ? formatPricePerUnit(c.oldPpu, c.unit) : "new"} →{" "}
+                        <span className="font-medium text-gray-900">{formatPricePerUnit(c.newPpu, c.unit)}</span>
+                      </span>
+                      {pctBadge(c.pct)}
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-400" aria-hidden />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="flex gap-2">
             <Link
               href="/ingredients"
@@ -450,6 +657,17 @@ export default function ImportClient({
       <div>
         {header}
         <div className="max-w-xl space-y-4">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-sm text-gray-700 space-y-1">
+            <p className="font-medium text-gray-900">Update ingredient prices from a receipt</p>
+            <p>
+              Upload receipt screenshots or invoice PDFs. The app reads each line and matches it to your
+              ingredients, then you review the new prices before anything is saved.
+            </p>
+            <p className="text-gray-500">
+              Works best with Lidl Plus screenshots and Freshful PDFs. Up to {MAX_PARTS} parts, 4 MB in total
+              (large screenshots are resized automatically).
+            </p>
+          </div>
           <label
             onDragOver={(e) => {
               e.preventDefault();
@@ -470,7 +688,9 @@ export default function ImportClient({
               Choose receipt screenshots or PDF invoices
               <span className="hidden md:inline"> (or drop them here)</span>
             </span>
-            <span className="text-xs text-gray-400">Lidl Plus screenshots, Freshful PDFs</span>
+            <span className="text-xs text-gray-400">
+              Photos, screenshots or PDFs · 4 MB max in total
+            </span>
             <input
               type="file"
               multiple
@@ -540,18 +760,15 @@ export default function ImportClient({
   }
 
   /* review */
+  const attentionCount = lines.filter(needsAttention).length;
+  const visibleLines =
+    view === "attention-only"
+      ? lines.filter(needsAttention)
+      : view === "attention-first"
+        ? [...lines].sort((a, b) => Number(needsAttention(b)) - Number(needsAttention(a)))
+        : lines;
   const confCls = (l: ReviewLine) =>
     l.base.match_confidence === "low" && l.ingredient_id ? "bg-amber-50" : "";
-
-  const pctBadge = (pct: number | null) =>
-    pct == null ? (
-      <span className="text-gray-400">-</span>
-    ) : (
-      <span className={Math.abs(pct) > 30 ? "text-red-600 font-semibold" : pct > 0 ? "text-amber-600" : "text-emerald-600"}>
-        {pct > 0 ? "+" : ""}
-        {pct.toFixed(1)}%
-      </span>
-    );
 
   const priceCell = (l: ReviewLine) => {
     const d = derive(l);
@@ -560,7 +777,10 @@ export default function ImportClient({
       <div className="text-xs text-gray-600">
         {d.ing ? (
           <>
-            {fmt(d.oldPpu, 4)} → <span className="font-medium text-gray-900">{fmt(d.newPpu, 4)}</span> lei/{unit}{" "}
+            {d.oldPpu != null ? formatPricePerUnit(d.oldPpu, unit) : "-"} →{" "}
+            <span className="font-medium text-gray-900">
+              {d.newPpu != null ? formatPricePerUnit(d.newPpu, unit) : "-"}
+            </span>{" "}
             {pctBadge(d.pct)}
           </>
         ) : (
@@ -592,27 +812,51 @@ export default function ImportClient({
     );
   };
 
-  const qtyInputs = (l: ReviewLine) => {
+  const qtyInputs = (l: ReviewLine, mobile = false) => {
     const unit = l.ingredient_id ? byId.get(l.ingredient_id)?.unit : l.base.package_unit;
+    const lbl = mobile ? "block text-xs text-gray-500 mb-0.5" : "sr-only";
+    const qtyId = `qty-${mobile ? "m" : "d"}-${l.uid}`;
+    const priceId = `price-${mobile ? "m" : "d"}-${l.uid}`;
     return (
-      <div className="flex items-center gap-1 flex-wrap">
-        <input
-          inputMode="decimal"
-          value={l.package_quantity}
-          onChange={(e) => patch(l.uid, { package_quantity: e.target.value })}
-          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-          aria-label="Package quantity"
-        />
-        <span className="text-xs text-gray-500 w-7">{unit ?? ""}</span>
-        <span className="text-gray-400 text-xs">×</span>
-        <input
-          inputMode="decimal"
-          value={l.package_price}
-          onChange={(e) => patch(l.uid, { package_price: e.target.value })}
-          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-          aria-label="Package price"
-        />
-        <span className="text-xs text-gray-500">lei</span>
+      <div className="flex items-end gap-1 flex-wrap">
+        <div>
+          <label htmlFor={qtyId} className={lbl}>
+            Package size{unit ? ` (${unit})` : ""}
+          </label>
+          <div className="flex items-center gap-1">
+            <input
+              id={qtyId}
+              inputMode="decimal"
+              value={l.package_quantity}
+              onChange={(e) => patch(l.uid, { package_quantity: e.target.value })}
+              className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <span className="text-xs text-gray-500 w-7">{unit ?? ""}</span>
+          </div>
+        </div>
+        <span className="text-gray-400 text-xs pb-1.5">×</span>
+        <div>
+          <label htmlFor={priceId} className={lbl}>
+            Package price (lei)
+          </label>
+          <div className="flex items-center gap-1">
+            <input
+              id={priceId}
+              inputMode="decimal"
+              value={l.package_price}
+              onChange={(e) => patch(l.uid, { package_price: e.target.value })}
+              className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
+            />
+            <span className="text-xs text-gray-500">lei</span>
+          </div>
+        </div>
+        {mobile && l.base.line_total != null && (
+          <div className="ml-auto text-right text-xs text-gray-500">
+            Line total
+            <div className="text-sm font-medium text-gray-900">{formatLei(l.base.line_total)}</div>
+            {l.base.quantity != null && l.base.quantity !== 1 && <div>{l.base.quantity} × on receipt</div>}
+          </div>
+        )}
         <div className="basis-full">{lineWarnings(l)}</div>
       </div>
     );
@@ -657,7 +901,7 @@ export default function ImportClient({
           />
         </label>
         <span>
-          <span className="text-gray-500">Total:</span> <b>{result.total != null ? `${fmt(result.total)} lei` : "-"}</b>
+          <span className="text-gray-500">Total:</span> <b>{result.total != null ? formatLei(result.total) : "-"}</b>
         </span>
         <span>
           <span className="text-gray-500">Model:</span> {result.model}
@@ -669,13 +913,63 @@ export default function ImportClient({
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             An invoice with the same store, date and total was already imported on{" "}
-            {new Date(result.duplicateOf.created_at).toLocaleDateString()}. Approving again will record it twice.
+            {formatDate(toLocalISODate(new Date(result.duplicateOf.created_at)))}. Approving again will record it twice.
           </span>
         </div>
       )}
 
       {error && (
         <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>
+      )}
+
+      <div className="bg-white rounded-xl border p-3 mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-gray-500 mr-1">Select:</span>
+        <button
+          type="button"
+          onClick={() => bulk((l) => !!l.ingredient_id)}
+          className="px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          All matched
+        </button>
+        <button
+          type="button"
+          onClick={() => bulk((l) => (l.base.match_confidence === "low" && l.ingredient_id ? false : null))}
+          className="px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          Deselect low-confidence
+        </button>
+        <button
+          type="button"
+          onClick={() => bulk((l) => (!l.base.is_food || !l.ingredient_id ? false : null))}
+          className="px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          Deselect non-food / unmatched
+        </button>
+        <button
+          type="button"
+          onClick={() => bulk((l) => {
+            const p = derive(l).pct;
+            return p != null && Math.abs(p) >= 5;
+          })}
+          className="px-2.5 py-1 border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          Only changes ≥ 5%
+        </button>
+        <label className="flex items-center gap-1.5 sm:ml-auto">
+          <span className="text-gray-500">Show:</span>
+          <select
+            value={view}
+            onChange={(e) => setView(e.target.value as ViewMode)}
+            className="px-2 py-1 border border-gray-300 rounded-lg bg-white"
+          >
+            <option value="all">All lines ({lines.length})</option>
+            <option value="attention-first">Needs attention first ({attentionCount})</option>
+            <option value="attention-only">Needs attention only ({attentionCount})</option>
+          </select>
+        </label>
+      </div>
+      {visibleLines.length === 0 && (
+        <p className="text-sm text-gray-500 mb-4">No lines need attention.</p>
       )}
 
       {/* Desktop table */}
@@ -691,7 +985,7 @@ export default function ImportClient({
             </tr>
           </thead>
           <tbody>
-            {lines.map((l) => (
+            {visibleLines.map((l) => (
               <tr key={l.uid} className={`border-b last:border-0 align-top ${confCls(l)} ${!l.base.is_food ? "opacity-70" : ""}`}>
                 <td className="p-3">
                   <input
@@ -730,7 +1024,7 @@ export default function ImportClient({
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-2 mb-4">
-        {lines.map((l) => (
+        {visibleLines.map((l) => (
           <div key={l.uid} className={`bg-white rounded-xl border p-3 space-y-2 ${confCls(l)} ${!l.base.is_food ? "opacity-70" : ""}`}>
             <div className="flex items-start gap-2">
               <input
@@ -758,8 +1052,11 @@ export default function ImportClient({
               onChange={(id) => patch(l.uid, { ingredient_id: id, include: id ? l.include : false })}
             />
             {createBtn(l)}
-            {qtyInputs(l)}
-            {priceCell(l)}
+            {qtyInputs(l, true)}
+            <div>
+              <span className="text-xs text-gray-500">Price per unit: </span>
+              {priceCell(l)}
+            </div>
           </div>
         ))}
       </div>
@@ -772,14 +1069,14 @@ export default function ImportClient({
           )}
         </span>
         <button
-          onClick={discard}
+          onClick={() => void discard()}
           disabled={applying}
           className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
         >
           Discard
         </button>
         <button
-          onClick={approve}
+          onClick={() => void approve()}
           disabled={applying || applicable.length === 0 || !storeOk}
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50"
         >
@@ -805,43 +1102,6 @@ export default function ImportClient({
         />
       )}
 
-      {pendingConfirm && (
-        <div
-          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-          onClick={() => setPendingConfirm(null)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold text-gray-900">{pendingConfirm.title}</h2>
-            <p className="text-sm text-gray-600 mt-1">{pendingConfirm.body}</p>
-            <div className="flex justify-end gap-2 mt-5">
-              <button
-                onClick={() => setPendingConfirm(null)}
-                className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                autoFocus
-                onClick={() => {
-                  const { run } = pendingConfirm;
-                  setPendingConfirm(null);
-                  run();
-                }}
-                className={`px-4 py-2 text-white font-medium rounded-lg text-sm ${
-                  pendingConfirm.danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
-                }`}
-              >
-                {pendingConfirm.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

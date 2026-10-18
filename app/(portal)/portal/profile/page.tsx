@@ -1,7 +1,9 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { Client } from "@/lib/supabase/types";
-import { Mail, Phone, Scale, Flame, Apple, Ban, Heart } from "lucide-react";
+import { Mail, Phone, Scale, Flame, Apple, Ban, Heart, User, KeyRound, ChevronRight } from "lucide-react";
+import SignOutButton from "./sign-out-button";
 
 export default async function PortalProfilePage() {
   const supabase = await createServer();
@@ -23,18 +25,23 @@ export default async function PortalProfilePage() {
 
   if (!client) redirect("/login");
 
-  const adminEmail = process.env.NEXT_PUBLIC_TRAINER_EMAIL ?? null;
+  const trainerEmail = process.env.NEXT_PUBLIC_TRAINER_EMAIL ?? null;
+  const changeRequestHref = trainerEmail
+    ? `mailto:${trainerEmail}?subject=${encodeURIComponent("Profile change request")}`
+    : null;
 
   return (
     <div className="space-y-4">
       <header>
         <h1 className="text-xl font-bold text-gray-900">Your profile</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Read-only — contact your trainer to change details.</p>
+        <p className="text-sm text-gray-500 mt-0.5">
+          Your trainer keeps these details up to date.
+        </p>
       </header>
 
       <section className="bg-white rounded-2xl border p-4 space-y-3">
         <h2 className="text-sm font-semibold text-gray-900">Contact</h2>
-        <Row icon={<Mail className="w-4 h-4" />} label="Name" value={client.name} />
+        <Row icon={<User className="w-4 h-4" />} label="Name" value={client.name} />
         <Row icon={<Mail className="w-4 h-4" />} label="Email" value={client.email ?? user.email ?? "—"} />
         {client.phone && <Row icon={<Phone className="w-4 h-4" />} label="Phone" value={client.phone} />}
       </section>
@@ -56,17 +63,37 @@ export default async function PortalProfilePage() {
         {client.allergies && (
           <Row icon={<Ban className="w-4 h-4" />} label="Allergies" value={client.allergies} />
         )}
+        <div className="pt-1 text-sm">
+          {changeRequestHref ? (
+            <a
+              className="inline-flex items-center gap-1 min-h-[44px] font-medium text-emerald-700 hover:text-emerald-800"
+              href={changeRequestHref}
+            >
+              Request a change
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            </a>
+          ) : (
+            <p className="text-gray-600">To change these details, ask your trainer.</p>
+          )}
+        </div>
       </section>
 
-      <footer className="bg-white rounded-2xl border p-4 text-sm text-gray-600 space-y-2">
-        {adminEmail && (
-          <p>
-            Contact your trainer at{" "}
-            <a className="text-emerald-700 font-medium" href={`mailto:${adminEmail}`}>{adminEmail}</a>
-          </p>
-        )}
-        <p className="text-xs text-gray-500">Meal Prep Portal · v1.0</p>
-      </footer>
+      <section className="bg-white rounded-2xl border p-4 space-y-2">
+        <h2 className="text-sm font-semibold text-gray-900">Account</h2>
+        <Link
+          href="/portal/set-password"
+          className="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-900 hover:text-emerald-700"
+        >
+          <KeyRound className="w-4 h-4 text-gray-400" aria-hidden="true" />
+          <span className="flex-1">Change password</span>
+          <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
+        </Link>
+        <div className="pt-2">
+          <SignOutButton />
+        </div>
+      </section>
+
+      <footer className="text-xs text-gray-500 px-1">Meal Prep Portal · v1.0</footer>
     </div>
   );
 }
@@ -74,7 +101,7 @@ export default async function PortalProfilePage() {
 function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="text-gray-400 mt-0.5">{icon}</div>
+      <div className="text-gray-400 mt-0.5" aria-hidden="true">{icon}</div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-gray-500">{label}</p>
         <p className="text-sm text-gray-900 break-words">{value}</p>

@@ -6,9 +6,9 @@ import {
   MealReview,
 } from "@/lib/supabase/types";
 import {
-  addDaysLocal,
   formatLocalDate,
   mondayOfWeek,
+  parseLocalDate,
 } from "@/lib/portal/entry-helpers";
 import PlanDetailClient from "./plan-detail-client";
 
@@ -66,15 +66,19 @@ export default async function PortalPlanDetailPage({
   const todayStr = formatLocalDate(today);
   const currentMonday = mondayOfWeek(today);
   const isCurrent = plan.week_start === currentMonday;
-  const dayOffset = Math.round(
-    (new Date(todayStr).getTime() - new Date(plan.week_start).getTime()) / 86400000
-  );
+  // Both dates are local calendar days; Math.round absorbs DST's 23/25-hour days.
+  const todayLocal = parseLocalDate(todayStr);
+  const weekStartLocal = parseLocalDate(plan.week_start);
+  const dayOffset =
+    todayLocal && weekStartLocal
+      ? Math.round((todayLocal.getTime() - weekStartLocal.getTime()) / 86400000)
+      : -1;
   const initialDow = isCurrent && dayOffset >= 0 && dayOffset <= 6 ? dayOffset + 1 : 1;
 
   return (
     <PlanDetailClient
       plan={plan}
-      entries={(entries as any[]) ?? []}
+      entries={(entries ?? []) as React.ComponentProps<typeof PlanDetailClient>["entries"]}
       statuses={(statusesRes.data as MealEntryStatus[]) ?? []}
       reviews={(reviewsRes.data as MealReview[]) ?? []}
       isCurrent={isCurrent}

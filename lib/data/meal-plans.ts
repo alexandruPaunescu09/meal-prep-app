@@ -35,7 +35,8 @@ export const getMealPlansWithClient = unstable_cache(
       .select(
         `
         *,
-        client:clients (*)
+        client:clients (*),
+        entries:meal_plan_entries (count)
       `
       )
       .order("created_at", { ascending: false });

@@ -73,3 +73,57 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ id: saved.id, client_id: saved.client_id });
 }
+
+export async function DELETE(req: NextRequest) {
+  const supabase = await createServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, client_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile?.role !== "customer" || !profile.client_id) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  let id = req.nextUrl.searchParams.get("id");
+  if (!id) {
+    try {
+      const b = await req.json();
+      if (typeof b?.id === "string") id = b.id;
+    } catch {
+      /* no body */
+    }
+  }
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
+    return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  }
+
+  // RLS limits this to the customer's own reviews.
+  const { data: review } = await supabase
+    .from("meal_reviews")
+    .select("id, client_id, photo_path")
+    .eq("id", id)
+    .eq("client_id", profile.client_id)
+    .maybeSingle<{ id: string; client_id: string; photo_path: string | null }>();
+  if (!review) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  // Remove the photo first so we never orphan a file once the row is gone.
+  if (review.photo_path && review.photo_path.startsWith(`${profile.client_id}/`)) {
+    const { error: rmError } = await supabase.storage
+      .from("meal-review-photos")
+      .remove([review.photo_path]);
+    if (rmError) {
+      return NextResponse.json({ error: `photo removal failed: ${rmError.message}` }, { status: 500 });
+    }
+  }
+
+  // meal_review_tags rows cascade.
+  const { error } = await supabase.from("meal_reviews").delete().eq("id", review.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  revalidateTag(CACHE_TAGS.mealReviews, "max");
+  return NextResponse.json({ ok: true });
+}

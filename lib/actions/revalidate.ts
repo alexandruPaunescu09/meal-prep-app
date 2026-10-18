@@ -74,6 +74,10 @@ export async function invalidatePrepRules() {
   updateTag(CACHE_TAGS.prepRules);
 }
 
+export async function invalidatePrepTasks() {
+  updateTag(CACHE_TAGS.prepTasks);
+}
+
 export async function invalidateMealReviews() {
   updateTag(CACHE_TAGS.mealReviews);
 }

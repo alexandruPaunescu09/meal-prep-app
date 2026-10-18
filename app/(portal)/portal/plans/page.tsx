@@ -1,7 +1,8 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { mondayOfWeek, formatLocalDate, addDaysLocal } from "@/lib/portal/entry-helpers";
+import { mondayOfWeek } from "@/lib/portal/entry-helpers";
+import { formatWeekRange } from "@/lib/format";
 import { MealPlan } from "@/lib/supabase/types";
 
 export default async function PortalPlansPage() {
@@ -22,9 +23,7 @@ export default async function PortalPlansPage() {
     .eq("client_id", profile.client_id)
     .order("week_start", { ascending: false });
 
-  const today = new Date();
-  const todayStr = formatLocalDate(today);
-  const currentMonday = mondayOfWeek(today);
+  const currentMonday = mondayOfWeek(new Date());
 
   return (
     <div className="space-y-4">
@@ -46,8 +45,6 @@ export default async function PortalPlansPage() {
           const isCurrent = plan.week_start === currentMonday;
           const isPast = plan.week_start < currentMonday;
           const isFuture = plan.week_start > currentMonday;
-          const start = plan.week_start;
-          const end = addDaysLocal(plan.week_start, 6);
           return (
             <li key={plan.id}>
               <Link
@@ -55,8 +52,6 @@ export default async function PortalPlansPage() {
                 className={`block rounded-2xl border p-4 transition-colors active:bg-gray-50 ${
                   isCurrent
                     ? "bg-emerald-50/40 border-emerald-300 hover:border-emerald-400"
-                    : isPast
-                    ? "bg-white border-gray-200 hover:border-gray-300 opacity-80"
                     : "bg-white border-gray-200 hover:border-gray-300"
                 }`}
               >
@@ -74,9 +69,14 @@ export default async function PortalPlansPage() {
                           Upcoming
                         </span>
                       )}
+                      {isPast && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                          Past
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-600 mt-1">
-                      {formatRange(start, end)}
+                      {formatWeekRange(plan.week_start)}
                     </p>
                   </div>
                 </div>
@@ -87,12 +87,4 @@ export default async function PortalPlansPage() {
       </ul>
     </div>
   );
-}
-
-function formatRange(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
-  const sFmt = s.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const eFmt = e.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${sFmt} – ${eFmt}`;
 }

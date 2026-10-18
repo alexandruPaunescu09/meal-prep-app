@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { formatDate } from "@/lib/format";
 import {
   formatLocalDate,
   parseLocalDate,
@@ -20,6 +22,21 @@ interface Props {
   onPick: (dateStr: string) => void;
   onClose: () => void;
 }
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
 
 export default function CalendarPicker({
   selectedDate,
@@ -45,17 +62,7 @@ export default function CalendarPicker({
     }
   }, [selectedDate, picking, onClose]);
 
-  useEffect(() => {
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, []);
-
-  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString(
-    undefined,
-    { month: "long", year: "numeric" }
-  );
+  const monthLabel = `${MONTH_NAMES[viewMonth]} ${viewYear}`;
 
   function shiftMonth(delta: number) {
     let m = viewMonth + delta;
@@ -93,9 +100,8 @@ export default function CalendarPicker({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white w-full md:max-w-sm rounded-t-2xl md:rounded-2xl shadow-xl overflow-hidden">
+    <Modal open onClose={onClose} title="Choose a day" variant="sheet" size="sm">
+      <div className="-m-4">
         <div className="px-4 pt-4 pb-3 border-b flex items-center justify-between">
           <button
             type="button"
@@ -140,13 +146,16 @@ export default function CalendarPicker({
                 ? "bg-white text-emerald-700 border-emerald-400"
                 : hasPlan
                 ? "bg-white text-gray-900 border-gray-200 hover:border-gray-300"
-                : "bg-white text-gray-400 border-gray-100 hover:border-gray-200";
+                : "bg-white text-gray-600 border-gray-100 hover:border-gray-200";
               const dimMonth = c.inMonth ? "" : "opacity-40";
               return (
                 <button
                   key={c.dateStr}
                   type="button"
                   disabled={picking !== null}
+                  aria-label={`${formatDate(c.date)}${hasPlan ? ", has a plan" : ""}`}
+                  aria-pressed={isSelected}
+                  aria-current={isToday ? "date" : undefined}
                   onClick={() => {
                     setPicking(c.dateStr);
                     onPick(c.dateStr);
@@ -160,7 +169,15 @@ export default function CalendarPicker({
                   {picking === c.dateStr ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    c.date.getDate()
+                    <>
+                      {c.date.getDate()}
+                      {hasPlan && !isSelected && (
+                        <span
+                          aria-hidden="true"
+                          className="ml-0.5 mb-2 w-1 h-1 rounded-full bg-emerald-500"
+                        />
+                      )}
+                    </>
                   )}
                 </button>
               );
@@ -168,17 +185,7 @@ export default function CalendarPicker({
           </div>
         </div>
 
-        <div className="px-4 pb-4 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center gap-1 text-sm text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-100"
-          >
-            <X className="w-4 h-4" />
-            Close
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,10 +1,8 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
-  Client,
   MealEntryStatus,
   MealPlan,
-  MealPlanEntry,
   MealReview,
 } from "@/lib/supabase/types";
 import {
@@ -35,6 +33,13 @@ export default async function PortalTodayPage({
     .maybeSingle();
   if (!profile?.client_id) redirect("/login");
 
+  const { data: clientRow } = await supabase
+    .from("clients")
+    .select("calorie_target")
+    .eq("id", profile.client_id)
+    .maybeSingle();
+  const calorieTarget: number | null = clientRow?.calorie_target ?? null;
+
   const today = new Date();
   const todayStr = formatLocalDate(today);
   const params = await searchParams;
@@ -59,29 +64,45 @@ export default async function PortalTodayPage({
   }
 
   if (allPlans.length === 0) {
+    const contactEmail = process.env.NEXT_PUBLIC_TRAINER_EMAIL ?? null;
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold text-gray-900">
-          Today,{" "}
-          {today.toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "short",
-            day: "numeric",
-          })}
-        </h1>
-        <div className="bg-white rounded-2xl border p-6 text-center">
-          <p className="text-gray-700 font-medium">
-            No plan covers today yet.
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
-            Your trainer will share a plan when it&apos;s ready.
-          </p>
-          <Link
-            href="/portal/plans"
-            className="inline-block mt-4 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium"
-          >
-            View past plans
-          </Link>
+        <h1 className="text-xl font-bold text-gray-900">Welcome</h1>
+        <div className="bg-white rounded-2xl border p-6 space-y-4">
+          <div>
+            <p className="text-gray-900 font-medium">
+              Your meal plan is being prepared.
+            </p>
+            <p className="text-sm text-gray-600 mt-1">
+              As soon as it&apos;s ready, we&apos;ll publish it here and your
+              meals for each day will show up on this page.
+            </p>
+          </div>
+          <div className="text-sm text-gray-600">
+            <p className="font-medium text-gray-900">
+              While you wait
+            </p>
+            <p className="mt-1">
+              Check that your allergies and food preferences are correct so
+              your plan fits you.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/portal/profile"
+              className="inline-flex items-center px-4 py-2 min-h-[44px] bg-emerald-600 text-white rounded-lg text-sm font-medium"
+            >
+              Review my profile
+            </Link>
+            {contactEmail && (
+              <a
+                href={`mailto:${contactEmail}`}
+                className="inline-flex items-center px-4 py-2 min-h-[44px] border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+              >
+                Contact us
+              </a>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -89,7 +110,8 @@ export default async function PortalTodayPage({
 
   const resolved = resolvePlanForDate(allPlans, selectedDate);
 
-  let entries: MealPlanEntry[] = [];
+  type TodayEntries = Parameters<typeof TodayClient>[0]["entries"];
+  let entries: TodayEntries = [];
   let statuses: MealEntryStatus[] = [];
   let reviews: MealReview[] = [];
   let planName: string | null = null;
@@ -118,7 +140,7 @@ export default async function PortalTodayPage({
       .eq("meal_plan_id", plan.id)
       .eq("day_of_week", dayOfWeek);
 
-    entries = (entriesData as MealPlanEntry[] | null) ?? [];
+    entries = (entriesData as TodayEntries | null) ?? [];
     const entryIds = entries.map((e) => e.id);
 
     if (entryIds.length) {
@@ -147,7 +169,8 @@ export default async function PortalTodayPage({
       todayDate={todayStr}
       isFuture={isFuture}
       planDates={planDates}
-      entries={(entries as any[]) ?? []}
+      calorieTarget={resolved?.plan.calorie_target ?? calorieTarget}
+      entries={entries}
       statuses={statuses}
       reviews={reviews}
     />

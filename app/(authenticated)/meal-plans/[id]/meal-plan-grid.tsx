@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useId, useSyncExternalStore } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -16,17 +16,45 @@ import {
   MealEntryStatus,
   MealStatus,
 } from "@/lib/supabase/types";
-import { calculateWeek, resolveTargets, ResolvedTargets } from "@/lib/calculations/meal-plan";
-import { generateShoppingList, shoppingListToText } from "@/lib/calculations/shopping-list";
-import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
+import { calculateWeek, resolveTargets } from "@/lib/calculations/meal-plan";
+import ShoppingListPanel from "@/components/shopping-list-panel";
 import { invalidateMealPlan, invalidateMealPlans } from "@/lib/actions/revalidate";
-import { Plus, X, ArrowLeft, Trash2, Image, Download, Settings, ShoppingCart, Copy, Check, FileText, Truck, Loader2, GripVertical, Star, CheckCircle2, MinusCircle } from "lucide-react";
+import {
+  Plus,
+  Minus,
+  X,
+  ArrowLeft,
+  Download,
+  Settings,
+  ShoppingCart,
+  Copy,
+  Check,
+  FileText,
+  Truck,
+  Loader2,
+  GripVertical,
+  Star,
+  CheckCircle2,
+  MinusCircle,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Pencil,
+  AlertTriangle,
+} from "lucide-react";
 import Link from "next/link";
 import DeliveryForm from "@/components/delivery-form";
+import { Modal } from "@/components/ui/modal";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { IconButton } from "@/components/ui/icon-button";
+import { formatLei, formatWeekRange, addDays, toLocalISODate, humanizeSlug, WEEKDAYS_SHORT } from "@/lib/format";
+import type { MealPlanSiblings } from "@/lib/data/meal-plan-siblings";
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -44,7 +72,6 @@ type FullEntry = MealPlanEntry & {
 
 type PlanWithClient = MealPlan & { client: Client | null };
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 const MEAL_LABELS: Record<MealType, string> = {
   breakfast: "Breakfast",
@@ -53,9 +80,61 @@ const MEAL_LABELS: Record<MealType, string> = {
   snack: "Snack",
 };
 
+const TARGET_LEGEND =
+  "Green: within ±10% of target. Amber: 10–20% off. Red: more than 20% off.";
+
 interface SlotPickerState {
   day: number;
   mealType: MealType;
+}
+
+interface EntrySpec {
+  day: number;
+  mealType: MealType;
+  recipeId: string | null;
+  ingredientId: string | null;
+  quantity: number | null;
+  portions: number;
+}
+
+function entryName(e: FullEntry) {
+  return e.recipe ? e.recipe.name : e.ingredient?.name ?? "Unknown";
+}
+
+function entryQty(e: FullEntry) {
+  return e.recipe
+    ? `×${e.portions}`
+    : `${e.quantity}g${e.portions !== 1 ? ` ×${e.portions}` : ""}`;
+}
+
+/** kcal badge info for a day/average vs the calorie target. */
+function calorieBadge(calories: number, target: number | null) {
+  if (target == null || target <= 0) return null;
+  const pct = (calories / target) * 100;
+  const dev = Math.abs(pct - 100);
+  const delta = Math.round(calories - target);
+  const tone = dev > 20 ? "red" : dev > 10 ? "amber" : "green";
+  const cls =
+    tone === "red"
+      ? "bg-red-50 text-red-700"
+      : tone === "amber"
+        ? "bg-amber-50 text-amber-700"
+        : "bg-emerald-50 text-emerald-700";
+  const text = tone === "green" ? "On target" : `${delta >= 0 ? "+" : ""}${delta} kcal`;
+  return { cls, text, tone, title: `${Math.round(pct)}% of ${Math.round(target)} kcal target. ${TARGET_LEGEND}` };
+}
+
+const MQ = "(min-width: 768px)";
+function useIsDesktop() {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(MQ);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(MQ).matches,
+    () => true
+  );
 }
 
 export default function MealPlanGrid({
@@ -67,6 +146,7 @@ export default function MealPlanGrid({
   categories,
   reviews = [],
   statuses = [],
+  siblings = { prev: null, next: null },
 }: {
   plan: PlanWithClient;
   entries: FullEntry[];
@@ -76,10 +156,17 @@ export default function MealPlanGrid({
   categories: Category[];
   reviews?: MealReview[];
   statuses?: MealEntryStatus[];
+  siblings?: MealPlanSiblings;
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const removeInFlight = useRef(new Set<string>());
+  const isDesktop = useIsDesktop();
   const [slotPicker, setSlotPicker] = useState<SlotPickerState | null>(null);
+  // Remembered across SlotPicker opens within this page visit.
+  const [pickerDefaults, setPickerDefaults] = useState({ portions: 1, quantity: 100 });
   const [showSettings, setShowSettings] = useState(false);
   const [showShoppingList, setShowShoppingList] = useState(false);
   const [showDuplicate, setShowDuplicate] = useState(false);
@@ -94,6 +181,20 @@ export default function MealPlanGrid({
   // Drives the row's dim state. Cleared on success or rollback.
   const [savingEntry, setSavingEntry] = useState<string | null>(null);
   const [activeEntry, setActiveEntry] = useState<FullEntry | null>(null);
+  // 1-7 when this plan's week contains today, else null. Server snapshot is 0
+  // (unknown) so SSR and hydration agree.
+  const todayNum = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const today = toLocalISODate(new Date());
+      for (let i = 0; i < 7; i++) {
+        if (addDays(plan.week_start, i) === today) return i + 1;
+      }
+      return 0;
+    },
+    () => 0
+  );
+  const todayDay = todayNum || null;
 
   // Optimistic mirror of `serverEntries`. Mutations update this immediately
   // for an instant UI response; the corresponding Supabase write runs in the
@@ -101,9 +202,18 @@ export default function MealPlanGrid({
   // When the server prop changes (e.g. a settings/duplicate modal triggered
   // a router.refresh() and the page re-rendered with fresh data) we resync.
   const [entries, setEntries] = useState<FullEntry[]>(serverEntries);
-  useEffect(() => {
+  const [prevServerEntries, setPrevServerEntries] = useState(serverEntries);
+  if (prevServerEntries !== serverEntries) {
+    setPrevServerEntries(serverEntries);
     setEntries(serverEntries);
-  }, [serverEntries]);
+  }
+
+  // On mobile, scroll to today's card when this plan's week contains it.
+  useEffect(() => {
+    if (todayNum && !window.matchMedia(MQ).matches) {
+      document.getElementById(`day-card-${todayNum}`)?.scrollIntoView({ block: "start" });
+    }
+  }, [todayNum]);
 
   const reviewMap = useMemo(() => {
     const m = new Map<string, MealReview>();
@@ -116,8 +226,10 @@ export default function MealPlanGrid({
     return m;
   }, [statuses]);
 
+  const dndId = useId();
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor)
   );
 
   const weekTotals = calculateWeek(entries, plan.markup_multiplier);
@@ -134,18 +246,19 @@ export default function MealPlanGrid({
     setActiveEntry(entry ?? null);
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
+  function handleDragEnd(event: DragEndEvent) {
     setActiveEntry(null);
     const { active, over } = event;
     if (!over) return;
-
-    const entryId = active.id as string;
     const [, dayStr, mealType] = (over.id as string).split("-");
-    const newDay = parseInt(dayStr);
-    const newMealType = mealType as MealType;
+    void moveEntry(active.id as string, parseInt(dayStr), mealType as MealType);
+  }
 
+  // Shared by drag-and-drop and the mobile "Move to…" control.
+  async function moveEntry(entryId: string, newDay: number, newMealType: MealType) {
     const entry = entries.find((e) => e.id === entryId);
     if (!entry) return;
+    if (entry.id.startsWith("temp-")) return;
     if (entry.day_of_week === newDay && entry.meal_type === newMealType) return;
 
     // Optimistic move — snapshot, apply locally, fire mutation, revalidate.
@@ -165,52 +278,71 @@ export default function MealPlanGrid({
 
     if (error) {
       setEntries(snapshot);
-      alert(`Move failed: ${error.message}`);
+      toast.error(`Move failed: ${error.message}`, {
+        action: { label: "Retry", onClick: () => void moveEntry(entryId, newDay, newMealType) },
+      });
       return;
     }
     invalidateMealPlan(plan.id);
   }
 
-  async function addEntry(recipeId: string, portions: number) {
-    if (!slotPicker) return;
-    const recipe = recipes.find((r) => r.id === recipeId);
-    const slot = slotPicker;
-    setSlotPicker(null);
+  // Single add path used by the slot picker, ingredient picker and Undo.
+  // `hydrated` (the full row from a removed entry) lets Undo restore the full
+  // recipe/ingredient join without waiting for a refresh.
+  async function insertEntry(spec: EntrySpec, hydrated?: FullEntry): Promise<boolean> {
     setAddingEntry(true);
 
-    // Insert an optimistic row with a temp id; reconcile when the server
-    // returns the canonical row.
     const tempId = `temp-${crypto.randomUUID()}`;
-    const optimistic: FullEntry = {
-      id: tempId,
-      meal_plan_id: plan.id,
-      day_of_week: slot.day,
-      meal_type: slot.mealType,
-      recipe_id: recipeId,
-      ingredient_id: null,
-      quantity: null,
-      portions,
-      // recipe is hydrated minimally for display until the server re-fetch
-      // brings the full join back in via the cache revalidation.
-      recipe: recipe
-        ? ({
-            id: recipe.id,
-            name: recipe.name,
-            portions: recipe.portions,
-            recipe_ingredients: [],
-          } as unknown as FullEntry["recipe"])
-        : undefined,
-    } as FullEntry;
+    let optimistic: FullEntry;
+    if (hydrated) {
+      optimistic = { ...hydrated, id: tempId };
+    } else if (spec.recipeId) {
+      const recipe = recipes.find((r) => r.id === spec.recipeId);
+      optimistic = {
+        id: tempId,
+        meal_plan_id: plan.id,
+        day_of_week: spec.day,
+        meal_type: spec.mealType,
+        recipe_id: spec.recipeId,
+        ingredient_id: null,
+        quantity: null,
+        portions: spec.portions,
+        // recipe is hydrated minimally for display until the server re-fetch
+        // brings the full join back in via the cache revalidation.
+        recipe: recipe
+          ? ({
+              id: recipe.id,
+              name: recipe.name,
+              portions: recipe.portions,
+              recipe_ingredients: [],
+            } as unknown as FullEntry["recipe"])
+          : undefined,
+      } as FullEntry;
+    } else {
+      optimistic = {
+        id: tempId,
+        meal_plan_id: plan.id,
+        day_of_week: spec.day,
+        meal_type: spec.mealType,
+        recipe_id: null,
+        ingredient_id: spec.ingredientId,
+        quantity: spec.quantity,
+        portions: spec.portions,
+        ingredient: ingredients.find((i) => i.id === spec.ingredientId),
+      } as FullEntry;
+    }
     setEntries((prev) => [...prev, optimistic]);
 
     const { data, error } = await supabase
       .from("meal_plan_entries")
       .insert({
         meal_plan_id: plan.id,
-        day_of_week: slot.day,
-        meal_type: slot.mealType,
-        recipe_id: recipeId,
-        portions,
+        day_of_week: spec.day,
+        meal_type: spec.mealType,
+        recipe_id: spec.recipeId,
+        ingredient_id: spec.ingredientId,
+        quantity: spec.quantity,
+        portions: spec.portions,
       })
       .select("id")
       .single();
@@ -219,23 +351,101 @@ export default function MealPlanGrid({
 
     if (error || !data) {
       setEntries((prev) => prev.filter((e) => e.id !== tempId));
-      alert(`Add failed: ${error?.message ?? "unknown error"}`);
-      return;
+      toast.error(`Add failed: ${error?.message ?? "unknown error"}`, {
+        action: { label: "Retry", onClick: () => void insertEntry(spec, hydrated) },
+      });
+      return false;
     }
     // Replace the temp row with the canonical id so subsequent mutations
     // (drag, delete) target the real row in the database.
     setEntries((prev) =>
       prev.map((e) => (e.id === tempId ? { ...e, id: data.id } : e))
     );
-    // Revalidate the cached detail bundle, then refresh so the new row
-    // gets its full nested recipe_ingredients/ingredient join (needed for
-    // cost + nutrition). The optimistic row is already visible, so the
-    // refresh reads as a silent enrichment, not a flash.
-    await invalidateMealPlan(plan.id);
-    router.refresh();
+    if (spec.recipeId && !hydrated) {
+      // Revalidate the cached detail bundle, then refresh so the new row
+      // gets its full nested recipe_ingredients/ingredient join (needed for
+      // cost + nutrition). The optimistic row is already visible, so the
+      // refresh reads as a silent enrichment, not a flash.
+      await invalidateMealPlan(plan.id);
+      router.refresh();
+    } else {
+      // Direct ingredient entries (and Undo restores) already carry full
+      // nutrition in the optimistic row; just bust the cache.
+      invalidateMealPlan(plan.id);
+    }
+    return true;
   }
 
-  async function removeEntry(entryId: string) {
+  function addEntry(recipeId: string, portions: number) {
+    if (!slotPicker) return Promise.resolve(false);
+    setPickerDefaults((d) => ({ ...d, portions }));
+    return insertEntry({
+      day: slotPicker.day,
+      mealType: slotPicker.mealType,
+      recipeId,
+      ingredientId: null,
+      quantity: null,
+      portions,
+    });
+  }
+
+  function addIngredientEntry(ingredientId: string, quantity: number) {
+    if (!slotPicker) return Promise.resolve(false);
+    setPickerDefaults((d) => ({ ...d, quantity }));
+    return insertEntry({
+      day: slotPicker.day,
+      mealType: slotPicker.mealType,
+      recipeId: null,
+      ingredientId,
+      quantity,
+      portions: 1,
+    });
+  }
+
+  async function removeEntry(entryId: string, alreadyConfirmed = false) {
+    // Ignore repeat removes of the same entry while a check/confirm is pending.
+    if (removeInFlight.current.has(entryId)) return;
+    removeInFlight.current.add(entryId);
+    try {
+      await removeEntryInner(entryId, alreadyConfirmed);
+    } finally {
+      removeInFlight.current.delete(entryId);
+    }
+  }
+
+  async function removeEntryInner(entryId: string, alreadyConfirmed: boolean) {
+    const removed = entries.find((e) => e.id === entryId);
+    // Reviews and eaten/skipped statuses cascade-delete with the entry and
+    // cannot be restored by Undo, so confirm first and drop Undo for them.
+    // The props come from a stale-while-revalidate cache, so also check the
+    // database directly (fail safe: a query error counts as customer data).
+    let hasCustomerData = reviewMap.has(entryId) || statusMap.has(entryId);
+    if (!hasCustomerData && !alreadyConfirmed && !entryId.startsWith("temp-")) {
+      const [st, rv] = await Promise.all([
+        supabase
+          .from("meal_entry_status")
+          .select("meal_plan_entry_id")
+          .eq("meal_plan_entry_id", entryId)
+          .limit(1),
+        supabase
+          .from("meal_reviews")
+          .select("meal_plan_entry_id")
+          .eq("meal_plan_entry_id", entryId)
+          .limit(1),
+      ]);
+      hasCustomerData =
+        !!st.error || !!rv.error || (st.data?.length ?? 0) > 0 || (rv.data?.length ?? 0) > 0;
+    }
+    if (hasCustomerData && !alreadyConfirmed) {
+      const ok = await confirm({
+        title: "Remove this meal?",
+        message:
+          "The customer has already rated or logged this meal. Removing it permanently deletes their review and eaten/skipped status.",
+        confirmLabel: "Remove",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     const snapshot = entries;
     setRemovingEntry(entryId);
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
@@ -248,60 +458,33 @@ export default function MealPlanGrid({
 
     if (error) {
       setEntries(snapshot);
-      alert(`Delete failed: ${error.message}`);
+      toast.error(`Delete failed: ${error.message}`, {
+        action: { label: "Retry", onClick: () => void removeEntry(entryId, hasCustomerData) },
+      });
       return;
     }
     invalidateMealPlan(plan.id);
-  }
-
-  async function addIngredientEntry(ingredientId: string, quantity: number) {
-    if (!slotPicker) return;
-    const ingredient = ingredients.find((i) => i.id === ingredientId);
-    const slot = slotPicker;
-    setSlotPicker(null);
-    setAddingEntry(true);
-
-    const tempId = `temp-${crypto.randomUUID()}`;
-    const optimistic: FullEntry = {
-      id: tempId,
-      meal_plan_id: plan.id,
-      day_of_week: slot.day,
-      meal_type: slot.mealType,
-      recipe_id: null,
-      ingredient_id: ingredientId,
-      quantity,
-      portions: 1,
-      ingredient,
-    } as FullEntry;
-    setEntries((prev) => [...prev, optimistic]);
-
-    const { data, error } = await supabase
-      .from("meal_plan_entries")
-      .insert({
-        meal_plan_id: plan.id,
-        day_of_week: slot.day,
-        meal_type: slot.mealType,
-        ingredient_id: ingredientId,
-        quantity,
-        portions: 1,
-      })
-      .select("id")
-      .single();
-
-    setAddingEntry(false);
-
-    if (error || !data) {
-      setEntries((prev) => prev.filter((e) => e.id !== tempId));
-      alert(`Add failed: ${error?.message ?? "unknown error"}`);
-      return;
+    if (hasCustomerData) {
+      toast.success("Meal removed");
+    } else if (removed) {
+      toast.info("Entry removed", {
+        action: {
+          label: "Undo",
+          onClick: () =>
+            void insertEntry(
+              {
+                day: removed.day_of_week,
+                mealType: removed.meal_type,
+                recipeId: removed.recipe_id,
+                ingredientId: removed.ingredient_id,
+                quantity: removed.quantity,
+                portions: removed.portions,
+              },
+              removed
+            ),
+        },
+      });
     }
-    setEntries((prev) =>
-      prev.map((e) => (e.id === tempId ? { ...e, id: data.id } : e))
-    );
-    // Direct ingredient entries already carry full ingredient nutrition in
-    // the optimistic row, so we can skip the immediate refresh; the cache
-    // revalidates so the next navigation sees the new entry.
-    invalidateMealPlan(plan.id);
   }
 
   async function updateEntry(
@@ -329,7 +512,9 @@ export default function MealPlanGrid({
 
     if (error) {
       setEntries(snapshot);
-      alert(`Update failed: ${error.message}`);
+      toast.error(`Update failed: ${error.message}`, {
+        action: { label: "Retry", onClick: () => void updateEntry(entryId, patch) },
+      });
       return;
     }
     // Recipe + ingredient nutrition is already in the in-memory entry, so
@@ -338,32 +523,58 @@ export default function MealPlanGrid({
     invalidateMealPlan(plan.id);
   }
 
+  const missingWeight = plan.client != null && plan.client.weight_kg == null;
 
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-6">
         <Link
           href="/meal-plans"
+          aria-label="Back to meal plans"
+          title="Back to meal plans"
           className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </Link>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-[12rem]">
           <h1 className="text-xl md:text-2xl font-bold text-gray-900 truncate">{plan.name}</h1>
-          <p className="text-sm text-gray-500">
-            Week of {plan.week_start}
-            {plan.client && ` • ${plan.client.name}`}
+          <p className="text-sm text-gray-500 flex flex-wrap items-center gap-x-1">
+            {siblings.prev && (
+              <Link
+                href={`/meal-plans/${siblings.prev.id}`}
+                aria-label={`Previous plan: week of ${formatWeekRange(siblings.prev.week_start)}`}
+                title={`Previous plan: ${formatWeekRange(siblings.prev.week_start)}`}
+                className="inline-flex items-center rounded p-0.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Link>
+            )}
+            <span>{formatWeekRange(plan.week_start)}</span>
+            {siblings.next && (
+              <Link
+                href={`/meal-plans/${siblings.next.id}`}
+                aria-label={`Next plan: week of ${formatWeekRange(siblings.next.week_start)}`}
+                title={`Next plan: ${formatWeekRange(siblings.next.week_start)}`}
+                className="inline-flex items-center rounded p-0.5 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            )}
+            {plan.client && (
+              <>
+                <span aria-hidden="true">•</span>
+                <Link
+                  href={`/clients#client-${plan.client.id}`}
+                  className="text-emerald-700 hover:underline"
+                >
+                  {plan.client.name}
+                </Link>
+              </>
+            )}
           </p>
         </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            Edit
-          </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => setShowShoppingList(true)}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors"
@@ -372,44 +583,57 @@ export default function MealPlanGrid({
             Shopping List
           </button>
           <button
-            onClick={() => setShowDuplicate(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            Duplicate
-          </button>
-          <button
             onClick={() => setShowExport(true)}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
           >
             <FileText className="w-3.5 h-3.5" />
             Export PDF
           </button>
-          {plan.client_id && (
-            <button
-              onClick={() => setShowDelivery(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors"
-            >
-              <Truck className="w-3.5 h-3.5" />
-              Log Delivery
-            </button>
-          )}
+          <MoreMenu
+            items={[
+              { label: "Plan settings", icon: <Settings className="w-4 h-4" />, onClick: () => setShowSettings(true) },
+              { label: "Duplicate plan", icon: <Copy className="w-4 h-4" />, onClick: () => setShowDuplicate(true) },
+              ...(plan.client_id
+                ? [{ label: "Log delivery", icon: <Truck className="w-4 h-4" />, onClick: () => setShowDelivery(true) }]
+                : []),
+            ]}
+          />
         </div>
       </div>
 
       {/* Mobile stacked day view */}
       <div className="md:hidden space-y-3 mb-6">
-        {DAYS.map((dayLabel, dayIdx) => {
+        {WEEKDAYS_SHORT.map((dayLabel, dayIdx) => {
           const day = dayIdx + 1;
           const dayTotals = weekTotals.days[day];
           const hasEntries = dayTotals.calories > 0;
+          const badge = hasEntries ? calorieBadge(dayTotals.calories, targets.calories) : null;
+          const isToday = todayDay === day;
           return (
-            <div key={dayLabel} className="bg-white rounded-xl border overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
-                <span className="text-sm font-semibold text-gray-700">{dayLabel}</span>
+            <div
+              key={dayLabel}
+              id={`day-card-${day}`}
+              className={`bg-white rounded-xl border overflow-hidden scroll-mt-16 ${
+                isToday ? "ring-2 ring-emerald-500" : ""
+              }`}
+            >
+              <div className={`flex items-center justify-between gap-2 px-4 py-2 border-b ${isToday ? "bg-emerald-50" : "bg-gray-50"}`}>
+                <span className="text-sm font-semibold text-gray-700">
+                  {dayLabel}
+                  {isToday && (
+                    <span className="ml-2 rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      Today
+                    </span>
+                  )}
+                </span>
                 {hasEntries && (
-                  <span className="text-[10px] text-gray-500">
-                    {Math.round(dayTotals.calories)} kcal • {dayTotals.cost.toFixed(2)} lei
+                  <span className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-gray-500">
+                    {Math.round(dayTotals.calories)} kcal • {formatLei(dayTotals.cost)}
+                    {badge && (
+                      <span title={badge.title} className={`rounded px-1.5 py-0.5 ${badge.cls}`}>
+                        {badge.text}
+                      </span>
+                    )}
                   </span>
                 )}
               </div>
@@ -422,15 +646,15 @@ export default function MealPlanGrid({
                         <span className="text-xs font-medium text-gray-500">
                           {MEAL_LABELS[mealType]}
                         </span>
-                        <button
+                        <IconButton
+                          label={`Add to ${dayLabel} ${MEAL_LABELS[mealType].toLowerCase()}`}
                           onClick={() => setSlotPicker({ day, mealType })}
-                          className="p-1 rounded hover:bg-gray-100"
                         >
-                          <Plus className="w-3.5 h-3.5 text-gray-400" />
-                        </button>
+                          <Plus className="w-4 h-4" />
+                        </IconButton>
                       </div>
                       {slotEntries.length === 0 ? (
-                        <p className="text-xs text-gray-300 italic">Empty</p>
+                        <p className="text-xs text-gray-400 italic">Empty</p>
                       ) : (
                         <div className="space-y-1">
                           {slotEntries.map((entry) => {
@@ -441,35 +665,35 @@ export default function MealPlanGrid({
                               key={entry.id}
                               role="button"
                               tabIndex={0}
+                              aria-label={`Edit ${entryName(entry)}`}
                               onClick={() => {
                                 if (entry.id.startsWith("temp-")) return;
                                 if (savingEntry === entry.id) return;
                                 setEditingEntry(entry.id);
                               }}
                               onKeyDown={(e) => {
+                                if (e.target !== e.currentTarget) return;
                                 if (e.key !== "Enter" && e.key !== " ") return;
                                 e.preventDefault();
                                 if (entry.id.startsWith("temp-")) return;
                                 if (savingEntry === entry.id) return;
                                 setEditingEntry(entry.id);
                               }}
-                              className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 transition-opacity ${
+                              className={`flex items-center justify-between gap-2 bg-emerald-50 rounded px-2 py-1 transition-opacity ${
                                 removingEntry === entry.id || savingEntry === entry.id
                                   ? "opacity-50 pointer-events-none"
                                   : ""
                               }`}
                             >
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <p className="text-xs font-medium text-gray-900 truncate flex items-center gap-1">
                                   {status === "eaten" && (
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" aria-label="Eaten" />
                                   )}
                                   {status === "skipped" && (
-                                    <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                                    <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" aria-label="Skipped" />
                                   )}
-                                  <span className="truncate">
-                                    {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
-                                  </span>
+                                  <span className="truncate">{entryName(entry)}</span>
                                   {review && (
                                     <span className="text-[10px] text-amber-600 flex items-center gap-0.5 flex-shrink-0">
                                       <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
@@ -477,26 +701,26 @@ export default function MealPlanGrid({
                                     </span>
                                   )}
                                 </p>
-                                <p className="text-[10px] text-gray-500">
-                                  {entry.recipe
-                                    ? `×${entry.portions}`
-                                    : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
+                                <p className="text-[11px] text-gray-500 flex items-center gap-1">
+                                  {entryQty(entry)}
+                                  <Pencil className="w-2.5 h-2.5 text-gray-400" aria-hidden="true" />
                                 </p>
                               </div>
-                              <button
+                              <IconButton
+                                label={`Remove ${entryName(entry)}`}
+                                tone="danger"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeEntry(entry.id);
                                 }}
                                 disabled={removingEntry === entry.id}
-                                className="p-1 rounded hover:bg-red-100"
                               >
                                 {removingEntry === entry.id ? (
-                                  <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
+                                  <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
-                                  <X className="w-3 h-3 text-red-500" />
+                                  <X className="w-4 h-4" />
                                 )}
-                              </button>
+                              </IconButton>
                             </div>
                             );
                           })}
@@ -512,19 +736,24 @@ export default function MealPlanGrid({
       </div>
 
       {/* Desktop Weekly Grid */}
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="hidden md:block bg-white rounded-xl border overflow-hidden mb-6">
+      <DndContext id={dndId} sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="hidden md:block bg-white rounded-xl border overflow-hidden mb-2">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <thead>
               <tr className="bg-gray-50 border-b">
                 <th className="text-left px-3 py-2 font-medium text-gray-600 w-20"></th>
-                {DAYS.map((day, idx) => (
+                {WEEKDAYS_SHORT.map((day, idx) => (
                   <th
                     key={day}
-                    className="text-center px-2 py-2 font-medium text-gray-600 min-w-[140px]"
+                    className={`text-center px-2 py-2 font-medium min-w-[104px] ${
+                      todayDay === idx + 1 ? "text-emerald-700 bg-emerald-50" : "text-gray-600"
+                    }`}
                   >
                     {day}
+                    {todayDay === idx + 1 && (
+                      <span className="ml-1 text-[10px] font-normal">(today)</span>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -535,7 +764,7 @@ export default function MealPlanGrid({
                   <td className="px-3 py-2 font-medium text-gray-700 text-xs bg-gray-50 border-r">
                     {MEAL_LABELS[mealType]}
                   </td>
-                  {DAYS.map((_, dayIdx) => {
+                  {WEEKDAYS_SHORT.map((dayLabel, dayIdx) => {
                     const day = dayIdx + 1;
                     const slotEntries = getEntriesForSlot(day, mealType);
                     return (
@@ -569,9 +798,11 @@ export default function MealPlanGrid({
                           ))}
                           <button
                             onClick={() => setSlotPicker({ day, mealType })}
-                            className="w-full flex items-center justify-center gap-1 py-1 rounded border border-dashed border-gray-200 text-gray-400 hover:border-emerald-300 hover:text-emerald-500 transition-colors"
+                            aria-label={`Add to ${dayLabel} ${MEAL_LABELS[mealType].toLowerCase()}`}
+                            title={`Add to ${dayLabel} ${MEAL_LABELS[mealType].toLowerCase()}`}
+                            className="w-full flex items-center justify-center gap-1 py-1 rounded border border-dashed border-gray-300 text-gray-500 hover:border-emerald-400 hover:text-emerald-600 transition-colors"
                           >
-                            <Plus className="w-3 h-3" />
+                            <Plus className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </DroppableSlot>
@@ -584,29 +815,43 @@ export default function MealPlanGrid({
                 <td className="px-3 py-2 font-medium text-gray-600 text-xs border-r">
                   Daily
                 </td>
-                {DAYS.map((_, dayIdx) => {
+                {WEEKDAYS_SHORT.map((_, dayIdx) => {
                   const day = dayIdx + 1;
                   const dayTotals = weekTotals.days[day];
                   const hasEntries = dayTotals.calories > 0;
+                  const badge = hasEntries ? calorieBadge(dayTotals.calories, targets.calories) : null;
                   return (
                     <td
                       key={day}
                       className="px-2 py-2 text-center border-r last:border-r-0"
                     >
                       {hasEntries ? (
-                        <div className="text-[10px] space-y-0.5">
+                        <div className="text-[11px] space-y-0.5">
                           <p className="font-semibold text-gray-900">
                             {Math.round(dayTotals.calories)} kcal
                           </p>
+                          {badge && (
+                            <span
+                              title={badge.title}
+                              className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 ${badge.cls}`}
+                            >
+                              {badge.tone === "green" ? (
+                                <Check className="w-3 h-3" aria-hidden="true" />
+                              ) : (
+                                <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+                              )}
+                              {badge.text}
+                            </span>
+                          )}
                           <p className="text-gray-500">
                             P:{dayTotals.protein.toFixed(0)} C:{dayTotals.carbs.toFixed(0)} F:{dayTotals.fat.toFixed(0)} Fi:{dayTotals.fiber.toFixed(0)}
                           </p>
                           <p className="text-emerald-700 font-medium">
-                            {dayTotals.cost.toFixed(2)} lei
+                            {formatLei(dayTotals.cost)}
                           </p>
                         </div>
                       ) : (
-                        <span className="text-[10px] text-gray-300">—</span>
+                        <span className="text-[11px] text-gray-400">—</span>
                       )}
                     </td>
                   );
@@ -620,28 +865,81 @@ export default function MealPlanGrid({
         {activeEntry && (
           <div className="bg-emerald-100 rounded px-2 py-1 shadow-lg border border-emerald-300 max-w-[140px]">
             <p className="text-xs font-medium text-gray-900 truncate">
-              {activeEntry.recipe ? activeEntry.recipe.name : activeEntry.ingredient?.name ?? "Unknown"}
+              {entryName(activeEntry)}
             </p>
-            <p className="text-[10px] text-gray-500">
-              {activeEntry.recipe
-                ? `×${activeEntry.portions}`
-                : `${activeEntry.quantity}g${activeEntry.portions !== 1 ? ` ×${activeEntry.portions}` : ""}`}
-            </p>
+            <p className="text-[10px] text-gray-500">{entryQty(activeEntry)}</p>
           </div>
         )}
       </DragOverlay>
       </DndContext>
+
+      {/* Target legend / nudge */}
+      <p className="hidden md:block text-xs text-gray-500 mb-6">
+        {targets.calories != null ? (
+          <>
+            Daily kcal vs your {Math.round(targets.calories)} kcal target. {TARGET_LEGEND}
+          </>
+        ) : (
+          <>
+            No calorie target set — daily totals can&apos;t be compared.{" "}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="font-medium text-emerald-700 hover:underline"
+            >
+              Set targets
+            </button>
+          </>
+        )}
+        {" "}Drag the grip handle (or focus it and press Space) to move an entry.
+      </p>
+      <div className="md:hidden mb-6 -mt-3">
+        {targets.calories == null && (
+          <p className="text-xs text-gray-500">
+            No calorie target set.{" "}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="font-medium text-emerald-700 hover:underline"
+            >
+              Set targets
+            </button>
+          </p>
+        )}
+      </div>
 
       {/* Weekly summary */}
       <div className="bg-white rounded-xl border p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Weekly Summary
         </h3>
+        {(targets.calories == null || missingWeight) && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {targets.calories == null
+                ? "No nutrition targets set for this plan."
+                : "Client has no weight set, so protein/fat/carb targets can't be resolved."}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="font-medium underline"
+            >
+              Set targets
+            </button>
+            {missingWeight && plan.client && (
+              <Link href={`/clients#client-${plan.client.id}`} className="font-medium underline">
+                Add client weight
+              </Link>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <div>
             <p className="text-xs text-gray-500">Ingredient Cost</p>
             <p className="text-lg font-bold text-gray-900">
-              {weekTotals.totalCost.toFixed(2)} lei
+              {formatLei(weekTotals.totalCost)}
             </p>
           </div>
           <div>
@@ -649,7 +947,7 @@ export default function MealPlanGrid({
               Selling Price ({plan.markup_multiplier}×)
             </p>
             <p className="text-lg font-bold text-emerald-700">
-              {weekTotals.sellingPrice.toFixed(2)} lei
+              {formatLei(weekTotals.sellingPrice)}
             </p>
           </div>
           <TargetCell
@@ -689,6 +987,7 @@ export default function MealPlanGrid({
             unit="g"
           />
         </div>
+        <p className="mt-3 text-[11px] text-gray-500">{TARGET_LEGEND} Fiber is in range at 10–14 g per 1000 kcal.</p>
       </div>
 
       {/* Slot picker modal */}
@@ -698,6 +997,8 @@ export default function MealPlanGrid({
           mealType={slotPicker.mealType}
           recipes={recipes}
           ingredients={ingredients}
+          categories={categories}
+          defaults={pickerDefaults}
           onAdd={addEntry}
           onAddIngredient={addIngredientEntry}
           onClose={() => setSlotPicker(null)}
@@ -720,6 +1021,7 @@ export default function MealPlanGrid({
           entries={entries}
           categories={categories}
           weekStart={plan.week_start}
+          planName={plan.name}
           onClose={() => setShowShoppingList(false)}
         />
       )}
@@ -728,7 +1030,7 @@ export default function MealPlanGrid({
       {showDuplicate && (
         <DuplicatePlanModal
           plan={plan}
-          entries={entries}
+          entryCount={entries.length}
           clients={clients}
           onClose={() => setShowDuplicate(false)}
         />
@@ -759,19 +1061,83 @@ export default function MealPlanGrid({
       )}
 
       {/* Mobile quantity-edit popover (mobile only — desktop uses inline editor) */}
-      {editingEntry && (() => {
+      {editingEntry && !isDesktop && (() => {
         const e = entries.find((x) => x.id === editingEntry);
         if (!e) return null;
         return (
-          <div className="md:hidden">
-            <MobileQuantityPopover
-              entry={e}
-              onSave={(patch) => updateEntry(editingEntry, patch)}
-              onCancel={() => setEditingEntry(null)}
-            />
-          </div>
+          <MobileQuantityPopover
+            entry={e}
+            onSave={(patch) => updateEntry(editingEntry, patch)}
+            onMove={(day, mealType) => {
+              setEditingEntry(null);
+              void moveEntry(editingEntry, day, mealType);
+            }}
+            onCancel={() => setEditingEntry(null)}
+          />
         );
       })()}
+    </div>
+  );
+}
+
+function MoreMenu({
+  items,
+}: {
+  items: { label: string; icon: React.ReactNode; onClick: () => void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+      >
+        <MoreHorizontal className="w-3.5 h-3.5" />
+        More
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 w-48 rounded-lg border bg-white py-1 shadow-lg"
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                item.onClick();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            >
+              {item.icon}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -805,8 +1171,15 @@ function InlineQuantityEditor({
   // Validation matches SlotPicker exactly: portions step=0.1 min=0.1, quantity step=1 min=1.
   const min = kind === "portions" ? 0.1 : 1;
   const step = kind === "portions" ? "0.1" : "1";
+  const bump = kind === "portions" ? 0.5 : 10;
   const parsed = parseFloat(value);
   const valid = !isNaN(parsed) && parsed >= min;
+
+  function nudge(dir: 1 | -1) {
+    const base = isNaN(parsed) ? initialValue : parsed;
+    const next = Math.max(min, Math.round((base + dir * bump) * 10) / 10);
+    setValue(String(next));
+  }
 
   // Commit if changed and valid; otherwise close via the cancel path so we
   // don't fire a no-op write. The editor closes either way.
@@ -822,14 +1195,31 @@ function InlineQuantityEditor({
     onSave(parsed);
   }
 
+  // mousedown + preventDefault keeps focus in the input so blur doesn't
+  // commit/close before the button's action runs.
+  const noBlur = (fn: () => void) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fn();
+  };
+
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-0.5">
+      <button
+        type="button"
+        onMouseDown={noBlur(() => nudge(-1))}
+        className="p-0.5 rounded bg-white border hover:bg-gray-100"
+        aria-label={kind === "portions" ? "Decrease portions" : "Decrease quantity"}
+      >
+        <Minus className="w-3 h-3 text-gray-600" />
+      </button>
       <input
         type="number"
         autoFocus
         value={value}
         min={min}
         step={step}
+        aria-label={kind === "portions" ? "Portions" : "Quantity in grams"}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
@@ -845,38 +1235,32 @@ function InlineQuantityEditor({
         // inside the input doesn't initiate a drag.
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        className="w-14 px-1 py-0 text-[10px] border rounded text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+        className="w-12 px-1 py-0 text-[11px] border rounded text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
       />
       <button
         type="button"
-        disabled={!valid}
-        // mousedown so this fires before the input's blur — symmetric with Cancel.
-        // Without this, the blur handler runs commit() first and the editor
-        // unmounts before this onClick ever runs (works by accident; this is
-        // explicit).
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          commit();
-        }}
-        className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
-        aria-label="Save"
+        onMouseDown={noBlur(() => nudge(1))}
+        className="p-0.5 rounded bg-white border hover:bg-gray-100"
+        aria-label={kind === "portions" ? "Increase portions" : "Increase quantity"}
       >
-        <Check className="w-3 h-3 text-emerald-600" />
+        <Plus className="w-3 h-3 text-gray-600" />
       </button>
       <button
         type="button"
-        // mousedown fires before the input's blur, so the cancel actually
-        // cancels rather than letting blur silently commit.
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onCancel();
-        }}
+        disabled={!valid}
+        onMouseDown={noBlur(commit)}
+        className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+        aria-label="Save"
+      >
+        <Check className="w-3.5 h-3.5 text-emerald-600" />
+      </button>
+      <button
+        type="button"
+        onMouseDown={noBlur(onCancel)}
         className="p-0.5 rounded hover:bg-red-100"
         aria-label="Cancel"
       >
-        <X className="w-3 h-3 text-red-500" />
+        <X className="w-3.5 h-3.5 text-red-500" />
       </button>
     </span>
   );
@@ -885,10 +1269,12 @@ function InlineQuantityEditor({
 function MobileQuantityPopover({
   entry,
   onSave,
+  onMove,
   onCancel,
 }: {
   entry: FullEntry;
   onSave: (patch: { portions?: number; quantity?: number }) => void;
+  onMove: (day: number, mealType: MealType) => void;
   onCancel: () => void;
 }) {
   const isRecipe = !!entry.recipe;
@@ -896,6 +1282,8 @@ function MobileQuantityPopover({
   const [quantity, setQuantity] = useState(
     entry.quantity != null ? String(entry.quantity) : "0"
   );
+  const [moveDay, setMoveDay] = useState(entry.day_of_week);
+  const [moveMeal, setMoveMeal] = useState<MealType>(entry.meal_type);
   const portionsNum = parseFloat(portions);
   const quantityNum = parseFloat(quantity);
   const portionsValid = !isNaN(portionsNum) && portionsNum >= 0.1;
@@ -903,6 +1291,7 @@ function MobileQuantityPopover({
   const valid = isRecipe
     ? portionsValid
     : portionsValid && quantityValid;
+  const moved = moveDay !== entry.day_of_week || moveMeal !== entry.meal_type;
   const title = isRecipe
     ? entry.recipe?.name ?? "Recipe"
     : entry.ingredient?.name ?? "Ingredient";
@@ -929,63 +1318,21 @@ function MobileQuantityPopover({
     }
   }
 
+  const inputCls =
+    "w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none";
+
   return (
-    <div
-      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-sm"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h3 className="text-sm font-semibold text-gray-900 truncate">
-            Edit {title}
-          </h3>
+    <Modal
+      open
+      onClose={onCancel}
+      size="sm"
+      title={<span className="block truncate">Edit {title}</span>}
+      footer={
+        <>
           <button
             type="button"
             onClick={onCancel}
-            className="p-1 rounded hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
-          {!isRecipe && (
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">
-                Quantity (g)
-              </label>
-              <input
-                type="number"
-                min={1}
-                step="1"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
-                autoFocus
-              />
-            </div>
-          )}
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Portions</label>
-            <input
-              type="number"
-              min={0.1}
-              step="0.1"
-              value={portions}
-              onChange={(e) => setPortions(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
-              autoFocus={isRecipe}
-            />
-          </div>
-        </div>
-        <div className="flex gap-2 px-4 pb-4">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 py-2 px-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+            className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
           </button>
@@ -993,13 +1340,77 @@ function MobileQuantityPopover({
             type="button"
             onClick={submit}
             disabled={!valid}
-            className="flex-1 py-2 px-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+            className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
           >
             Save
           </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {!isRecipe && (
+          <div>
+            <label htmlFor="mq-quantity" className="block text-xs text-gray-500 mb-1">
+              Quantity (g)
+            </label>
+            <input
+              id="mq-quantity"
+              type="number"
+              min={1}
+              step="1"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+        )}
+        <div>
+          <label htmlFor="mq-portions" className="block text-xs text-gray-500 mb-1">Portions</label>
+          <input
+            id="mq-portions"
+            type="number"
+            min={0.1}
+            step="0.1"
+            value={portions}
+            onChange={(e) => setPortions(e.target.value)}
+            className={inputCls}
+          />
+        </div>
+        <div className="border-t pt-3">
+          <p className="text-xs font-medium text-gray-700 mb-2">Move to…</p>
+          <div className="flex gap-2">
+            <select
+              aria-label="Day"
+              value={moveDay}
+              onChange={(e) => setMoveDay(parseInt(e.target.value))}
+              className={inputCls}
+            >
+              {WEEKDAYS_SHORT.map((d, i) => (
+                <option key={d} value={i + 1}>{d}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Meal"
+              value={moveMeal}
+              onChange={(e) => setMoveMeal(e.target.value as MealType)}
+              className={inputCls}
+            >
+              {MEAL_TYPES.map((m) => (
+                <option key={m} value={m}>{MEAL_LABELS[m]}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            disabled={!moved}
+            onClick={() => onMove(moveDay, moveMeal)}
+            className="mt-2 w-full px-3 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 text-sm"
+          >
+            Move to {WEEKDAYS_SHORT[moveDay - 1]} {MEAL_LABELS[moveMeal].toLowerCase()}
+          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -1033,33 +1444,35 @@ function DraggableEntry({
   const editable = !entry.id.startsWith("temp-");
   const editKind: "portions" | "quantity" = entry.recipe ? "portions" : "quantity";
   const editInitial = entry.recipe ? entry.portions : entry.quantity ?? 0;
+  const name = entryName(entry);
 
   return (
     <div
       ref={setNodeRef}
-      className={`flex items-center justify-between bg-emerald-50 rounded px-2 py-1 group transition-opacity ${
+      className={`flex items-center justify-between bg-emerald-50 rounded px-1.5 py-1 group transition-opacity ${
         removingEntry === entry.id || isSaving ? "opacity-50 pointer-events-none" : ""
       } ${isDragging ? "opacity-30" : ""}`}
     >
-      <div className="flex items-center gap-1 min-w-0 flex-1">
+      <div className="flex items-center gap-0.5 min-w-0 flex-1">
         <button
+          type="button"
           {...attributes}
           {...listeners}
-          className="p-0.5 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity touch-none"
+          aria-label={`Drag ${name}`}
+          title="Drag to move"
+          className="p-0.5 cursor-grab active:cursor-grabbing opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity touch-none"
         >
-          <GripVertical className="w-3 h-3 text-gray-400" />
+          <GripVertical className="w-3.5 h-3.5 text-gray-500" />
         </button>
         <div className="min-w-0">
           <p className="text-xs font-medium text-gray-900 truncate flex items-center gap-1">
             {status === "eaten" && (
-              <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+              <CheckCircle2 className="w-3 h-3 text-emerald-600 flex-shrink-0" aria-label="Eaten" />
             )}
             {status === "skipped" && (
-              <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" />
+              <MinusCircle className="w-3 h-3 text-gray-400 flex-shrink-0" aria-label="Skipped" />
             )}
-            <span className="truncate">
-              {entry.recipe ? entry.recipe.name : entry.ingredient?.name ?? "Unknown"}
-            </span>
+            <span className="truncate">{name}</span>
             {review && (
               <span className="text-[10px] text-amber-600 flex items-center gap-0.5 flex-shrink-0">
                 <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
@@ -1082,25 +1495,30 @@ function DraggableEntry({
                 e.stopPropagation();
                 if (editable) onStartEdit(entry.id);
               }}
-              className={`text-[10px] text-gray-500 ${editable ? "hover:text-emerald-700 cursor-text" : "cursor-default"} text-left`}
+              className={`inline-flex items-center gap-1 text-[11px] text-gray-600 text-left ${
+                editable ? "underline decoration-dotted underline-offset-2 hover:text-emerald-700 cursor-text" : "cursor-default"
+              }`}
+              aria-label={editable ? `Edit quantity of ${name}` : undefined}
               title={editable ? "Edit quantity" : undefined}
             >
-              {entry.recipe
-                ? `×${entry.portions}`
-                : `${entry.quantity}g${entry.portions !== 1 ? ` ×${entry.portions}` : ""}`}
+              {entryQty(entry)}
+              {editable && <Pencil className="w-2.5 h-2.5 text-gray-400" aria-hidden="true" />}
             </button>
           )}
         </div>
       </div>
       <button
+        type="button"
         onClick={() => onRemove(entry.id)}
         disabled={removingEntry === entry.id}
-        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 transition-opacity"
+        aria-label={`Remove ${name}`}
+        title="Remove"
+        className="p-1 rounded opacity-40 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-red-100 transition-opacity"
       >
         {removingEntry === entry.id ? (
-          <Loader2 className="w-3 h-3 text-gray-400 animate-spin" />
+          <Loader2 className="w-3.5 h-3.5 text-gray-400 animate-spin" />
         ) : (
-          <X className="w-3 h-3 text-red-500" />
+          <X className="w-3.5 h-3.5 text-red-500" />
         )}
       </button>
     </div>
@@ -1131,7 +1549,7 @@ function TargetCell({
         <p className="text-lg font-bold text-gray-900">
           {fmt(actual)}{unit}
         </p>
-        <p className="text-[10px] text-gray-400 mt-0.5">
+        <p className="text-[11px] text-gray-500 mt-0.5">
           {hint ?? "no target set"}
         </p>
       </div>
@@ -1152,17 +1570,18 @@ function TargetCell({
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-lg font-bold text-gray-900">
         {fmt(actual)}{unit}
-        <span className="text-xs font-normal text-gray-400">
+        <span className="text-xs font-normal text-gray-500">
           {" "}/ {fmt(target)}{unit}
         </span>
       </p>
       <span
-        className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded ${badgeClass}`}
+        title={TARGET_LEGEND}
+        className={`inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded ${badgeClass}`}
       >
         {sign}{fmt(delta)}{unit} ({Math.round(pct)}%)
       </span>
       {hint && (
-        <p className="text-[10px] text-amber-600 mt-0.5">{hint}</p>
+        <p className="text-[11px] text-amber-700 mt-0.5">{hint}</p>
       )}
     </div>
   );
@@ -1188,7 +1607,7 @@ function RangeTargetCell({
         <p className="text-lg font-bold text-gray-900">
           {fmt(actual)}{unit}
         </p>
-        <p className="text-[10px] text-gray-400 mt-0.5">no target set</p>
+        <p className="text-[11px] text-gray-500 mt-0.5">no target set</p>
       </div>
     );
   }
@@ -1213,12 +1632,13 @@ function RangeTargetCell({
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-lg font-bold text-gray-900">
         {fmt(actual)}{unit}
-        <span className="text-xs font-normal text-gray-400">
+        <span className="text-xs font-normal text-gray-500">
           {" "}/ {fmt(range.min)}–{fmt(range.max)}{unit}
         </span>
       </p>
       <span
-        className={`inline-block mt-0.5 text-[10px] px-1.5 py-0.5 rounded ${badgeClass}`}
+        title="Green: inside the 10–14 g per 1000 kcal range. Amber: within 20% of it. Red: more than 20% outside."
+        className={`inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded ${badgeClass}`}
       >
         {label2}
       </span>
@@ -1231,6 +1651,8 @@ function SlotPicker({
   mealType,
   recipes,
   ingredients,
+  categories,
+  defaults,
   onAdd,
   onAddIngredient,
   onClose,
@@ -1240,162 +1662,213 @@ function SlotPicker({
   mealType: MealType;
   recipes: { id: string; name: string; portions: number }[];
   ingredients: Ingredient[];
-  onAdd: (recipeId: string, portions: number) => void;
-  onAddIngredient: (ingredientId: string, quantity: number) => void;
+  categories: Category[];
+  defaults: { portions: number; quantity: number };
+  onAdd: (recipeId: string, portions: number) => Promise<boolean>;
+  onAddIngredient: (ingredientId: string, quantity: number) => Promise<boolean>;
   onClose: () => void;
   adding: boolean;
 }) {
   const [tab, setTab] = useState<"recipes" | "ingredients">("recipes");
   const [search, setSearch] = useState("");
-  const [portions, setPortions] = useState(1);
-  const [quantity, setQuantity] = useState(100);
+  const [portions, setPortions] = useState(String(defaults.portions));
+  const [quantity, setQuantity] = useState(String(defaults.quantity));
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastAddedId, setLastAddedId] = useState<string | null>(null);
+  const [addedCount, setAddedCount] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(0);
 
-  function handleSelectRecipe(recipeId: string) {
-    setSelectedId(recipeId);
-    onAdd(recipeId, portions);
-  }
+  const portionsNum = parseFloat(portions);
+  const quantityNum = parseFloat(quantity);
+  const portionsValid = !isNaN(portionsNum) && portionsNum >= 0.1;
+  const quantityValid = !isNaN(quantityNum) && quantityNum >= 1;
 
-  function handleSelectIngredient(ingredientId: string) {
-    setSelectedId(ingredientId);
-    onAddIngredient(ingredientId, quantity);
-  }
+  const categoryLabel = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of categories) m[c.slug] = c.name;
+    return (slug: string) => m[slug] ?? humanizeSlug(slug);
+  }, [categories]);
 
+  const q = search.trim().toLowerCase();
   const filteredRecipes = recipes.filter(
-    (r) =>
-      search.length === 0 ||
-      r.name.toLowerCase().includes(search.toLowerCase())
+    (r) => q.length === 0 || r.name.toLowerCase().includes(q)
   );
-
   const filteredIngredients = ingredients.filter(
-    (i) =>
-      search.length === 0 ||
-      i.name.toLowerCase().includes(search.toLowerCase())
+    (i) => q.length === 0 || i.name.toLowerCase().includes(q)
   );
+  const list = tab === "recipes" ? filteredRecipes : filteredIngredients;
+  const canAdd = !adding && (tab === "recipes" ? portionsValid : quantityValid);
+
+  async function select(id: string) {
+    if (!canAdd) return;
+    setSelectedId(id);
+    const ok =
+      tab === "recipes"
+        ? await onAdd(id, portionsNum)
+        : await onAddIngredient(id, quantityNum);
+    if (ok) {
+      setLastAddedId(id);
+      setAddedCount((n) => n + 1);
+    }
+  }
+
+  function onSearchKey(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, list.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = list[Math.min(activeIdx, list.length - 1)];
+      if (item) void select(item.id);
+    }
+  }
+
+  const tabCls = (t: string) =>
+    `flex-1 px-4 py-2 text-sm font-medium ${tab === t ? "border-b-2 border-emerald-500 text-emerald-700" : "text-gray-500 hover:text-gray-700"}`;
+
+  const itemCls = (active: boolean) =>
+    `w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between gap-2 ${
+      active ? "bg-emerald-50 ring-1 ring-emerald-200" : "hover:bg-emerald-50"
+    } ${adding ? "opacity-50 cursor-not-allowed" : ""}`;
+
+  const status = (id: string) =>
+    adding && selectedId === id ? (
+      <Loader2 className="w-4 h-4 text-emerald-600 animate-spin shrink-0" />
+    ) : lastAddedId === id ? (
+      <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700">
+        <Check className="w-3.5 h-3.5" /> Added
+      </span>
+    ) : null;
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[60vh] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h3 className="text-sm font-semibold text-gray-900">
-            {DAYS[day - 1]} — {MEAL_LABELS[mealType]}
-          </h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-4 h-4 text-gray-500" />
-          </button>
-        </div>
-        <div className="flex border-b">
+    <Modal
+      open
+      onClose={onClose}
+      title={`${WEEKDAYS_SHORT[day - 1]} — ${MEAL_LABELS[mealType]}`}
+      footer={
+        <>
+          <span className="mr-auto text-xs text-gray-500" aria-live="polite">
+            {addedCount > 0 ? `Added ${addedCount} ✓` : "Pick items to add"}
+          </span>
           <button
-            onClick={() => { setTab("recipes"); setSearch(""); }}
-            className={`flex-1 px-4 py-2 text-sm font-medium ${tab === "recipes" ? "border-b-2 border-emerald-500 text-emerald-700" : "text-gray-500 hover:text-gray-700"}`}
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
           >
-            Recipes
+            Done
           </button>
-          <button
-            onClick={() => { setTab("ingredients"); setSearch(""); }}
-            className={`flex-1 px-4 py-2 text-sm font-medium ${tab === "ingredients" ? "border-b-2 border-emerald-500 text-emerald-700" : "text-gray-500 hover:text-gray-700"}`}
-          >
-            Ingredients
-          </button>
-        </div>
-        <div className="px-4 py-2 border-b space-y-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={tab === "recipes" ? "Search recipes..." : "Search ingredients..."}
-            className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
-            autoFocus
-          />
-          {tab === "recipes" ? (
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Portions:</label>
-              <input
-                type="number"
-                min={0.1}
-                step="0.1"
-                value={portions}
-                onChange={(e) => setPortions(parseFloat(e.target.value) || 1)}
-                className="w-16 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
-              />
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Quantity (g):</label>
-              <input
-                type="number"
-                min={1}
-                step="1"
-                value={quantity}
-                onChange={(e) => setQuantity(parseFloat(e.target.value) || 100)}
-                className="w-20 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
-              />
-            </div>
-          )}
-        </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {tab === "recipes" ? (
-            filteredRecipes.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">
-                No recipes found.
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {filteredRecipes.map((recipe) => (
-                  <button
-                    key={recipe.id}
-                    onClick={() => handleSelectRecipe(recipe.id)}
-                    disabled={adding}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors flex items-center justify-between ${adding ? "opacity-50 cursor-not-allowed" : ""}`}
-                  >
-                    <div>
-                      <span className="font-medium text-gray-900">
-                        {recipe.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        {recipe.portions} portion{recipe.portions > 1 ? "s" : ""}
-                      </span>
-                    </div>
-                    {adding && selectedId === recipe.id && (
-                      <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )
-          ) : (
-            filteredIngredients.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-4">
-                No ingredients found.
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {filteredIngredients.map((ing) => (
-                  <button
-                    key={ing.id}
-                    onClick={() => handleSelectIngredient(ing.id)}
-                    disabled={adding}
-                    className={`w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 text-sm transition-colors flex items-center justify-between ${adding ? "opacity-50 cursor-not-allowed" : ""}`}
-                  >
-                    <div>
-                      <span className="font-medium text-gray-900">
-                        {ing.name}
-                      </span>
-                      <span className="ml-2 text-xs text-gray-500">
-                        {ing.category}
-                      </span>
-                    </div>
-                    {adding && selectedId === ing.id && (
-                      <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )
-          )}
-        </div>
+        </>
+      }
+    >
+      <div className="-mx-5 -mt-4 flex border-b" role="tablist">
+        <button
+          role="tab"
+          aria-selected={tab === "recipes"}
+          onClick={() => { setTab("recipes"); setSearch(""); setActiveIdx(0); }}
+          className={tabCls("recipes")}
+        >
+          Recipes
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "ingredients"}
+          onClick={() => { setTab("ingredients"); setSearch(""); setActiveIdx(0); }}
+          className={tabCls("ingredients")}
+        >
+          Ingredients
+        </button>
       </div>
-    </div>
+      <div className="space-y-2 py-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setActiveIdx(0); }}
+          onKeyDown={onSearchKey}
+          aria-label={tab === "recipes" ? "Search recipes" : "Search ingredients"}
+          placeholder={tab === "recipes" ? "Search recipes… (Enter adds the highlighted one)" : "Search ingredients… (Enter adds the highlighted one)"}
+          className="w-full px-3 py-2 border rounded-lg text-gray-900 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+          autoFocus
+        />
+        {tab === "recipes" ? (
+          <div className="flex items-center gap-2">
+            <label htmlFor="sp-portions" className="text-xs text-gray-500">Portions:</label>
+            <input
+              id="sp-portions"
+              type="number"
+              min={0.1}
+              step="0.1"
+              value={portions}
+              onChange={(e) => setPortions(e.target.value)}
+              className="w-16 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+            />
+            {!portionsValid && <span className="text-xs text-red-600">min 0.1</span>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <label htmlFor="sp-quantity" className="text-xs text-gray-500">Quantity (g):</label>
+            <input
+              id="sp-quantity"
+              type="number"
+              min={1}
+              step="1"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className="w-20 px-2 py-1 border rounded text-sm text-gray-900 text-center focus:ring-1 focus:ring-emerald-500 outline-none"
+            />
+            {!quantityValid && <span className="text-xs text-red-600">min 1</span>}
+          </div>
+        )}
+      </div>
+      <div role="listbox" aria-label={tab === "recipes" ? "Recipes" : "Ingredients"} className="space-y-1">
+        {list.length === 0 && (
+          <p className="text-sm text-gray-500 text-center py-4">
+            {tab === "recipes" ? "No recipes found." : "No ingredients found."}
+          </p>
+        )}
+        {tab === "recipes"
+          ? filteredRecipes.map((recipe, i) => (
+              <button
+                key={recipe.id}
+                role="option"
+                aria-selected={i === activeIdx}
+                ref={i === activeIdx ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                onClick={() => select(recipe.id)}
+                disabled={adding}
+                className={itemCls(i === activeIdx)}
+              >
+                <div>
+                  <span className="font-medium text-gray-900">{recipe.name}</span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {recipe.portions} portion{recipe.portions > 1 ? "s" : ""}
+                  </span>
+                </div>
+                {status(recipe.id)}
+              </button>
+            ))
+          : filteredIngredients.map((ing, i) => (
+              <button
+                key={ing.id}
+                role="option"
+                aria-selected={i === activeIdx}
+                ref={i === activeIdx ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
+                onClick={() => select(ing.id)}
+                disabled={adding}
+                className={itemCls(i === activeIdx)}
+              >
+                <div>
+                  <span className="font-medium text-gray-900">{ing.name}</span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {categoryLabel(ing.category)}
+                  </span>
+                </div>
+                {status(ing.id)}
+              </button>
+            ))}
+      </div>
+    </Modal>
   );
 }
 
@@ -1410,10 +1883,11 @@ function PlanSettings({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const [form, setForm] = useState({
+  const initial = {
     name: plan.name,
     client_id: plan.client_id ?? "",
     week_start: plan.week_start,
@@ -1421,7 +1895,9 @@ function PlanSettings({
     calorie_target: plan.calorie_target ?? (null as number | null),
     protein_per_kg: plan.protein_per_kg ?? (null as number | null),
     fat_per_kg: plan.fat_per_kg ?? (null as number | null),
-  });
+  };
+  const [form, setForm] = useState(initial);
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1443,6 +1919,7 @@ function PlanSettings({
 
     if (updateErr) {
       setError(updateErr.message);
+      toast.error(`Could not save plan: ${updateErr.message}`);
       setSaving(false);
     } else {
       // Plan-level edits affect both the list (via name/client/week) and
@@ -1450,192 +1927,201 @@ function PlanSettings({
       await invalidateMealPlan(plan.id);
       await invalidateMealPlans();
       router.refresh();
+      toast.success("Plan updated");
       onClose();
     }
   }
 
+  const inputCls =
+    "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm";
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Plan Settings</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
+    <Modal
+      open
+      onClose={onClose}
+      title="Plan Settings"
+      dirty={dirty && !saving}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            Cancel
           </button>
+          <button
+            type="submit"
+            form="plan-settings-form"
+            disabled={saving}
+            className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </>
+      }
+    >
+      <form id="plan-settings-form" onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="ps-name" className="block text-sm font-medium text-gray-700 mb-1">
+            Plan Name *
+          </label>
+          <input
+            id="ps-name"
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className={inputCls}
+            required
+          />
+        </div>
+        <div>
+          <label htmlFor="ps-client" className="block text-sm font-medium text-gray-700 mb-1">
+            Client
+          </label>
+          <select
+            id="ps-client"
+            value={form.client_id}
+            onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+            className={inputCls}
+          >
+            <option value="">No client</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="ps-week" className="block text-sm font-medium text-gray-700 mb-1">
+            Week Start (Monday)
+          </label>
+          <input
+            id="ps-week"
+            type="date"
+            value={form.week_start}
+            onChange={(e) => setForm({ ...form, week_start: e.target.value })}
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label htmlFor="ps-markup" className="block text-sm font-medium text-gray-700 mb-1">
+            Markup Multiplier
+          </label>
+          <input
+            id="ps-markup"
+            type="number"
+            step="0.1"
+            min={1}
+            value={form.markup_multiplier}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                markup_multiplier: parseFloat(e.target.value) || 1,
+              })
+            }
+            className={inputCls}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Selling price = ingredient cost × multiplier
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Plan Name *
-            </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Client
-            </label>
-            <select
-              value={form.client_id}
-              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            >
-              <option value="">No client</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Week Start (Monday)
-            </label>
-            <input
-              type="date"
-              value={form.week_start}
-              onChange={(e) => setForm({ ...form, week_start: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Markup Multiplier
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min={1}
-              value={form.markup_multiplier}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  markup_multiplier: parseFloat(e.target.value) || 1,
-                })
-              }
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Selling price = ingredient cost × multiplier
-            </p>
-          </div>
-
-          <div className="border-t pt-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">
-              Nutrition Targets
-            </h3>
-            <p className="text-xs text-gray-500 mb-3">
-              Protein and fat multiply by client&apos;s weight (kg). Carbs are
-              derived from calories − protein − fat. Fiber target is 10–14 g
-              per 1000 kcal. All compared against the weekly daily average.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Calorie Target (kcal/day)
-                </label>
-                <input
-                  type="number"
-                  value={form.calorie_target ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      calorie_target: e.target.value
-                        ? parseInt(e.target.value)
-                        : null,
-                    })
-                  }
-                  placeholder="e.g. 2000"
-                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Protein (g/kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.protein_per_kg ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      protein_per_kg: e.target.value
-                        ? parseFloat(e.target.value)
-                        : null,
-                    })
-                  }
-                  placeholder="e.g. 1.6"
-                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Fat (g/kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.fat_per_kg ?? ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      fat_per_kg: e.target.value
-                        ? parseFloat(e.target.value)
-                        : null,
-                    })
-                  }
-                  placeholder="e.g. 0.8"
-                  className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                />
-              </div>
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-1">
+            Nutrition Targets
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            Protein and fat multiply by client&apos;s weight (kg). Carbs are
+            derived from calories − protein − fat. Fiber target is 10–14 g
+            per 1000 kcal. All compared against the weekly daily average.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="ps-cal" className="block text-xs font-medium text-gray-700 mb-1">
+                Calorie Target (kcal/day)
+              </label>
+              <input
+                id="ps-cal"
+                type="number"
+                value={form.calorie_target ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    calorie_target: e.target.value
+                      ? parseInt(e.target.value)
+                      : null,
+                  })
+                }
+                placeholder="e.g. 2000"
+                className={inputCls}
+              />
             </div>
-            {plan.client && plan.client.weight_kg == null && (
-              <p className="text-xs text-amber-600 mt-2">
-                Client has no weight set — macro targets won&apos;t resolve until
-                you add a weight to the client.
-              </p>
-            )}
-            {!plan.client && (
-              <p className="text-xs text-amber-600 mt-2">
-                No client linked — macro targets won&apos;t resolve until you
-                link a client with a weight.
-              </p>
-            )}
+            <div>
+              <label htmlFor="ps-protein" className="block text-xs font-medium text-gray-700 mb-1">
+                Protein (g/kg)
+              </label>
+              <input
+                id="ps-protein"
+                type="number"
+                step="0.1"
+                value={form.protein_per_kg ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    protein_per_kg: e.target.value
+                      ? parseFloat(e.target.value)
+                      : null,
+                  })
+                }
+                placeholder="e.g. 1.6"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label htmlFor="ps-fat" className="block text-xs font-medium text-gray-700 mb-1">
+                Fat (g/kg)
+              </label>
+              <input
+                id="ps-fat"
+                type="number"
+                step="0.1"
+                value={form.fat_per_kg ?? ""}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    fat_per_kg: e.target.value
+                      ? parseFloat(e.target.value)
+                      : null,
+                  })
+                }
+                placeholder="e.g. 0.8"
+                className={inputCls}
+              />
+            </div>
           </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
-              {error}
+          {plan.client && plan.client.weight_kg == null && (
+            <p className="text-xs text-amber-700 mt-2">
+              Client has no weight set — macro targets won&apos;t resolve until
+              you add a weight to the client.
             </p>
           )}
+          {!plan.client && (
+            <p className="text-xs text-amber-700 mt-2">
+              No client linked — macro targets won&apos;t resolve until you
+              link a client with a weight.
+            </p>
+          )}
+        </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
-            >
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        {error && (
+          <p role="alert" className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
+            {error}
+          </p>
+        )}
+      </form>
+    </Modal>
   );
 }
 
@@ -1643,160 +2129,55 @@ function ShoppingListModal({
   entries,
   categories,
   weekStart,
+  planName,
   onClose,
 }: {
   entries: FullEntry[];
   categories: Category[];
   weekStart: string;
+  planName: string;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const { checkedItems, toggle: toggleItem } = useShoppingChecks(weekStart);
-  const { groups, totalCost } = useMemo(() => {
-    const labels: Record<string, string> = {};
-    for (const c of categories) labels[c.slug] = c.name;
-    return generateShoppingList(entries, labels);
-  }, [entries, categories]);
-
-  function handleCopy() {
-    const filteredGroups = groups
-      .map((g) => ({
-        ...g,
-        items: g.items.filter((i) => !checkedItems.has(i.ingredientId)),
-        subtotal: g.items
-          .filter((i) => !checkedItems.has(i.ingredientId))
-          .reduce((sum, i) => sum + i.estimatedCost, 0),
-      }))
-      .filter((g) => g.items.length > 0);
-    const filteredCost = filteredGroups.reduce((s, g) => s + g.subtotal, 0);
-    const text = shoppingListToText(filteredGroups, filteredCost);
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
+  const labels = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of categories) m[c.slug] = c.name;
+    return m;
+  }, [categories]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Shopping List</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              {copied ? (
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-              {copied ? "Copied!" : "Copy"}
-            </button>
-            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          {groups.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">
-              No entries in this meal plan yet.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              {groups.map((group) => (
-                <div key={group.category}>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    {group.label}
-                  </h3>
-                  <div className="space-y-1">
-                    {group.items.map((item) => (
-                      <div
-                        key={item.ingredientId}
-                        className={`flex items-center gap-2 py-1.5 px-3 bg-gray-50 rounded-lg ${checkedItems.has(item.ingredientId) ? "opacity-50" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checkedItems.has(item.ingredientId)}
-                          onChange={() => toggleItem(item.ingredientId)}
-                          className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
-                        />
-                        <span className={`text-sm font-medium text-gray-900 flex-1 ${checkedItems.has(item.ingredientId) ? "line-through" : ""}`}>
-                          {item.name}
-                        </span>
-                        <div className="flex items-center gap-3 text-sm">
-                          <span className="text-gray-600">
-                            {item.totalQuantity % 1 === 0
-                              ? item.totalQuantity
-                              : item.totalQuantity.toFixed(1)}
-                            {item.unit}
-                          </span>
-                          <span className="text-emerald-700 font-medium w-20 text-right">
-                            {item.estimatedCost.toFixed(2)} lei
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-400 text-right mt-1">
-                    Subtotal: {group.subtotal.toFixed(2)} lei
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {groups.length > 0 && (
-          <div className="px-6 py-4 border-t bg-emerald-50 rounded-b-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">
-                Total Estimated Cost
-              </span>
-              <span className="text-lg font-bold text-emerald-700">
-                {totalCost.toFixed(2)} lei
-              </span>
-            </div>
-            {checkedItems.size > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                {checkedItems.size} item{checkedItems.size !== 1 ? "s" : ""} checked (in stock)
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+    <Modal open onClose={onClose} size="lg" title="Shopping List">
+      <ShoppingListPanel
+        entries={entries}
+        weekStart={weekStart}
+        categoryLabels={labels}
+        plansLabel={planName}
+        emptyMessage="No entries in this meal plan yet."
+      />
+    </Modal>
   );
 }
 
 function DuplicatePlanModal({
   plan,
-  entries,
+  entryCount,
   clients,
   onClose,
 }: {
   plan: PlanWithClient;
-  entries: FullEntry[];
+  entryCount: number;
   clients: Client[];
   onClose: () => void;
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const toast = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const today = new Date();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
-  const nextMonday = new Date(monday);
-  nextMonday.setDate(monday.getDate() + 7);
-  const defaultWeekStart = nextMonday.toISOString().split("T")[0];
 
   const [form, setForm] = useState({
     name: `${plan.name} (copy)`,
     client_id: plan.client_id ?? "",
-    week_start: defaultWeekStart,
+    week_start: addDays(plan.week_start, 7),
     markup_multiplier: plan.markup_multiplier,
   });
 
@@ -1805,147 +2186,133 @@ function DuplicatePlanModal({
     setSaving(true);
     setError("");
 
-    const { data: newPlan, error: createErr } = await supabase
-      .from("meal_plans")
-      .insert({
-        name: form.name.trim(),
-        client_id: form.client_id || null,
-        week_start: form.week_start,
-        markup_multiplier: form.markup_multiplier,
-      })
-      .select("id")
-      .single();
+    // Atomic server-side copy: plan + nutrition targets + all entries.
+    const { data: newId, error: rpcErr } = await supabase.rpc("duplicate_meal_plan", {
+      p_source_id: plan.id,
+      p_name: form.name.trim(),
+      p_client_id: form.client_id || null,
+      p_week_start: form.week_start,
+      p_markup_multiplier: form.markup_multiplier,
+    });
 
-    if (createErr || !newPlan) {
-      setError(createErr?.message ?? "Failed to create plan");
+    if (rpcErr || !newId) {
+      const msg = rpcErr?.message ?? "Failed to duplicate plan";
+      setError(msg);
+      toast.error(`Duplicate failed: ${msg}`);
       setSaving(false);
       return;
     }
 
-    if (entries.length > 0) {
-      const { error: entriesErr } = await supabase
-        .from("meal_plan_entries")
-        .insert(
-          entries.map((e) => ({
-            meal_plan_id: newPlan.id,
-            day_of_week: e.day_of_week,
-            meal_type: e.meal_type,
-            recipe_id: e.recipe_id,
-            ingredient_id: e.ingredient_id,
-            quantity: e.quantity,
-            portions: e.portions,
-          }))
-        );
-
-      if (entriesErr) {
-        setError(entriesErr.message);
-        setSaving(false);
-        return;
-      }
-    }
-
     await invalidateMealPlans();
-    router.push(`/meal-plans/${newPlan.id}`);
+    toast.success("Plan duplicated");
+    router.push(`/meal-plans/${newId}`);
   }
 
+  const inputCls =
+    "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm";
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Duplicate Plan</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title="Duplicate Plan"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            Cancel
           </button>
+          <button
+            type="submit"
+            form="duplicate-plan-form"
+            disabled={saving}
+            className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+          >
+            {saving ? "Duplicating..." : "Duplicate"}
+          </button>
+        </>
+      }
+    >
+      <form id="duplicate-plan-form" onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm text-gray-500">
+          Creates a new plan with all {entryCount} meal entries and the nutrition targets copied over.
+        </p>
+        <div>
+          <label htmlFor="dp-name" className="block text-sm font-medium text-gray-700 mb-1">
+            Plan Name *
+          </label>
+          <input
+            id="dp-name"
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className={inputCls}
+            required
+          />
+        </div>
+        <div>
+          <label htmlFor="dp-client" className="block text-sm font-medium text-gray-700 mb-1">
+            Client
+          </label>
+          <select
+            id="dp-client"
+            value={form.client_id}
+            onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+            className={inputCls}
+          >
+            <option value="">No client</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="dp-week" className="block text-sm font-medium text-gray-700 mb-1">
+            Week Start (Monday)
+          </label>
+          <input
+            id="dp-week"
+            type="date"
+            value={form.week_start}
+            onChange={(e) => setForm({ ...form, week_start: e.target.value })}
+            className={inputCls}
+            required
+          />
+          <p className="text-xs text-gray-500 mt-1">Defaults to the week after this plan.</p>
+        </div>
+        <div>
+          <label htmlFor="dp-markup" className="block text-sm font-medium text-gray-700 mb-1">
+            Markup Multiplier
+          </label>
+          <input
+            id="dp-markup"
+            type="number"
+            step="0.1"
+            min={1}
+            value={form.markup_multiplier}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                markup_multiplier: parseFloat(e.target.value) || 1,
+              })
+            }
+            className={inputCls}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <p className="text-sm text-gray-500">
-            This will create a new plan with all {entries.length} meal entries copied over.
+        {error && (
+          <p role="alert" className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
+            {error}
           </p>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Plan Name *
-            </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Client
-            </label>
-            <select
-              value={form.client_id}
-              onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            >
-              <option value="">No client</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Week Start (Monday)
-            </label>
-            <input
-              type="date"
-              value={form.week_start}
-              onChange={(e) => setForm({ ...form, week_start: e.target.value })}
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Markup Multiplier
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min={1}
-              value={form.markup_multiplier}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  markup_multiplier: parseFloat(e.target.value) || 1,
-                })
-              }
-              className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-            />
-          </div>
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
-              {error}
-            </p>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 px-4 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
-            >
-              {saving ? "Duplicating..." : "Duplicate"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        )}
+      </form>
+    </Modal>
   );
 }
 
@@ -1958,11 +2325,21 @@ function ExportModal({
   clientEmail: string | null;
   onClose: () => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
 
   async function handleEmail() {
+    if (!clientEmail) return;
+    const ok = await confirm({
+      title: `Send to ${clientEmail}?`,
+      message: "The meal plan PDF will be emailed to the client.",
+      confirmLabel: "Send email",
+    });
+    if (!ok) return;
+
     setSending(true);
     setError("");
     try {
@@ -1970,64 +2347,70 @@ function ExportModal({
         method: "POST",
       });
       if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Failed to send email");
+        let message = `Failed to send email (${res.status})`;
+        try {
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            if (data?.error) message = String(data.error);
+          } catch {
+            // non-JSON body (e.g. platform error page): keep status message
+          }
+        } catch {
+          // ignore unreadable body
+        }
+        setError(message);
+        toast.error(message, { action: { label: "Retry", onClick: () => void handleEmail() } });
       } else {
         setSent(true);
+        toast.success(`PDF sent to ${clientEmail}`);
       }
     } catch {
-      setError("Failed to send email");
+      const message = "Failed to send email. Check your connection and try again.";
+      setError(message);
+      toast.error(message, { action: { label: "Retry", onClick: () => void handleEmail() } });
     } finally {
       setSending(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Export Plan</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
+    <Modal open onClose={onClose} size="sm" title="Export Plan">
+      <div className="space-y-3">
+        <a
+          href={`/api/export/meal-plan?id=${planId}`}
+          className="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+        >
+          <Download className="w-4 h-4" />
+          Download PDF
+        </a>
 
-        <div className="p-6 space-y-3">
-          <a
-            href={`/api/export/meal-plan?id=${planId}`}
-            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
-          >
-            <Download className="w-4 h-4" />
-            Download PDF
-          </a>
-
-          <button
-            onClick={handleEmail}
-            disabled={!clientEmail || sending || sent}
-            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-          >
-            {sent ? (
-              <>
-                <Check className="w-4 h-4 text-green-600" />
-                Sent!
-              </>
-            ) : (
-              <>
-                <FileText className="w-4 h-4" />
-                {sending ? "Sending..." : "Email to Client"}
-              </>
-            )}
-          </button>
-          {!clientEmail && (
-            <p className="text-xs text-gray-400 text-center">
-              No email address on file for this client
-            </p>
+        <button
+          onClick={handleEmail}
+          disabled={!clientEmail || sending || sent}
+          className="flex items-center justify-center gap-2 w-full py-2.5 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+        >
+          {sent ? (
+            <>
+              <Check className="w-4 h-4 text-green-600" />
+              Sent to {clientEmail}
+            </>
+          ) : (
+            <>
+              <FileText className="w-4 h-4" />
+              {sending ? "Sending..." : clientEmail ? `Email to ${clientEmail}` : "Email to Client"}
+            </>
           )}
-          {error && (
-            <p className="text-xs text-red-600 text-center">{error}</p>
-          )}
-        </div>
+        </button>
+        {!clientEmail && (
+          <p className="text-xs text-gray-500 text-center">
+            No email address on file for this client
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-xs text-red-600 text-center">{error}</p>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }

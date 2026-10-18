@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
-export default function SetPasswordForm() {
+export default function SetPasswordForm({ alreadySet = false }: { alreadySet?: boolean }) {
   const router = useRouter();
   const supabase = createClient();
   const [password, setPassword] = useState("");
@@ -42,7 +42,7 @@ export default function SetPasswordForm() {
       return;
     }
 
-    router.push("/portal");
+    router.push(alreadySet ? "/portal/profile" : "/portal");
     router.refresh();
   }
 
@@ -85,7 +85,7 @@ export default function SetPasswordForm() {
         disabled={loading}
         className="w-full py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
       >
-        {loading ? "Saving..." : "Set password"}
+        {loading ? "Saving..." : alreadySet ? "Save new password" : "Set password"}
       </button>
     </form>
   );

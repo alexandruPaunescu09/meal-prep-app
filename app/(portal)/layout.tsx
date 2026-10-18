@@ -3,14 +3,12 @@ import { redirect } from "next/navigation";
 import TopBar from "@/components/portal/top-bar";
 import TopNav from "@/components/portal/top-nav";
 import BottomTabs from "@/components/portal/bottom-tabs";
+import InstallBanner from "@/components/portal/install-banner";
+import OfflineBanner from "@/components/portal/offline-banner";
 
 export const metadata = {
   title: "My Meals",
   description: "Your meal plans, today and this week.",
-};
-
-export const viewport = {
-  themeColor: "#059669",
 };
 
 export default async function PortalLayout({
@@ -46,11 +44,18 @@ export default async function PortalLayout({
 
   const greeting = client?.name ? `Hi, ${client.name.split(" ")[0]}` : "Hi";
 
+  // Bottom padding clears the fixed tab bar plus the iOS home-indicator inset.
   return (
-    <div className="min-h-full bg-gray-50 pb-20 md:pb-0">
+    <div className="min-h-full bg-gray-50">
       <TopBar greeting={greeting} />
       <TopNav />
-      <main className="max-w-3xl mx-auto px-4 py-4">{children}</main>
+      <main className="max-w-3xl mx-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6">
+        <div className="space-y-3">
+          <OfflineBanner />
+          <InstallBanner />
+        </div>
+        {children}
+      </main>
       <BottomTabs />
     </div>
   );

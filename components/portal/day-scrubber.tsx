@@ -8,6 +8,7 @@ import {
   compareLocalDate,
   parseLocalDate,
 } from "@/lib/portal/entry-helpers";
+import { formatDate, formatShortDate } from "@/lib/format";
 import CalendarPicker from "./calendar-picker";
 
 interface Props {
@@ -125,15 +126,21 @@ export default function DayScrubber({
     slideAnchorRef.current = selectedDate;
   }, [selectedDate]);
 
-  const selectedLabel = formatHeader(displayDate, todayDate);
-
   return (
     <>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs uppercase tracking-wide text-emerald-600 font-medium">
-            {selectedLabel.eyebrow}
-          </p>
+          {compareLocalDate(displayDate, todayDate) !== 0 ? (
+            <button
+              type="button"
+              onClick={() => tapStripDate(todayDate)}
+              className="inline-flex items-center text-xs font-medium text-emerald-700 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 min-h-[36px]"
+            >
+              Jump to today
+            </button>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={() => setCalendarOpen(true)}
@@ -168,9 +175,7 @@ export default function DayScrubber({
               const isToday = compareLocalDate(d, todayDate) === 0;
               const hasPlan = planDates.has(d);
               const dt = parseLocalDate(d)!;
-              const weekday = dt.toLocaleDateString(undefined, {
-                weekday: "short",
-              });
+              const weekday = formatShortDate(dt).split(" ")[0];
               const dayNum = dt.getDate();
               const base =
                 "flex flex-col items-center justify-center min-h-[56px] rounded-xl border text-sm font-medium";
@@ -180,18 +185,33 @@ export default function DayScrubber({
                 ? "bg-white text-emerald-700 border-emerald-400"
                 : hasPlan
                 ? "bg-white text-gray-900 border-gray-200 hover:border-gray-300"
-                : "bg-white text-gray-400 border-gray-100 hover:border-gray-200";
+                : "bg-white text-gray-600 border-gray-100 hover:border-gray-200";
               return (
                 <button
                   key={`${d}-${pulseTick[d] ?? 0}`}
                   type="button"
                   onClick={() => tapStripDate(d)}
+                  aria-label={`${formatDate(dt)}${isToday ? ", today" : ""}${
+                    hasPlan ? ", has a plan" : ""
+                  }`}
+                  aria-pressed={isSelected}
+                  aria-current={isToday ? "date" : undefined}
                   className={`${base} ${stateClass} animate-tap-pulse`}
                 >
                   <span className="text-[10px] uppercase tracking-wide opacity-80">
                     {weekday}
                   </span>
                   <span className="text-base leading-tight">{dayNum}</span>
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 w-1.5 h-1.5 rounded-full ${
+                      hasPlan
+                        ? isSelected
+                          ? "bg-white"
+                          : "bg-emerald-500"
+                        : "bg-transparent"
+                    }`}
+                  />
                 </button>
               );
             })}
@@ -218,13 +238,6 @@ export default function DayScrubber({
       )}
     </>
   );
-}
-
-function formatHeader(selectedDate: string, todayDate: string) {
-  const cmp = compareLocalDate(selectedDate, todayDate);
-  if (cmp === 0) return { eyebrow: "Today" };
-  if (cmp < 0) return { eyebrow: "Past" };
-  return { eyebrow: "Upcoming" };
 }
 
 function daysBetween(a: string, b: string): number {

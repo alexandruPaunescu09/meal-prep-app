@@ -33,5 +33,9 @@ export default async function AuthenticatedLayout({
   // across all admin sessions.
   const unreadReviews = await getUnreadReviewCount();
 
-  return <AppShell unreadReviews={unreadReviews}>{children}</AppShell>;
+  return (
+    <AppShell unreadReviews={unreadReviews} userEmail={user.email ?? null}>
+      {children}
+    </AppShell>
+  );
 }

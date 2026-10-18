@@ -18,6 +18,7 @@ export const CACHE_TAGS = {
   containerTypes: "container-types",
   containerDeliveries: "container-deliveries",
   prepRules: "prep-rules",
+  prepTasks: "prep-tasks",
   reviews: "reviews",
   reviewTags: "review-tags",
   mealReviews: "meal-reviews",

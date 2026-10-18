@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -12,8 +12,27 @@ import {
 import NutritionSearch from "./nutrition-search";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
 import BarcodeScanner from "./barcode-scanner";
-import { Search, X, ChevronDown, ChevronUp, ScanBarcode, Loader2 } from "lucide-react";
+import {
+  Search,
+  ChevronDown,
+  ChevronUp,
+  ScanBarcode,
+  Loader2,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
 import type { BarcodeLookup } from "@/lib/nutrition/open-food-facts";
+import { Modal } from "@/components/ui/modal";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import {
+  formatDate,
+  formatLei,
+  formatNumber,
+  formatPricePerUnit,
+  humanizeSlug,
+  parseDecimal,
+} from "@/lib/format";
 
 export interface IngredientFormState {
   name: string;
@@ -49,6 +68,103 @@ interface IngredientFormProps {
   startWithScanner?: boolean;
 }
 
+type NutKey =
+  | "calories"
+  | "protein"
+  | "carbs"
+  | "fat"
+  | "fiber"
+  | "sugar"
+  | "sat_fat"
+  | "salt";
+
+const NUTRITION_FIELDS: { key: NutKey; label: string; unit: string }[] = [
+  { key: "calories", label: "Calories", unit: "kcal" },
+  { key: "protein", label: "Protein", unit: "g" },
+  { key: "carbs", label: "Carbs", unit: "g" },
+  { key: "fat", label: "Fat", unit: "g" },
+  { key: "fiber", label: "Fiber", unit: "g" },
+  { key: "sugar", label: "Sugar", unit: "g" },
+  { key: "sat_fat", label: "Saturated fat", unit: "g" },
+  { key: "salt", label: "Salt", unit: "g" },
+];
+
+/** All text-input state; numbers are kept as strings while typing. */
+interface Values {
+  name: string;
+  brand: string;
+  category: string;
+  qty: string;
+  unit: string;
+  price: string;
+  nut: Record<NutKey, string>;
+  micronutrients: Record<string, number>;
+  api_source: string | null;
+  barcode: string | null;
+}
+
+function numToStr(n: number | null | undefined): string {
+  return n === null || n === undefined || n === 0 ? "" : String(n);
+}
+
+function nutToStr(n: number | null | undefined): string {
+  return n === null || n === undefined ? "" : String(n);
+}
+
+function buildInitial(
+  ingredient: Ingredient | undefined,
+  defaults: Partial<IngredientFormState> | undefined
+): Values {
+  const src: Partial<IngredientFormState> = ingredient
+    ? {
+        name: ingredient.name,
+        brand: ingredient.brand ?? "",
+        category: ingredient.category,
+        quantity_purchased: ingredient.quantity_purchased,
+        unit: ingredient.unit,
+        package_price: ingredient.package_price,
+        calories: ingredient.calories,
+        protein: ingredient.protein,
+        carbs: ingredient.carbs,
+        fat: ingredient.fat,
+        fiber: ingredient.fiber,
+        sugar: ingredient.sugar,
+        sat_fat: ingredient.sat_fat,
+        salt: ingredient.salt,
+        micronutrients: ingredient.micronutrients ?? {},
+        api_source: ingredient.api_source,
+        barcode: ingredient.barcode,
+      }
+    : { ...(defaults ?? {}) };
+  return {
+    name: src.name ?? "",
+    brand: src.brand ?? "",
+    category: src.category ?? "other",
+    qty: numToStr(src.quantity_purchased),
+    unit: src.unit ?? "g",
+    price: numToStr(src.package_price),
+    nut: {
+      calories: nutToStr(src.calories),
+      protein: nutToStr(src.protein),
+      carbs: nutToStr(src.carbs),
+      fat: nutToStr(src.fat),
+      fiber: nutToStr(src.fiber),
+      sugar: nutToStr(src.sugar),
+      sat_fat: nutToStr(src.sat_fat),
+      salt: nutToStr(src.salt),
+    },
+    micronutrients: src.micronutrients ?? {},
+    api_source: src.api_source ?? null,
+    barcode: src.barcode ?? null,
+  };
+}
+
+const round2 = (v: number | null): string =>
+  v !== null ? String(Math.round(v * 100) / 100) : "";
+
+const INPUT =
+  "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm";
+
 export default function IngredientForm({
   ingredient,
   categories,
@@ -60,7 +176,10 @@ export default function IngredientForm({
 }: IngredientFormProps) {
   const router = useRouter();
   const supabase = createClient();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [showNutritionSearch, setShowNutritionSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showScanner, setShowScanner] = useState(!!startWithScanner);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState<
@@ -74,27 +193,18 @@ export default function IngredientForm({
   const [error, setError] = useState("");
   const [priceHistory, setPriceHistory] = useState<IngredientPriceHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
 
-  const [form, setForm] = useState<IngredientFormState>(() => ({
-    name: ingredient?.name ?? "",
-    brand: ingredient?.brand ?? "",
-    category: ingredient?.category ?? "other",
-    quantity_purchased: ingredient?.quantity_purchased ?? 0,
-    unit: ingredient?.unit ?? "g",
-    package_price: ingredient?.package_price ?? 0,
-    calories: ingredient?.calories ?? null as number | null,
-    protein: ingredient?.protein ?? null as number | null,
-    carbs: ingredient?.carbs ?? null as number | null,
-    fat: ingredient?.fat ?? null as number | null,
-    fiber: ingredient?.fiber ?? null as number | null,
-    sugar: ingredient?.sugar ?? null as number | null,
-    sat_fat: ingredient?.sat_fat ?? null as number | null,
-    salt: ingredient?.salt ?? null as number | null,
-    micronutrients: ingredient?.micronutrients ?? {},
-    api_source: ingredient?.api_source ?? null as string | null,
-    barcode: ingredient?.barcode ?? null as string | null,
-    ...(ingredient ? {} : defaults),
-  }));
+  const [v, setV] = useState<Values>(() => buildInitial(ingredient, defaults));
+  const [initialJson] = useState(() => JSON.stringify(v));
+  const isDirty = JSON.stringify(v) !== initialJson;
+
+  // Latest values for async handlers.
+  const vRef = useRef(v);
+  useEffect(() => {
+    vRef.current = v;
+  });
 
   useEffect(() => {
     if (!ingredient) return;
@@ -107,31 +217,81 @@ export default function IngredientForm({
       .then(({ data }) => {
         if (data) setPriceHistory(data);
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ingredient?.id]);
 
-  function handleNutritionSelect(result: NutritionSearchResult) {
-    const r = (v: number | null) => (v !== null ? Math.round(v * 100) / 100 : null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [error]);
+
+  async function handleNutritionSelect(result: NutritionSearchResult) {
+    const cur = vRef.current;
+    const incoming: Record<NutKey, string> = {
+      calories: round2(result.nutrition.calories),
+      protein: round2(result.nutrition.protein),
+      carbs: round2(result.nutrition.carbs),
+      fat: round2(result.nutrition.fat),
+      fiber: round2(result.nutrition.fiber),
+      sugar: round2(result.nutrition.sugar),
+      sat_fat: round2(result.nutrition.sat_fat),
+      salt: round2(result.nutrition.salt),
+    };
     const micros: Record<string, number> = {};
-    for (const [k, v] of Object.entries(result.nutrition.micronutrients)) {
-      micros[k] = Math.round(v * 100) / 100;
+    for (const [k, val] of Object.entries(result.nutrition.micronutrients)) {
+      micros[k] = Math.round(val * 100) / 100;
     }
-    setForm((prev) => ({
-      ...prev,
-      ...(prev.name.trim() === "" && { name: result.name }),
-      ...(prev.brand.trim() === "" && result.brand && { brand: result.brand }),
-      calories: r(result.nutrition.calories),
-      protein: r(result.nutrition.protein),
-      carbs: r(result.nutrition.carbs),
-      fat: r(result.nutrition.fat),
-      fiber: r(result.nutrition.fiber),
-      sugar: r(result.nutrition.sugar),
-      sat_fat: r(result.nutrition.sat_fat),
-      salt: r(result.nutrition.salt),
-      micronutrients: micros,
-      api_source: result.source,
-      barcode: result.barcode,
-    }));
+
+    const conflicts = NUTRITION_FIELDS.filter(({ key }) => {
+      const a = cur.nut[key].trim();
+      const b = incoming[key];
+      return a !== "" && b !== "" && parseDecimal(a) !== parseDecimal(b);
+    });
     setShowNutritionSearch(false);
+
+    let overwrite = true;
+    if (conflicts.length > 0) {
+      overwrite = await confirm({
+        title: "Replace existing nutrition values?",
+        message: `${conflicts.length} value${conflicts.length === 1 ? "" : "s"} you already entered (${conflicts
+          .map((c) => c.label.toLowerCase())
+          .join(", ")}) differ from this result. Replace them, or keep yours and only fill the empty fields?`,
+        confirmLabel: "Replace",
+        cancelLabel: "Keep mine",
+      });
+    }
+
+    setV((prev) => {
+      const nut = { ...prev.nut };
+      for (const { key } of NUTRITION_FIELDS) {
+        if (overwrite || nut[key].trim() === "") {
+          if (overwrite || incoming[key] !== "") nut[key] = incoming[key];
+        }
+      }
+      return {
+        ...prev,
+        name: prev.name.trim() === "" ? result.name : prev.name,
+        brand: prev.brand.trim() === "" && result.brand ? result.brand : prev.brand,
+        nut,
+        micronutrients: overwrite ? micros : { ...micros, ...prev.micronutrients },
+        api_source: overwrite ? result.source : prev.api_source ?? result.source,
+        barcode: overwrite ? result.barcode : prev.barcode ?? result.barcode,
+      };
+    });
+  }
+
+  async function handleOpenExisting(id: string) {
+    if (!onOpenExisting) return;
+    if (isDirty) {
+      const ok = await confirm({
+        title: "Open the saved ingredient?",
+        message: "The data you entered in this form will be discarded.",
+        confirmLabel: "Open it",
+        cancelLabel: "Stay here",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    onOpenExisting(id);
   }
 
   async function handleBarcodeDetected(code: string) {
@@ -141,7 +301,7 @@ export default function IngredientForm({
     try {
       const res = await fetch(`/api/nutrition/barcode?code=${encodeURIComponent(code)}`);
       if (res.status === 404) {
-        setForm((prev) => ({ ...prev, barcode: code }));
+        setV((prev) => ({ ...prev, barcode: code }));
         setBarcodeNotice({ kind: "not_found" });
         return;
       }
@@ -159,17 +319,16 @@ export default function IngredientForm({
       }
       if (data.product) {
         const { result, packageSize, perServingOnly } = data.product;
-        handleNutritionSelect(result);
-        setForm((prev) => ({
+        await handleNutritionSelect(result);
+        setV((prev) => ({
           ...prev,
           barcode: code,
-          ...(!ingredient && packageSize && {
-            quantity_purchased: packageSize.quantity,
-            unit: packageSize.unit,
-          }),
+          ...(!ingredient && packageSize && prev.qty.trim() === ""
+            ? { qty: String(packageSize.quantity), unit: packageSize.unit }
+            : {}),
         }));
         const n = result.nutrition;
-        const hasNutrition = [n.calories, n.protein, n.carbs, n.fat].some((v) => v !== null);
+        const hasNutrition = [n.calories, n.protein, n.carbs, n.fat].some((x) => x !== null);
         if (perServingOnly && hasNutrition) setBarcodeNotice({ kind: "per_serving" });
       }
     } catch {
@@ -182,29 +341,47 @@ export default function IngredientForm({
     }
   }
 
+  const qtyNum = parseDecimal(v.qty);
+  const priceNum = parseDecimal(v.price);
+  const ppuPreview =
+    qtyNum !== null && priceNum !== null && qtyNum > 0 && priceNum > 0
+      ? formatPricePerUnit(priceNum / qtyNum, v.unit)
+      : null;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
+    if (saving) return;
     setError("");
 
+    const name = v.name.trim();
+    if (!name) return setError("Name is required.");
+    if (qtyNum === null || qtyNum <= 0) return setError("Package quantity must be greater than 0.");
+    if (priceNum === null || priceNum <= 0) return setError("Price must be greater than 0.");
+
+    const nutPayload = {} as Record<NutKey, number | null>;
+    for (const { key, label } of NUTRITION_FIELDS) {
+      const raw = v.nut[key].trim();
+      if (raw === "") {
+        nutPayload[key] = null;
+        continue;
+      }
+      const n = parseDecimal(raw);
+      if (n === null || n < 0) return setError(`${label} must be a number of 0 or more.`);
+      nutPayload[key] = n;
+    }
+
+    setSaving(true);
     const payload = {
-      name: form.name.trim(),
-      brand: form.brand.trim() || null,
-      category: form.category,
-      quantity_purchased: form.quantity_purchased,
-      unit: form.unit,
-      package_price: form.package_price,
-      calories: form.calories,
-      protein: form.protein,
-      carbs: form.carbs,
-      fat: form.fat,
-      fiber: form.fiber,
-      sugar: form.sugar,
-      sat_fat: form.sat_fat,
-      salt: form.salt,
-      micronutrients: form.micronutrients,
-      api_source: form.api_source,
-      barcode: form.barcode,
+      name,
+      brand: v.brand.trim() || null,
+      category: v.category,
+      quantity_purchased: qtyNum,
+      unit: v.unit,
+      package_price: priceNum,
+      ...nutPayload,
+      micronutrients: v.micronutrients,
+      api_source: v.api_source,
+      barcode: v.barcode,
     };
 
     let result;
@@ -212,9 +389,7 @@ export default function IngredientForm({
       const oldPPU = ingredient.quantity_purchased > 0
         ? ingredient.package_price / ingredient.quantity_purchased
         : 0;
-      const newPPU = form.quantity_purchased > 0
-        ? form.package_price / form.quantity_purchased
-        : 0;
+      const newPPU = priceNum / qtyNum;
 
       const priceChanged = Math.abs(oldPPU - newPPU) > 1e-12;
 
@@ -239,6 +414,7 @@ export default function IngredientForm({
         result = updateResult;
         if (historyResult.error) {
           console.warn("Failed to record price history:", historyResult.error.message);
+          toast.error("Saved, but the price history entry could not be recorded.");
         }
       } else {
         result = await updatePromise;
@@ -257,80 +433,96 @@ export default function IngredientForm({
     } else {
       await invalidateIngredients();
       router.refresh();
+      toast.success(ingredient ? "Ingredient updated" : "Ingredient added");
       if (result.data) onSaved?.(result.data as Ingredient);
       onClose();
     }
   }
 
-  function numVal(val: number | null): string {
-    return val !== null ? String(val) : "";
+  function setNut(key: NutKey, value: string) {
+    setV((prev) => ({ ...prev, nut: { ...prev.nut, [key]: value } }));
   }
 
-  function setNum(field: string, value: string) {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value === "" ? null : parseFloat(value),
-    }));
-  }
-
-  function formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString("ro-RO", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  }
+  const FORM_ID = "ingredient-form";
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b z-10">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {ingredient ? "Edit Ingredient" : "Add Ingredient"}
-          </h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        title={ingredient ? "Edit ingredient" : "Add ingredient"}
+        size="lg"
+        dirty={isDirty}
+        initialFocusRef={nameRef}
+        footer={
+          <>
+            {error && (
+              <p
+                ref={errorRef}
+                role="alert"
+                className="w-full text-sm text-red-600 bg-red-50 px-3 py-2 rounded"
+              >
+                {error}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              form={FORM_ID}
+              disabled={saving}
+              className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+            >
+              {saving ? "Saving..." : ingredient ? "Update" : "Add ingredient"}
+            </button>
+          </>
+        }
+      >
+        <form id={FORM_ID} onSubmit={handleSubmit} noValidate className="space-y-5">
           {/* Name */}
           <div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Name *
-              </label>
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                required
-              />
-            </div>
+            <label htmlFor="ing-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Name *
+            </label>
+            <input
+              id="ing-name"
+              ref={nameRef}
+              type="text"
+              value={v.name}
+              onChange={(e) => setV({ ...v, name: e.target.value })}
+              className={INPUT}
+              required
+            />
           </div>
 
           {/* Brand + Category */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="ing-brand" className="block text-sm font-medium text-gray-700 mb-1">
                 Brand
               </label>
               <input
+                id="ing-brand"
                 type="text"
-                value={form.brand}
-                onChange={(e) => setForm({ ...form, brand: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                value={v.brand}
+                onChange={(e) => setV({ ...v, brand: e.target.value })}
+                className={INPUT}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="ing-cat" className="block text-sm font-medium text-gray-700 mb-1">
                 Category
               </label>
               <select
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                id="ing-cat"
+                value={v.category}
+                onChange={(e) => setV({ ...v, category: e.target.value })}
+                className={INPUT}
               >
                 {categories.map((c) => (
                   <option key={c.slug} value={c.slug}>
@@ -342,57 +534,62 @@ export default function IngredientForm({
           </div>
 
           {/* Quantity + Unit + Price */}
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Package Qty *
-              </label>
-              <input
-                type="number"
-                step="any"
-                value={form.quantity_purchased || ""}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    quantity_purchased: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                required
-              />
+          <div>
+            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+              <div>
+                <label htmlFor="ing-qty" className="block text-sm font-medium text-gray-700 mb-1">
+                  Package qty *
+                </label>
+                <input
+                  id="ing-qty"
+                  type="text"
+                  inputMode="decimal"
+                  value={v.qty}
+                  onChange={(e) => setV({ ...v, qty: e.target.value })}
+                  className={INPUT}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="ing-unit" className="block text-sm font-medium text-gray-700 mb-1">
+                  Unit
+                </label>
+                <select
+                  id="ing-unit"
+                  value={v.unit}
+                  onChange={(e) => setV({ ...v, unit: e.target.value })}
+                  className={INPUT}
+                  title="g = grams, ml = millilitres, buc = pieces"
+                >
+                  <option value="g">g</option>
+                  <option value="ml">ml</option>
+                  <option value="buc">buc (pieces)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="ing-price" className="block text-sm font-medium text-gray-700 mb-1">
+                  Price (lei) *
+                </label>
+                <input
+                  id="ing-price"
+                  type="text"
+                  inputMode="decimal"
+                  value={v.price}
+                  onChange={(e) => setV({ ...v, price: e.target.value })}
+                  className={INPUT}
+                  required
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Unit
-              </label>
-              <select
-                value={form.unit}
-                onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-              >
-                <option value="g">g</option>
-                <option value="ml">ml</option>
-                <option value="buc">buc</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Price (lei) *
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={form.package_price || ""}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    package_price: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className="w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-                required
-              />
-            </div>
+            <p className="mt-1.5 text-xs text-gray-500 min-h-4">
+              {ppuPreview ? (
+                <>
+                  = <span className="font-medium text-emerald-700">{ppuPreview}</span>
+                </>
+              ) : (
+                "Enter the package size and price to see the price per kg / l / piece."
+              )}
+            </p>
           </div>
 
           {/* Price History */}
@@ -401,10 +598,12 @@ export default function IngredientForm({
               <button
                 type="button"
                 onClick={() => setShowHistory(!showHistory)}
+                aria-expanded={showHistory}
                 className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
               >
                 <span className="text-xs font-medium text-gray-600">
-                  Price History ({priceHistory.length})
+                  Price history ({priceHistory.length}
+                  {priceHistory.length >= 10 ? ", last 10 shown" : ""})
                 </span>
                 {showHistory ? (
                   <ChevronUp className="w-4 h-4 text-gray-400" />
@@ -414,22 +613,40 @@ export default function IngredientForm({
               </button>
               {showHistory && (
                 <div className="divide-y">
-                  {priceHistory.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="px-4 py-2 flex items-center justify-between text-xs"
-                    >
-                      <span className="text-gray-500">
-                        {formatDate(entry.recorded_at)}
-                      </span>
-                      <span className="text-gray-700">
-                        {entry.package_price.toFixed(2)} lei / {entry.quantity_purchased}{entry.unit}
-                      </span>
-                      <span className="font-medium text-gray-900">
-                        {entry.price_per_unit.toFixed(4)} lei/{entry.unit}
-                      </span>
-                    </div>
-                  ))}
+                  {priceHistory.map((entry, i) => {
+                    const older = priceHistory[i + 1];
+                    const diff = older ? entry.price_per_unit - older.price_per_unit : 0;
+                    return (
+                      <div
+                        key={entry.id}
+                        className="px-4 py-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs"
+                      >
+                        <span className="text-gray-500">{formatDate(entry.recorded_at)}</span>
+                        <span className="text-gray-700">
+                          {formatLei(entry.package_price)} / {formatNumber(entry.quantity_purchased, 0)}
+                          {entry.unit}
+                        </span>
+                        <span className="font-medium text-gray-900 flex items-center gap-1">
+                          {formatPricePerUnit(entry.price_per_unit, entry.unit)}
+                          {older && diff > 1e-12 && (
+                            <ArrowUp
+                              className="w-3 h-3 text-red-500"
+                              aria-label="Higher than the previous price"
+                            />
+                          )}
+                          {older && diff < -1e-12 && (
+                            <ArrowDown
+                              className="w-3 h-3 text-green-600"
+                              aria-label="Lower than the previous price"
+                            />
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {priceHistory.length >= 10 && (
+                    <p className="px-4 py-2 text-xs text-gray-400">Showing the last 10 changes.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -437,34 +654,38 @@ export default function IngredientForm({
 
           {/* Nutrition section */}
           <div className="border-t pt-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Nutrition (per 100g/ml)
-              </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <h3 className="text-sm font-semibold text-gray-700">Nutrition</h3>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowScanner(true)}
                   disabled={barcodeLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
                 >
                   {barcodeLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <ScanBarcode className="w-3.5 h-3.5" />
+                    <ScanBarcode className="w-4 h-4" />
                   )}
                   Scan barcode
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowNutritionSearch(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setShowNutritionSearch(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors"
                 >
-                  <Search className="w-3.5 h-3.5" />
-                  Search Nutrition API
+                  <Search className="w-4 h-4" />
+                  Search nutrition
                 </button>
               </div>
             </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Values per 100 g / 100 ml. Leave blank if unknown.
+            </p>
 
             {barcodeNotice?.kind === "existing" && (
               <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
@@ -474,7 +695,7 @@ export default function IngredientForm({
                 {onOpenExisting && (
                   <button
                     type="button"
-                    onClick={() => onOpenExisting(barcodeNotice.id)}
+                    onClick={() => void handleOpenExisting(barcodeNotice.id)}
                     className="shrink-0 px-2 py-1 font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
                     Open it
@@ -483,9 +704,19 @@ export default function IngredientForm({
               </div>
             )}
             {barcodeNotice?.kind === "not_found" && (
-              <p className="mb-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
-                Not found on Open Food Facts — try the text search
-              </p>
+              <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
+                <span>Not found on Open Food Facts.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery(v.name.trim());
+                    setShowNutritionSearch(true);
+                  }}
+                  className="shrink-0 px-2 py-1 font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                >
+                  Search by name
+                </button>
+              </div>
             )}
             {barcodeNotice?.kind === "per_serving" && (
               <p className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
@@ -498,34 +729,26 @@ export default function IngredientForm({
               </p>
             )}
 
-            {form.api_source && (
+            {v.api_source && (
               <p className="text-xs text-gray-500 mb-3">
-                Data from: <span className="font-medium">{form.api_source}</span>
-                {form.barcode && ` (barcode: ${form.barcode})`}
+                Data from: <span className="font-medium">{v.api_source}</span>
+                {v.barcode && ` (barcode: ${v.barcode})`}
               </p>
             )}
 
             {/* Macros grid */}
-            <div className="grid grid-cols-4 gap-3">
-              {[
-                { key: "calories", label: "Calories", unit: "kcal" },
-                { key: "protein", label: "Protein", unit: "g" },
-                { key: "carbs", label: "Carbs", unit: "g" },
-                { key: "fat", label: "Fat", unit: "g" },
-                { key: "fiber", label: "Fiber", unit: "g" },
-                { key: "sugar", label: "Sugar", unit: "g" },
-                { key: "sat_fat", label: "Sat Fat", unit: "g" },
-                { key: "salt", label: "Salt", unit: "g" },
-              ].map(({ key, label, unit }) => (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {NUTRITION_FIELDS.map(({ key, label, unit }) => (
                 <div key={key}>
-                  <label className="block text-xs text-gray-500 mb-0.5">
+                  <label htmlFor={`ing-nut-${key}`} className="block text-xs text-gray-500 mb-0.5">
                     {label} ({unit})
                   </label>
                   <input
-                    type="number"
-                    step="any"
-                    value={numVal((form as any)[key])}
-                    onChange={(e) => setNum(key, e.target.value)}
+                    id={`ing-nut-${key}`}
+                    type="text"
+                    inputMode="decimal"
+                    value={v.nut[key]}
+                    onChange={(e) => setNut(key, e.target.value)}
                     className="w-full px-2 py-1.5 border rounded text-sm text-gray-900 focus:ring-1 focus:ring-emerald-500 outline-none"
                   />
                 </div>
@@ -533,16 +756,14 @@ export default function IngredientForm({
             </div>
 
             {/* Micronutrients display */}
-            {Object.keys(form.micronutrients).length > 0 && (
+            {Object.keys(v.micronutrients).length > 0 && (
               <div className="mt-3 p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs font-medium text-gray-600 mb-2">
-                  Micronutrients
-                </p>
-                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
-                  {Object.entries(form.micronutrients).map(([key, val]) => (
+                <p className="text-xs font-medium text-gray-600 mb-2">Micronutrients</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-1">
+                  {Object.entries(v.micronutrients).map(([key, val]) => (
                     <div key={key} className="flex justify-between text-xs">
                       <span className="text-gray-500">
-                        {key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                        {humanizeSlug(key)}
                       </span>
                       <span className="font-medium text-gray-700">
                         {typeof val === "number" ? val.toFixed(1) : val}
@@ -553,33 +774,8 @@ export default function IngredientForm({
               </div>
             )}
           </div>
-
-          {/* Error */}
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
-              {error}
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 px-4 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
-            >
-              {saving ? "Saving..." : ingredient ? "Update" : "Add Ingredient"}
-            </button>
-          </div>
         </form>
-      </div>
+      </Modal>
 
       {showScanner && (
         <BarcodeScanner
@@ -590,10 +786,11 @@ export default function IngredientForm({
 
       {showNutritionSearch && (
         <NutritionSearch
+          initialQuery={searchQuery || undefined}
           onSelect={handleNutritionSelect}
           onClose={() => setShowNutritionSearch(false)}
         />
       )}
-    </div>
+    </>
   );
 }

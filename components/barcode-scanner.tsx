@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Keyboard } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X, Keyboard, Flashlight, ChevronDown, ChevronUp } from "lucide-react";
 
 interface BarcodeScannerProps {
   onDetected: (code: string) => void;
@@ -56,6 +57,45 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(true);
   const [manual, setManual] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Escape closes the scanner. Registered on window (capture) so it runs before
+  // the parent Modal's document-level handler and does not close the form too.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onCloseRef.current();
+      } else if (e.key === "Tab") {
+        e.stopPropagation(); // keep the parent modal's focus trap out of the way
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  async function toggleTorch() {
+    const track = trackRef.current;
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: next } as MediaTrackConstraintSet],
+      });
+      setTorchOn(next);
+    } catch {
+      setTorchAvailable(false);
+    }
+  }
 
   useEffect(() => {
     onDetectedRef.current = onDetected;
@@ -162,6 +202,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
     return stop;
   }, []);
 
+  const showManual = manualOpen || !!error;
   const manualValid = /^\d{8,14}$/.test(manual);
 
   function submitManual(e: React.FormEvent) {
@@ -169,18 +210,38 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
     if (manualValid) onDetected(manual);
   }
 
-  return (
-    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Scan barcode"
+      className="fixed inset-0 bg-black z-[55] flex flex-col"
+    >
       <div className="flex items-center justify-between px-4 py-3 text-white">
         <h2 className="font-semibold">Scan barcode</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close scanner"
-          className="p-2 rounded-lg hover:bg-white/10"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {torchAvailable && (
+            <button
+              type="button"
+              onClick={toggleTorch}
+              aria-pressed={torchOn}
+              aria-label="Toggle torch"
+              className={`p-2 rounded-lg hover:bg-white/10 ${torchOn ? "bg-white/20" : ""}`}
+            >
+              <Flashlight className="w-5 h-5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close scanner"
+            className="p-2 rounded-lg hover:bg-white/10"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       <div className="relative flex-1 min-h-0 overflow-hidden">
@@ -210,31 +271,46 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
         )}
       </div>
 
-      <form onSubmit={submitManual} className="bg-white p-4 space-y-2">
-        <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
-          <Keyboard className="w-4 h-4" />
-          Or enter the barcode manually
-        </label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={14}
-            value={manual}
-            onChange={(e) => setManual(e.target.value.replace(/\D/g, ""))}
-            placeholder="e.g. 5449000000996"
-            className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
-          />
-          <button
-            type="submit"
-            disabled={!manualValid}
-            className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
-          >
-            Look up
-          </button>
-        </div>
-        <p className="text-xs text-gray-500">8 to 14 digits</p>
-      </form>
-    </div>
+      <div className="bg-white p-3 max-h-[50dvh] overflow-y-auto">
+        <button
+          type="button"
+          onClick={() => setManualOpen((o) => !o)}
+          aria-expanded={showManual}
+          className="w-full flex items-center justify-between gap-1.5 px-1 py-1 text-sm font-medium text-gray-700"
+        >
+          <span className="flex items-center gap-1.5">
+            <Keyboard className="w-4 h-4" />
+            Enter the barcode manually
+          </span>
+          {showManual ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+        </button>
+        {showManual && (
+          <form onSubmit={submitManual} className="mt-2 space-y-2">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={14}
+                value={manual}
+                onChange={(e) => setManual(e.target.value.replace(/\D/g, ""))}
+                placeholder="e.g. 5449000000996"
+                aria-label="Barcode number"
+                autoFocus
+                className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+              />
+              <button
+                type="submit"
+                disabled={!manualValid}
+                className="px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
+              >
+                Look up
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">8 to 14 digits</p>
+          </form>
+        )}
+      </div>
+    </div>,
+    document.body
   );
 }

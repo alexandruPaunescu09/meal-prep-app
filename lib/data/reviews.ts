@@ -10,6 +10,20 @@ import type {
 
 const REVALIDATE = 300;
 
+/** Meal plan a review belongs to (via its meal_plan_entry). */
+export interface ReviewPlanRef {
+  id: string;
+  name: string;
+  week_start: string;
+}
+
+/** A review with its client, recipe and plan joined in. */
+export type FullReview = MealReview & {
+  client?: Client;
+  recipe?: Recipe;
+  plan?: ReviewPlanRef | null;
+};
+
 /**
  * Unread reviews count for the layout's badge. Tagged on `mealReviews` so
  * the badge updates the moment a customer submits a review (after the
@@ -29,14 +43,14 @@ export const getUnreadReviewCount = unstable_cache(
 );
 
 export interface ReviewsBundle {
-  reviews: (MealReview & { client?: Client; recipe?: Recipe })[];
+  reviews: FullReview[];
   tags: ReviewTag[];
   clients: Pick<Client, "id" | "name">[];
   tagLinks: { review_id: string; tag_id: string }[];
 }
 
 /**
- * The reviews-inbox bundle. Includes review→client→recipe joins, all tags,
+ * The reviews-inbox bundle. Includes review→client→recipe→plan joins, all tags,
  * a slim client list for filtering, and the review_tag junction rows.
  */
 export const getReviewsBundle = unstable_cache(
@@ -50,7 +64,11 @@ export const getReviewsBundle = unstable_cache(
           `
           *,
           client:clients (id, name, email),
-          recipe:recipes (id, name)
+          recipe:recipes (id, name),
+          meal_plan_entry:meal_plan_entries (
+            id,
+            meal_plan:meal_plans (id, name, week_start)
+          )
         `
         )
         .order("created_at", { ascending: false }),
@@ -58,11 +76,15 @@ export const getReviewsBundle = unstable_cache(
       supabase.from("clients").select("id, name").order("name"),
     ]);
 
-    const reviews =
-      (reviewsRes.data as (MealReview & {
-        client?: Client;
-        recipe?: Recipe;
-      })[]) ?? [];
+    type RawReview = FullReview & {
+      meal_plan_entry?: { meal_plan?: ReviewPlanRef | null } | null;
+    };
+    const reviews: FullReview[] = (
+      (reviewsRes.data as RawReview[] | null) ?? []
+    ).map(({ meal_plan_entry, ...review }) => ({
+      ...review,
+      plan: meal_plan_entry?.meal_plan ?? null,
+    }));
 
     let tagLinks: { review_id: string; tag_id: string }[] = [];
     if (reviews.length > 0) {
@@ -88,6 +110,7 @@ export const getReviewsBundle = unstable_cache(
       CACHE_TAGS.reviewTags,
       CACHE_TAGS.clients,
       CACHE_TAGS.recipes,
+      CACHE_TAGS.mealPlans,
     ],
     revalidate: REVALIDATE,
   }

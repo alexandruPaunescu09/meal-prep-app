@@ -109,7 +109,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, signedIn: false });
     }
 
-    // Password correct. Find the linked client to update intake fields.
+    // Password correct. The customer just proved they hold a password, so mark
+    // it set; otherwise the portal layout sends them to /portal/set-password.
+    // Best-effort: a failure here only means that redirect happens later.
+    if (attempt.user.user_metadata?.password_set !== true) {
+      await svc.auth.admin.updateUserById(attempt.user.id, {
+        user_metadata: { ...attempt.user.user_metadata, password_set: true },
+      });
+    }
+
+    // Find the linked client to update intake fields.
     const { data: profile } = await svc
       .from("profiles")
       .select("client_id")

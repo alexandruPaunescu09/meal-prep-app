@@ -1,13 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { PrepRule, PrepTask } from "@/lib/supabase/types";
-import { generatePrepTasks } from "@/lib/calculations/prep";
-import { RefreshCw, Settings, Check } from "lucide-react";
 import Link from "next/link";
-
-const DAYS_LABEL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+import { createClient } from "@/lib/supabase/client";
+import { PrepRule, PrepTask, RegeneratePrepResult } from "@/lib/supabase/types";
+import { generatePrepTasks } from "@/lib/calculations/prep";
+import { invalidatePrepTasks } from "@/lib/actions/revalidate";
+import { RefreshCw, Settings, ChevronLeft, ChevronRight, Printer } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  addDays,
+  currentWeekStart,
+  formatDate,
+  formatNumber,
+  formatWeekRange,
+  mondayOf,
+  toLocalISODate,
+  WEEKDAYS_LONG,
+} from "@/lib/format";
 
 const PREP_TYPE_COLORS: Record<string, string> = {
   wash: "bg-blue-50 text-blue-700",
@@ -22,23 +34,7 @@ const PREP_TYPE_COLORS: Record<string, string> = {
   blanch: "bg-red-50 text-red-700",
 };
 
-function getCurrentMonday(): string {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(now);
-  monday.setDate(diff);
-  return monday.toISOString().split("T")[0];
-}
-
-function formatDate(isoDate: string): string {
-  const d = new Date(isoDate + "T00:00:00");
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
-
-function toISODate(date: Date): string {
-  return date.toISOString().split("T")[0];
-}
+const TASK_SELECT = "*, ingredient:ingredients(id, name, category, unit)";
 
 interface Props {
   rules: PrepRule[];
@@ -46,40 +42,75 @@ interface Props {
 
 export default function PrepClient({ rules }: Props) {
   const supabase = createClient();
-  const [weekStart, setWeekStart] = useState(getCurrentMonday());
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [weekStart, setWeekStart] = useState(() => currentWeekStart());
   const [tasks, setTasks] = useState<PrepTask[]>([]);
+  const [planCount, setPlanCount] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(new Set());
+
+  // Switching weeks sets loading in the same event, so the effect below only fetches.
+  function changeWeek(next: string) {
+    setLoading(true);
+    setWeekStart(next);
+  }
 
   useEffect(() => {
-    setLoading(true);
-    supabase
-      .from("prep_tasks")
-      .select("*, ingredient:ingredients(id, name, category, unit)")
-      .eq("week_start", weekStart)
-      .order("prep_date")
-      .then(({ data }) => {
-        setTasks((data as PrepTask[]) ?? []);
-        setLoading(false);
-      });
+    let cancelled = false;
+    Promise.all([
+      supabase.from("prep_tasks").select(TASK_SELECT).eq("week_start", weekStart).order("prep_date"),
+      supabase.from("meal_plans").select("id").eq("week_start", weekStart),
+    ]).then(([tasksRes, plansRes]) => {
+      if (cancelled) return;
+      if (tasksRes.error) toast.error(`Could not load prep tasks: ${tasksRes.error.message}`);
+      if (plansRes.error) toast.error(`Could not load meal plans: ${plansRes.error.message}`);
+      setTasks((tasksRes.data as PrepTask[]) ?? []);
+      setPlanCount(plansRes.error ? null : (plansRes.data ?? []).length);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
+
+  async function reloadTasks() {
+    const { data, error } = await supabase
+      .from("prep_tasks")
+      .select(TASK_SELECT)
+      .eq("week_start", weekStart)
+      .order("prep_date");
+    if (error) {
+      toast.error(`Could not reload prep tasks: ${error.message}`);
+      return;
+    }
+    setTasks((data as PrepTask[]) ?? []);
+  }
 
   async function handleGenerate() {
     setGenerating(true);
 
-    const { data: plans } = await supabase
+    const { data: plans, error: plansError } = await supabase
       .from("meal_plans")
       .select("id")
       .eq("week_start", weekStart);
-
-    if (!plans || plans.length === 0) {
-      alert("No meal plans found for this week.");
+    if (plansError) {
+      toast.error(`Could not load meal plans: ${plansError.message}`);
       setGenerating(false);
       return;
     }
 
-    const planIds = plans.map((p: any) => p.id);
-    const { data: entries } = await supabase
+    setPlanCount((plans ?? []).length);
+    if (!plans || plans.length === 0) {
+      toast.info(`No meal plans for ${formatWeekRange(weekStart)}.`);
+      setGenerating(false);
+      return;
+    }
+
+    const planIds = plans.map((p: { id: string }) => p.id);
+    const { data: entries, error: entriesError } = await supabase
       .from("meal_plan_entries")
       .select(`
         *,
@@ -87,35 +118,81 @@ export default function PrepClient({ rules }: Props) {
         ingredient:ingredients(*)
       `)
       .in("meal_plan_id", planIds);
+    if (entriesError) {
+      toast.error(`Could not load meal plan entries: ${entriesError.message}`);
+      setGenerating(false);
+      return;
+    }
 
     const drafts = generatePrepTasks(entries ?? [], rules, weekStart);
 
-    await supabase.from("prep_tasks").delete().eq("week_start", weekStart);
-    if (drafts.length > 0) {
-      await supabase.from("prep_tasks").insert(
-        drafts.map((d) => ({ ...d, week_start: weekStart }))
-      );
+    const completedNow = tasks.filter((t) => t.completed).length;
+    if (completedNow > 0) {
+      const ok = await confirm({
+        title: "Regenerate prep tasks?",
+        message: `${completedNow} ${completedNow === 1 ? "task is" : "tasks are"} already completed. Matching tasks keep their check; tasks that no longer apply are removed.`,
+        confirmLabel: "Regenerate",
+        tone: "danger",
+      });
+      if (!ok) {
+        setGenerating(false);
+        return;
+      }
     }
 
-    const { data: newTasks } = await supabase
-      .from("prep_tasks")
-      .select("*, ingredient:ingredients(id, name, category, unit)")
-      .eq("week_start", weekStart)
-      .order("prep_date");
+    // One transactional RPC: replaces the week's tasks and carries completed checks over.
+    const { data: result, error: rpcError } = await supabase.rpc("regenerate_prep_tasks", {
+      p_week_start: weekStart,
+      p_tasks: drafts,
+    });
+    if (rpcError) {
+      toast.error(`Could not generate tasks: ${rpcError.message}`);
+      setGenerating(false);
+      return;
+    }
 
-    setTasks((newTasks as PrepTask[]) ?? []);
+    const summary = result as RegeneratePrepResult;
+    let message = `Generated ${summary.inserted} ${summary.inserted === 1 ? "task" : "tasks"} · kept ${summary.preserved_completed} completed`;
+    if (summary.dropped_completed > 0) {
+      message += ` · removed ${summary.dropped_completed} completed`;
+    }
+    toast.success(message);
+    void invalidatePrepTasks();
+
+    await reloadTasks();
     setGenerating(false);
   }
 
-  async function toggleTask(taskId: string, completed: boolean) {
-    const update = completed
+  async function toggleTask(task: PrepTask) {
+    const nextCompleted = !task.completed;
+    const update = nextCompleted
       ? { completed: true, completed_at: new Date().toISOString() }
       : { completed: false, completed_at: null };
 
-    await supabase.from("prep_tasks").update(update).eq("id", taskId);
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, ...update } : t))
-    );
+    // Optimistic update; rolled back below if the write fails.
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...update } : t)));
+    setPendingTaskIds((prev) => new Set(prev).add(task.id));
+
+    const { error } = await supabase.from("prep_tasks").update(update).eq("id", task.id);
+
+    setPendingTaskIds((prev) => {
+      const next = new Set(prev);
+      next.delete(task.id);
+      return next;
+    });
+
+    if (error) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, completed: task.completed, completed_at: task.completed_at }
+            : t
+        )
+      );
+      toast.error(`Could not update "${task.ingredient?.name ?? "task"}": ${error.message}`);
+    } else {
+      void invalidatePrepTasks();
+    }
   }
 
   const tasksByDay = new Map<string, PrepTask[]>();
@@ -125,30 +202,50 @@ export default function PrepClient({ rules }: Props) {
     tasksByDay.set(task.prep_date, existing);
   }
 
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart + "T00:00:00");
-    d.setDate(d.getDate() + i);
-    return toISODate(d);
-  });
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const todayISO = toLocalISODate(new Date());
+  const weekLabel = formatWeekRange(weekStart);
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+      <div className="print:hidden flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Prep Schedule</h1>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-white border rounded-lg p-1">
+            <IconButton label="Previous week" onClick={() => changeWeek(addDays(weekStart, -7))}>
+              <ChevronLeft size={18} />
+            </IconButton>
+            <span className="min-w-[10rem] px-2 text-center text-sm font-medium text-gray-900" aria-live="polite">
+              {weekLabel}
+            </span>
+            <IconButton label="Next week" onClick={() => changeWeek(addDays(weekStart, 7))}>
+              <ChevronRight size={18} />
+            </IconButton>
+          </div>
+          <label className="sr-only" htmlFor="prep-week-picker">Pick a week</label>
           <input
+            id="prep-week-picker"
             type="date"
             value={weekStart}
-            onChange={(e) => setWeekStart(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm text-gray-900"
+            onChange={(e) => {
+              if (e.target.value) changeWeek(mondayOf(e.target.value));
+            }}
+            className="px-3 py-2 border rounded-lg text-sm text-gray-900 bg-white"
           />
           <button
             onClick={handleGenerate}
-            disabled={generating}
+            disabled={generating || loading}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm"
           >
             <RefreshCw className={`w-4 h-4 ${generating ? "animate-spin" : ""}`} />
             {generating ? "Generating..." : "Generate Tasks"}
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <Printer className="w-4 h-4" /> Print
           </button>
           <Link
             href="/prep/rules"
@@ -159,27 +256,63 @@ export default function PrepClient({ rules }: Props) {
         </div>
       </div>
 
+      {/* Print-only heading */}
+      <div className="hidden print:block mb-4">
+        <h1 className="text-xl font-bold text-black">Prep Schedule · {weekLabel}</h1>
+      </div>
+
       {loading ? (
         <div className="text-center py-12 text-gray-500">Loading...</div>
       ) : tasks.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl border">
-          <p className="text-gray-500 mb-2">No prep tasks for this week.</p>
-          <p className="text-sm text-gray-400">
-            Make sure you have meal plans with week_start = {weekStart} and prep rules configured.
-          </p>
+        <div className="text-center py-12 px-4 bg-white rounded-xl border">
+          {planCount === 0 ? (
+            <>
+              <p className="text-gray-700 font-medium mb-2">No meal plans for {weekLabel}</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Prep tasks are built from the meal plans for a week. Create or assign a plan for this week first.
+              </p>
+              <Link
+                href={`/meal-plans?week=${weekStart}`}
+                className="inline-flex items-center px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+              >
+                Go to meal plans
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-700 font-medium mb-2">No prep tasks for {weekLabel} yet</p>
+              <p className="text-sm text-gray-500">
+                Click &ldquo;Generate Tasks&rdquo; to build the prep schedule from this week&apos;s meal plans and your prep rules.
+              </p>
+            </>
+          )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 print:grid-cols-7 print:gap-1">
           {weekDays.map((date, idx) => {
             const dayTasks = tasksByDay.get(date) ?? [];
             const completedCount = dayTasks.filter((t) => t.completed).length;
+            const isToday = date === todayISO;
 
             return (
-              <div key={date} className="bg-white rounded-xl border p-3 min-h-[200px]">
+              <section
+                key={date}
+                aria-label={`${WEEKDAYS_LONG[idx]}, ${formatDate(date)}${isToday ? " (today)" : ""}`}
+                className={`bg-white rounded-xl border p-3 min-h-[200px] print:break-inside-avoid print:rounded-none ${
+                  isToday ? "ring-2 ring-emerald-500 border-emerald-300" : ""
+                }`}
+              >
                 <div className="flex items-center justify-between mb-3 pb-2 border-b">
                   <div>
-                    <p className="text-xs font-semibold text-gray-900">{DAYS_LABEL[idx]}</p>
-                    <p className="text-[10px] text-gray-400">{formatDate(date)}</p>
+                    <p className="text-xs font-semibold text-gray-900 flex items-center gap-1.5">
+                      {WEEKDAYS_LONG[idx]}
+                      {isToday && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded print:hidden">
+                          Today
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-gray-500">{formatDate(date)}</p>
                   </div>
                   {dayTasks.length > 0 && (
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
@@ -187,55 +320,52 @@ export default function PrepClient({ rules }: Props) {
                         ? "bg-emerald-100 text-emerald-700"
                         : "bg-gray-100 text-gray-600"
                     }`}>
-                      {completedCount}/{dayTasks.length}
+                      {completedCount}/{dayTasks.length} done
                     </span>
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {dayTasks.length === 0 ? (
-                    <p className="text-xs text-gray-300 text-center py-4">No tasks</p>
+                    <p className="text-xs text-gray-400 text-center py-4">No tasks</p>
                   ) : (
                     dayTasks.map((task) => (
-                      <div
+                      <label
                         key={task.id}
-                        className={`flex items-start gap-2 p-2 rounded-lg ${
+                        className={`flex items-start gap-3 p-2 min-h-[44px] rounded-lg cursor-pointer hover:bg-gray-100 transition-colors ${
                           task.completed ? "bg-gray-50 opacity-60" : "bg-gray-50"
-                        }`}
+                        } ${pendingTaskIds.has(task.id) ? "opacity-70" : ""}`}
                       >
-                        <button
-                          onClick={() => toggleTask(task.id, !task.completed)}
-                          className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${
-                            task.completed
-                              ? "bg-emerald-500 border-emerald-500"
-                              : "border-gray-300 hover:border-emerald-400"
-                          }`}
-                        >
-                          {task.completed && <Check className="w-3 h-3 text-white" />}
-                        </button>
+                        <input
+                          type="checkbox"
+                          checked={task.completed}
+                          onChange={() => toggleTask(task)}
+                          className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-gray-300 accent-emerald-600 focus-visible:outline-2 focus-visible:outline-emerald-600"
+                        />
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-medium text-gray-900 ${task.completed ? "line-through" : ""}`}>
+                          <p className={`text-sm font-medium text-gray-900 ${task.completed ? "line-through" : ""}`}>
                             {task.ingredient?.name ?? "Unknown"}
                           </p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${PREP_TYPE_COLORS[task.prep_type] ?? "bg-gray-100 text-gray-600"}`}>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${PREP_TYPE_COLORS[task.prep_type] ?? "bg-gray-100 text-gray-600"}`}>
                               {task.prep_type}
                             </span>
-                            <span className="text-[10px] text-gray-500">
-                              {task.quantity % 1 === 0 ? task.quantity : task.quantity.toFixed(1)}{task.unit}
+                            <span className="text-[11px] text-gray-600">
+                              {formatNumber(task.quantity, Number.isInteger(task.quantity) ? 0 : 1)}
+                              {task.unit}
                             </span>
                           </div>
                           {task.recipe_names.length > 0 && (
-                            <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+                            <p className="text-[11px] text-gray-500 mt-0.5 truncate" title={task.recipe_names.join(", ")}>
                               For: {task.recipe_names.join(", ")}
                             </p>
                           )}
                         </div>
-                      </div>
+                      </label>
                     ))
                   )}
                 </div>
-              </div>
+              </section>
             );
           })}
         </div>
