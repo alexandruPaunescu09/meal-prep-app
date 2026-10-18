@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {  MealEntryStatus,  MealReview,  PortalEntry,
-} from "@/lib/supabase/types";
+import { MealEntryStatus, MealReview, PortalEntry } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
 import DayScrubber from "@/components/portal/day-scrubber";

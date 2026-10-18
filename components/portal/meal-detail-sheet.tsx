@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Circle, Slash } from "lucide-react";
-import {  MealReview,
-  MealStatus,  PortalEntry,
-} from "@/lib/supabase/types";
+import { MealReview, MealStatus, PortalEntry } from "@/lib/supabase/types";
 import { entryNutrition } from "@/lib/portal/entry-helpers";
 import ReviewComposer from "./review-composer";
 import { saveMealStatus } from "@/lib/portal/save-status";

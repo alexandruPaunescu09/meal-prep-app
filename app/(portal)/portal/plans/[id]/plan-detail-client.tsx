@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft } from "lucide-react";
-import {  MealEntryStatus,
-  MealPlan,  MealReview,  PortalEntry,
-} from "@/lib/supabase/types";
+import { MealEntryStatus, MealPlan, MealReview, PortalEntry } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
 import { entryNutrition, sortByMealType, compareLocalDate } from "@/lib/portal/entry-helpers";

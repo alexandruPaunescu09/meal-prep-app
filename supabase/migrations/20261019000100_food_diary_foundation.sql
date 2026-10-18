@@ -51,8 +51,11 @@ CREATE POLICY "Admin full access" ON foods
 -- inserts go through /api/portal/foods/* with the service client after validation.
 CREATE POLICY "Customer read" ON foods
   FOR SELECT USING (
-    status = 'active'
-    OR (status = 'pending' AND created_by_client_id = current_client_id())
+    current_client_id() IS NOT NULL
+    AND (
+      status = 'active'
+      OR (status = 'pending' AND created_by_client_id = current_client_id())
+    )
   );
 
 -- ---------------------------------------------------------------------------
