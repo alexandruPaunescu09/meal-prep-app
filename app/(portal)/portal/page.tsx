@@ -62,12 +62,22 @@ export default async function PortalTodayPage({
   const planDates: string[] = [];
   if (allPlans.length > 0) {
     const weekByPlan = new Map(allPlans.map((p) => [p.id, p.week_start]));
-    const { data: daySlots } = await supabase
-      .from("meal_plan_entries")
-      .select("meal_plan_id, day_of_week")
-      .in("meal_plan_id", allPlans.map((p) => p.id));
+    // Page through the results: the API caps a single response (~1000 rows).
+    const planIds = allPlans.map((p) => p.id);
+    const PAGE = 1000;
+    const daySlots: { meal_plan_id: string; day_of_week: number }[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data } = await supabase
+        .from("meal_plan_entries")
+        .select("meal_plan_id, day_of_week")
+        .in("meal_plan_id", planIds)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      daySlots.push(...((data ?? []) as typeof daySlots));
+      if (!data || data.length < PAGE) break;
+    }
     const seen = new Set<string>();
-    for (const row of (daySlots ?? []) as { meal_plan_id: string; day_of_week: number }[]) {
+    for (const row of daySlots) {
       const week = weekByPlan.get(row.meal_plan_id);
       if (!week) continue;
       seen.add(addDaysLocal(week, row.day_of_week - 1));
