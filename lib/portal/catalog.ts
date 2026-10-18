@@ -16,6 +16,7 @@ const INGREDIENT_COLS = `id, name, brand, unit, ${NUTRITION_COLS}`;
 const RECIPE_COLS = `id, name, portions, recipe_ingredients(quantity, ingredient:ingredients(${NUTRITION_COLS}))`;
 
 const SEARCH_FETCH_LIMIT = 50;
+const RECIPE_CANDIDATE_LIMIT = 200;
 
 type NutritionRow = NutritionSource;
 
@@ -139,15 +140,40 @@ export function recipeToItem(r: RecipeRow): CatalogItem {
   };
 }
 
-/** Recipe ids that appear in any of this client's meal plans. */
-async function clientRecipeIds(service: SupabaseClient, clientId: string): Promise<string[]> {
-  const { data, error } = await service
-    .from("meal_plan_entries")
-    .select("recipe_id, meal_plans!inner(client_id)")
-    .eq("meal_plans.client_id", clientId)
-    .not("recipe_id", "is", null);
-  if (error) throw new Error(error.message);
-  return [...new Set((data ?? []).map((r: { recipe_id: string }) => r.recipe_id))];
+const PAGE_SIZE = 1000; // PostgREST max_rows (supabase/config.toml)
+
+/** Collects every row of a paginated query (PostgREST caps one response at max_rows). */
+export async function collectPages<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<T[]>,
+  pageSize = PAGE_SIZE
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const rows = await fetchPage(from, from + pageSize - 1);
+    out.push(...rows);
+    if (rows.length < pageSize) return out;
+  }
+}
+
+/** The subset of `candidateIds` that appear in at least one of this client's meal plans. */
+async function recipeIdsInClientPlans(
+  service: SupabaseClient,
+  clientId: string,
+  candidateIds: string[]
+): Promise<Set<string>> {
+  if (candidateIds.length === 0) return new Set();
+  const rows = await collectPages<{ recipe_id: string }>(async (from, to) => {
+    const { data, error } = await service
+      .from("meal_plan_entries")
+      .select("recipe_id, meal_plans!inner(client_id)")
+      .eq("meal_plans.client_id", clientId)
+      .in("recipe_id", candidateIds)
+      .order("id")
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as unknown as { recipe_id: string }[];
+  });
+  return new Set(rows.map((r) => r.recipe_id));
 }
 
 const foodVisibility = (clientId: string) =>
@@ -162,8 +188,6 @@ export async function searchCatalog(
   const q = rawQuery.trim();
   const pattern = `%${escapeLike(q)}%`;
 
-  const recipeIds = await clientRecipeIds(service, clientId);
-
   // name and brand are separate queries: PostgREST's or() syntax cannot safely carry arbitrary user text.
   const foods = (col: "name" | "brand") =>
     service
@@ -174,10 +198,15 @@ export async function searchCatalog(
       .limit(SEARCH_FETCH_LIMIT);
   const ingredients = (col: "name" | "brand") =>
     service.from("ingredients").select(INGREDIENT_COLS).ilike(col, pattern).limit(SEARCH_FETCH_LIMIT);
-  const recipes =
-    recipeIds.length > 0
-      ? service.from("recipes").select(RECIPE_COLS).in("id", recipeIds).ilike("name", pattern).limit(SEARCH_FETCH_LIMIT)
-      : Promise.resolve({ data: [], error: null });
+  // Recipes: match by name first, then keep the ones that appear in this client's plans.
+  const recipes = Promise.resolve(
+    service.from("recipes").select(RECIPE_COLS).ilike("name", pattern).limit(RECIPE_CANDIDATE_LIMIT)
+  ).then(async (res) => {
+    if (res.error) return res;
+    const rows = (res.data ?? []) as unknown as RecipeRow[];
+    const members = await recipeIdsInClientPlans(service, clientId, rows.map((r) => r.id));
+    return { data: rows.filter((r) => members.has(r.id)), error: null };
+  });
 
   const results = await Promise.all([
     foods("name"),
@@ -223,8 +252,7 @@ export async function loadCatalogItem(
     if (error) throw new Error(error.message);
     return data ? ingredientToItem(data as unknown as IngredientRow) : null;
   }
-  const ids = await clientRecipeIds(service, clientId);
-  if (!ids.includes(id)) return null;
+  if (!(await recipeIdsInClientPlans(service, clientId, [id])).has(id)) return null;
   const { data, error } = await service.from("recipes").select(RECIPE_COLS).eq("id", id).maybeSingle();
   if (error) throw new Error(error.message);
   return data ? recipeToItem(data as unknown as RecipeRow) : null;

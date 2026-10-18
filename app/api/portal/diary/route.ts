@@ -6,6 +6,7 @@ import { loadCatalogItem } from "@/lib/portal/catalog";
 import { snapshotForCatalogItem } from "@/lib/calculations/diary";
 import { diaryEntrySchema } from "@/lib/validations/schemas";
 import { CACHE_TAGS } from "@/lib/data/tags";
+import { maxLogDate } from "@/lib/portal/log-date";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,6 +19,11 @@ export async function POST(req: NextRequest) {
     body = diaryEntrySchema.parse(await req.json());
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
+  // The diary logs today and the past only (lexicographic compare is valid for YYYY-MM-DD).
+  if (body.log_date > maxLogDate(req.cookies.get("tz")?.value)) {
+    return NextResponse.json({ error: "log_date cannot be in the future" }, { status: 400 });
   }
 
   // Nutrition snapshot: always computed server-side, except for quick add (validated user values).

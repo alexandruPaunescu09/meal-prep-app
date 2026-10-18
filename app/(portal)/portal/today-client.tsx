@@ -173,7 +173,9 @@ export default function TodayClient({
   }
 
   async function markRemainingEaten() {
-    const targetsToMark = pendingCards.map((c) => c.entryId);
+    // Skip meals whose own save is still in flight (their tap decides their state).
+    const targetsToMark = pendingCards.filter((c) => !saving.has(c.entryId)).map((c) => c.entryId);
+    if (targetsToMark.length === 0) return;
     const ok = await applyChanges(
       targetsToMark.map((entryId) => ({ entryId, status: "eaten" as const, factor: null }))
     );

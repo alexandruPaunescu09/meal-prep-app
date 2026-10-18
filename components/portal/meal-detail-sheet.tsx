@@ -5,6 +5,7 @@ import { Check, Circle, Slash } from "lucide-react";
 import { MealReview, MealStatus, PortalEntry } from "@/lib/supabase/types";
 import { planEntryNutrition } from "@/lib/calculations/diary";
 import ReviewComposer from "./review-composer";
+import { MACRO_BG } from "@/lib/portal/macro-colors";
 import { Modal } from "@/components/ui/modal";
 import { formatDate, formatQuantity } from "@/lib/format";
 
@@ -134,19 +135,19 @@ export default function MealDetailSheet({
                 role="img"
                 aria-label={`Calories from protein ${pct(macroKcal.protein)}%, carbs ${pct(macroKcal.carbs)}%, fat ${pct(macroKcal.fat)}%`}
               >
-                <div className="bg-emerald-500" style={{ width: `${(macroKcal.protein / macroTotal) * 100}%` }} />
-                <div className="bg-amber-400" style={{ width: `${(macroKcal.carbs / macroTotal) * 100}%` }} />
-                <div className="bg-sky-500" style={{ width: `${(macroKcal.fat / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.protein} style={{ width: `${(macroKcal.protein / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.carbs} style={{ width: `${(macroKcal.carbs / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.fat} style={{ width: `${(macroKcal.fat / macroTotal) * 100}%` }} />
               </div>
               <div className="flex gap-4 mt-1.5 text-xs text-gray-600">
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> Protein {pct(macroKcal.protein)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.protein}`} /> Protein {pct(macroKcal.protein)}%
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" /> Carbs {pct(macroKcal.carbs)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.carbs}`} /> Carbs {pct(macroKcal.carbs)}%
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-sky-500" /> Fat {pct(macroKcal.fat)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.fat}`} /> Fat {pct(macroKcal.fat)}%
                 </span>
               </div>
             </div>

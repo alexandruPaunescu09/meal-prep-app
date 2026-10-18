@@ -102,6 +102,11 @@ export const mealStatusSchema = z.object({
   portion_factor: z.number().gt(0).max(5).nullable().optional(),
 });
 
+/** Several status changes in one request (e.g. "Mark remaining as eaten"); applied together. */
+export const mealStatusBatchSchema = z.object({
+  changes: z.array(mealStatusSchema).min(1).max(50),
+});
+
 export type MealStatusFormData = z.infer<typeof mealStatusSchema>;
 
 export const inviteSchema = z.object({

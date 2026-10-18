@@ -1,6 +1,7 @@
 import type { NutritionTotals } from "@/lib/supabase/types";
 import type { ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { formatNumber } from "@/lib/format";
+import { MACRO_BG } from "@/lib/portal/macro-colors";
 
 const n0 = (v: number) => formatNumber(Math.round(v), 0);
 
@@ -10,13 +11,17 @@ function MacroBar({
   target,
   planned,
   color,
+  noBudget = false,
 }: {
   label: string;
   value: number;
   target: number | null;
   planned: number;
   color: string;
+  /** Protein + fat already use up the calories, so there is no carb target to show. */
+  noBudget?: boolean;
 }) {
+  if (noBudget) target = null;
   const base = target && target > 0 ? target : Math.max(planned, value, 1);
   const pct = Math.min(100, (value / base) * 100);
   const plannedPct = Math.min(100, (planned / base) * 100);
@@ -27,6 +32,7 @@ function MacroBar({
         <span className="text-gray-600 whitespace-nowrap">
           <span className="font-semibold text-gray-900">{n0(value)}</span>
           {target != null ? `/${n0(target)}` : ""} g
+          {noBudget && <span className="block text-[10px] text-gray-500 text-right">no carb budget</span>}
         </span>
       </div>
       <div
@@ -118,9 +124,9 @@ export default function DiarySummary({
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <MacroBar label="Protein" value={eaten.protein} target={targets.protein} planned={projected.protein} color="bg-sky-500" />
-        <MacroBar label="Carbs" value={eaten.carbs} target={targets.carbs} planned={projected.carbs} color="bg-amber-400" />
-        <MacroBar label="Fat" value={eaten.fat} target={targets.fat} planned={projected.fat} color="bg-rose-400" />
+        <MacroBar label="Protein" value={eaten.protein} target={targets.protein} planned={projected.protein} color={MACRO_BG.protein} />
+        <MacroBar label="Carbs" value={eaten.carbs} target={targets.carbs} planned={projected.carbs} color={MACRO_BG.carbs} noBudget={targets.carbsOverAllocated} />
+        <MacroBar label="Fat" value={eaten.fat} target={targets.fat} planned={projected.fat} color={MACRO_BG.fat} />
       </div>
 
       <p className="text-xs text-gray-600">

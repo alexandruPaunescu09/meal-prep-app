@@ -2,6 +2,7 @@ import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { mondayOfWeek } from "@/lib/portal/entry-helpers";
+import { portalToday } from "@/lib/portal/today";
 import { formatWeekRange } from "@/lib/format";
 import { MealPlan } from "@/lib/supabase/types";
 
@@ -23,7 +24,7 @@ export default async function PortalPlansPage() {
     .eq("client_id", profile.client_id)
     .order("week_start", { ascending: false });
 
-  const currentMonday = mondayOfWeek(new Date());
+  const currentMonday = mondayOfWeek(await portalToday());
 
   return (
     <div className="space-y-4">

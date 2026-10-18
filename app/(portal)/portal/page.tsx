@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import {
@@ -14,7 +13,7 @@ import {
 } from "@/lib/portal/entry-helpers";
 import { resolvePlanForDate } from "@/lib/portal/plan-resolver";
 import { resolveDayTargets } from "@/lib/portal/day-targets";
-import { todayInTz } from "@/lib/format";
+import { portalToday } from "@/lib/portal/today";
 import TodayClient from "./today-client";
 
 export default async function PortalTodayPage({
@@ -43,8 +42,7 @@ export default async function PortalTodayPage({
 
   // The customer's local date: SSR runs in UTC, so use the browser timezone the client stored in
   // a cookie (todayInTz falls back to the business timezone before it is known).
-  const cookieStore = await cookies();
-  const todayStr = todayInTz(cookieStore.get("tz")?.value);
+  const todayStr = await portalToday();
   const params = await searchParams;
   const requested = params?.date;
   const selectedDate =

@@ -1,19 +1,6 @@
-import type { DiaryQuantityUnit, FoodLogEntry } from "@/lib/supabase/types";
-import { formatNumber, formatQuantity } from "@/lib/format";
-
-const UNIT_LABEL: Record<DiaryQuantityUnit, [string, string]> = {
-  g: ["g", "g"],
-  ml: ["ml", "ml"],
-  serving: ["serving", "servings"],
-  portion: ["portion", "portions"],
-};
-
-export function formatEntryAmount(q: number, unit: DiaryQuantityUnit): string {
-  const [one, many] = UNIT_LABEL[unit];
-  const label = q === 1 ? one : many;
-  const compact = unit === "g" || unit === "ml";
-  return `${formatQuantity(q)}${compact ? "" : " "}${label}`;
-}
+import type { FoodLogEntry } from "@/lib/supabase/types";
+import { formatNumber } from "@/lib/format";
+import { formatEntryAmount } from "@/lib/portal/format-amount";
 
 /** Logged (non-plan) foods of one meal. FD-3 makes rows editable through `onSelect`. */
 export default function DiaryEntryList({

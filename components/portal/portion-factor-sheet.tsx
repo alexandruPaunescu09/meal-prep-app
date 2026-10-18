@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
-import { formatNumber, parseDecimal } from "@/lib/format";
+import { formatDecimal, formatNumber, parseDecimal } from "@/lib/format";
 
 const PRESETS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -91,5 +91,5 @@ export default function PortionFactorSheet({
 
 /** "0,5×", "1,25×", "2×" */
 export function formatFactor(f: number): string {
-  return `${formatNumber(Math.round(f * 100) / 100, 2).replace(/,?0+$/, "")}×`;
+  return `${formatDecimal(f, 2)}×`;
 }

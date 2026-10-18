@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogItem } from "@/lib/supabase/types";
-import { escapeLike, matchRank, rankItems } from "./catalog";
+import { collectPages, escapeLike, matchRank, rankItems } from "./catalog";
 import { diaryEntrySchema } from "@/lib/validations/schemas";
 
 const item = (name: string): CatalogItem => ({
@@ -71,5 +71,22 @@ describe("diaryEntrySchema", () => {
     expect(ok({ ...q, quantity: 2 })).toBe(false);
     expect(ok({ ...q, quantity_unit: "g" })).toBe(false);
     expect(ok({ ...q, food_id: base.food_id })).toBe(false);
+  });
+});
+
+describe("collectPages", () => {
+  it("keeps fetching until a short page (rows beyond the 1000 cap are not lost)", async () => {
+    const all = Array.from({ length: 2500 }, (_, i) => i);
+    const calls: [number, number][] = [];
+    const rows = await collectPages(async (from, to) => {
+      calls.push([from, to]);
+      return all.slice(from, to + 1);
+    }, 1000);
+    expect(rows).toHaveLength(2500);
+    expect(calls).toEqual([[0, 999], [1000, 1999], [2000, 2999]]);
+  });
+  it("stops after one page when it is short or empty", async () => {
+    expect(await collectPages(async () => [], 1000)).toEqual([]);
+    expect(await collectPages(async () => [1, 2, 3], 1000)).toEqual([1, 2, 3]);
   });
 });

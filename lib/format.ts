@@ -36,6 +36,16 @@ export function formatNumber(n: number | null | undefined, decimals = 2): string
   }).format(n);
 }
 
+/** Up to `maxDecimals` decimals, trailing zeros trimmed (ro-RO): 1.5 -> "1,5", 2 -> "2", 0.25 -> "0,25". */
+export function formatDecimal(n: number, maxDecimals = 2): string {
+  const f = 10 ** maxDecimals;
+  return new Intl.NumberFormat("ro-RO", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+    useGrouping: false,
+  }).format(Math.round(n * f) / f);
+}
+
 /** Quantity for display: < 1 -> one decimal, otherwise whole number. */
 export function formatQuantity(n: number): string {
   return n < 1 ? formatNumber(n, 1) : formatNumber(Math.round(n), 0);
@@ -164,13 +174,7 @@ export const APP_TIMEZONE = "Europe/Bucharest";
 
 /** Today's calendar date in APP_TIMEZONE as a local-midnight Date (same on server and browser). */
 export function todayInAppTz(): Date {
-  const ymd = new Intl.DateTimeFormat("en-CA", {
-    timeZone: APP_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  return parseLocalDate(ymd) ?? new Date();
+  return parseLocalDate(todayInTz()) ?? new Date();
 }
 
 /**
