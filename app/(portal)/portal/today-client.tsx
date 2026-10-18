@@ -3,13 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Ingredient,
-  MealEntryStatus,
-  MealPlanEntry,
-  MealReview,
-  Recipe,
-  RecipeIngredient,
+import {  MealEntryStatus,  MealReview,  PortalEntry,
 } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
@@ -39,12 +33,7 @@ function daysApart(a: string, b: string): number {
   return Math.round((db.getTime() - da.getTime()) / 86400000);
 }
 
-type FullEntry = MealPlanEntry & {
-  recipe?: Recipe & {
-    recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
-  };
-  ingredient?: Ingredient;
-};
+type FullEntry = PortalEntry;
 
 export default function TodayClient({
   planId,
