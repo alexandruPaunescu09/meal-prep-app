@@ -139,6 +139,7 @@ export default function MealCard({
             onClick={toggleEaten}
             disabled={saving}
             aria-pressed={eaten}
+            aria-label={`Mark ${mealTypeLabels[meal.mealType] ?? meal.mealType} (${meal.recipeName ?? meal.ingredientName ?? "meal"}) as eaten`}
             className={`w-full inline-flex items-center justify-center gap-1.5 min-h-[44px] rounded-xl border text-sm font-medium disabled:opacity-70 ${
               eaten
                 ? "bg-emerald-600 text-white border-emerald-600"

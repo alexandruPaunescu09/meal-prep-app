@@ -24,8 +24,10 @@ function persistWithRetry(
     toast.error("Couldn't save check-off", {
       action: {
         label: "Retry",
-        onClick: () =>
-          persistWithRetry(toast, isCurrentWeek, apply, write, rollback),
+        onClick: () => {
+          if (!isCurrentWeek()) return;
+          persistWithRetry(toast, isCurrentWeek, apply, write, rollback);
+        },
       },
     });
   });
@@ -104,7 +106,10 @@ export function useShoppingChecks(weekStart: string | null) {
                 .eq("ingredient_id", ingredientId)
             : supabase
                 .from("shopping_check_state")
-                .insert({ week_start: weekStart, ingredient_id: ingredientId }),
+                .upsert(
+                  { week_start: weekStart, ingredient_id: ingredientId },
+                  { onConflict: "week_start,ingredient_id", ignoreDuplicates: true }
+                ),
         () => setOn(wasChecked)
       );
     },

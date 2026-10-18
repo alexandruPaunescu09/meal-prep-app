@@ -154,9 +154,23 @@ export function addDays(date: DateInput, n: number): string {
   return toLocalISODate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
 }
 
-/** Monday of the current week (local). */
+/** Monday of the current week (app timezone). */
 export function currentWeekStart(): string {
-  return mondayOf(new Date());
+  return mondayOf(todayInAppTz());
+}
+
+/** Business timezone: SSR runs in UTC on Vercel, which is a day off for Romania around midnight. */
+export const APP_TIMEZONE = "Europe/Bucharest";
+
+/** Today's calendar date in APP_TIMEZONE as a local-midnight Date (same on server and browser). */
+export function todayInAppTz(): Date {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  return parseLocalDate(ymd) ?? new Date();
 }
 
 /** Monday of next week (local). */
@@ -167,4 +181,12 @@ export function nextWeekStart(): string {
 /** True iff the date is a Monday (week_start values must be). */
 export function isMonday(date: DateInput): boolean {
   return toDate(date).getDay() === 1;
+}
+
+/**
+ * Swaps the week range embedded in a plan name ("Ana – 12–18 Oct 2026") for the
+ * target week's. Returns the name unchanged when it doesn't contain the range.
+ */
+export function retitleForWeek(name: string, fromWeek: DateInput, toWeek: DateInput): string {
+  return name.split(formatWeekRange(fromWeek)).join(formatWeekRange(toWeek));
 }

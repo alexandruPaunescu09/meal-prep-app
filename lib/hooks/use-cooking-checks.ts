@@ -24,8 +24,10 @@ function persistWithRetry(
     toast.error("Couldn't save check-off", {
       action: {
         label: "Retry",
-        onClick: () =>
-          persistWithRetry(toast, isCurrentWeek, apply, write, rollback),
+        onClick: () => {
+          if (!isCurrentWeek()) return;
+          persistWithRetry(toast, isCurrentWeek, apply, write, rollback);
+        },
       },
     });
   });
@@ -104,7 +106,10 @@ export function useCookingChecks(weekStart: string | null) {
                 .eq("recipe_id", recipeId)
             : supabase
                 .from("cooking_check_state")
-                .insert({ week_start: weekStart, recipe_id: recipeId }),
+                .upsert(
+                  { week_start: weekStart, recipe_id: recipeId },
+                  { onConflict: "week_start,recipe_id", ignoreDuplicates: true }
+                ),
         () => setOn(wasChecked)
       );
     },

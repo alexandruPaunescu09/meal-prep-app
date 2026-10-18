@@ -383,7 +383,10 @@ function CloneWeekModal({
     const created = res?.created?.length ?? 0;
     const skipped = res?.skipped ?? 0;
     toast.success(
-      `Created ${created} plan${created !== 1 ? "s" : ""} · skipped ${skipped} (client already has a plan that week)`
+      `Created ${created} plan${created !== 1 ? "s" : ""}` +
+        (skipped > 0
+          ? ` · skipped ${skipped} (client already has a plan that week)`
+          : "")
     );
     await invalidateMealPlans();
     router.refresh();
@@ -419,10 +422,11 @@ function CloneWeekModal({
     >
       <form id="clone-week-form" onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="cw-source" className="block text-sm font-medium text-gray-700 mb-1">
             Copy from
           </label>
           <select
+            id="cw-source"
             value={source}
             onChange={(e) => changeSource(e.target.value)}
             className={INPUT}
@@ -435,10 +439,11 @@ function CloneWeekModal({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="cw-target" className="block text-sm font-medium text-gray-700 mb-1">
             Copy to (Monday)
           </label>
           <input
+            id="cw-target"
             type="date"
             value={target}
             onChange={(e) => setTarget(e.target.value)}
@@ -549,10 +554,11 @@ function NewPlanForm({
     >
       <form id="new-plan-form" onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="np-name" className="block text-sm font-medium text-gray-700 mb-1">
             Plan Name *
           </label>
           <input
+            id="np-name"
             ref={nameRef}
             type="text"
             value={name}
@@ -566,10 +572,11 @@ function NewPlanForm({
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="np-client" className="block text-sm font-medium text-gray-700 mb-1">
             Client
           </label>
           <select
+            id="np-client"
             value={form.client_id}
             onChange={(e) => setForm({ ...form, client_id: e.target.value })}
             className={INPUT}
@@ -583,10 +590,11 @@ function NewPlanForm({
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="np-week" className="block text-sm font-medium text-gray-700 mb-1">
             Week Start (Monday)
           </label>
           <input
+            id="np-week"
             type="date"
             value={form.week_start}
             onChange={(e) => setForm({ ...form, week_start: e.target.value })}
@@ -599,10 +607,11 @@ function NewPlanForm({
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="np-markup" className="block text-sm font-medium text-gray-700 mb-1">
             Markup Multiplier
           </label>
           <input
+            id="np-markup"
             type="number"
             step="0.1"
             min={1}

@@ -216,10 +216,42 @@ export default function CategoriesClient({ categories, ingredientCounts }: Props
     }
 
     // Repoint prep rules so they follow the ingredients instead of orphaning.
-    const { error: rulesErr } = await supabase
+    // Category-wide rules identical to one the target category already has
+    // (same prep type and lead time) are dropped instead of repointed, so no
+    // duplicates appear. Ingredient-specific rules are always repointed.
+    const { data: catRules, error: loadRulesErr } = await supabase
       .from("prep_rules")
-      .update({ ingredient_category: moveToSlug })
-      .eq("ingredient_category", cat.slug);
+      .select("id, ingredient_id, ingredient_category, prep_type, advance_days")
+      .in("ingredient_category", [cat.slug, moveToSlug]);
+    let rulesErr = loadRulesErr;
+    if (!rulesErr) {
+      const targetKeys = new Set(
+        (catRules ?? [])
+          .filter((r) => r.ingredient_category === moveToSlug && !r.ingredient_id)
+          .map((r) => `${r.prep_type}|${r.advance_days}`)
+      );
+      const dupIds = (catRules ?? [])
+        .filter(
+          (r) =>
+            r.ingredient_category === cat.slug &&
+            !r.ingredient_id &&
+            targetKeys.has(`${r.prep_type}|${r.advance_days}`)
+        )
+        .map((r) => r.id);
+      // Repoint first, delete duplicates last: a failure in between leaves the
+      // category in place with its remaining rules intact.
+      let repoint = supabase
+        .from("prep_rules")
+        .update({ ingredient_category: moveToSlug })
+        .eq("ingredient_category", cat.slug);
+      if (dupIds.length > 0) repoint = repoint.not("id", "in", `(${dupIds.join(",")})`);
+      const { error: repointErr } = await repoint;
+      rulesErr = repointErr;
+      if (!rulesErr && dupIds.length > 0) {
+        const { error } = await supabase.from("prep_rules").delete().in("id", dupIds);
+        rulesErr = error;
+      }
+    }
     if (rulesErr) {
       // Ingredients have moved, but the category is kept so the rules still resolve.
       await invalidateCategories();

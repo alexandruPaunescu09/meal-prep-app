@@ -58,6 +58,8 @@ export async function invalidateMealPlans() {
 
 export async function invalidateMealPlan(id: string) {
   updateTag(CACHE_TAGS.mealPlanDetail(id));
+  // The plans list embeds entry counts, so grid edits must expire it too.
+  updateTag(CACHE_TAGS.mealPlans);
 }
 
 export async function invalidateContainerTypes() {

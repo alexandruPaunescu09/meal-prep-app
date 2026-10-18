@@ -73,7 +73,7 @@ export default async function PortalProfilePage() {
               <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </a>
           ) : (
-            <p className="text-gray-600">To change these details, ask your trainer.</p>
+            <p className="text-gray-600">To change these details, contact us.</p>
           )}
         </div>
       </section>

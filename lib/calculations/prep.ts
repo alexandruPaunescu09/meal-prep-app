@@ -1,3 +1,4 @@
+import { toLocalISODate, parseLocalDate } from "@/lib/format";
 import {
   Ingredient,
   Recipe,
@@ -45,7 +46,7 @@ export function generatePrepTasks(
   }
 
   const taskMap = new Map<string, PrepTaskDraft>();
-  const weekStartDate = new Date(weekStart + "T00:00:00");
+  const weekStartDate = parseLocalDate(weekStart) ?? new Date(weekStart + "T00:00:00");
 
   for (const entry of entries) {
     const cookDate = addDays(weekStartDate, entry.day_of_week - 1);
@@ -126,5 +127,5 @@ function addDays(date: Date, days: number): Date {
 }
 
 function toISODate(date: Date): string {
-  return date.toISOString().split("T")[0];
+  return toLocalISODate(date);
 }

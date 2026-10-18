@@ -150,6 +150,9 @@ export default function ContainersClient({
                     )}
                   </div>
                   <div className="space-y-1">
+                    {balance.balances.length === 0 && (
+                      <p className="text-sm text-gray-500">No containers out.</p>
+                    )}
                     {balance.balances.map((b) => (
                       <div
                         key={b.containerType.id}
