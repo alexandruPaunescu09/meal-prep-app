@@ -11,6 +11,7 @@ type FieldKey =
   | "name"
   | "phone"
   | "weight_kg"
+  | "target_weight_kg"
   | "calorie_target"
   | "restrictions"
   | "allergies"
@@ -26,6 +27,7 @@ const VALIDATED_FIELDS: FieldKey[] = [
   "password",
   "name",
   "weight_kg",
+  "target_weight_kg",
   "calorie_target",
 ];
 
@@ -34,12 +36,14 @@ const LABELS: Partial<Record<FieldKey, string>> = {
   password: "Password",
   name: "Your name",
   weight_kg: "Weight",
+  target_weight_kg: "Goal weight",
   calorie_target: "Daily calorie target",
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const WEIGHT_MIN = 20;
 const WEIGHT_MAX = 300;
+const TARGET_WEIGHT_MIN = 30;
 const CALORIE_MIN = 800;
 const CALORIE_MAX = 6000;
 
@@ -49,6 +53,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   phone: "",
   weight_kg: "",
+  target_weight_kg: "",
   calorie_target: "",
   restrictions: "",
   allergies: "",
@@ -76,6 +81,13 @@ function validate(form: FormState): FieldErrors {
     const w = parseDecimal(weightText);
     if (w === null || w < WEIGHT_MIN || w > WEIGHT_MAX)
       errors.weight_kg = `Enter a weight between ${WEIGHT_MIN} and ${WEIGHT_MAX} kg, e.g. 72,5.`;
+  }
+
+  const targetText = form.target_weight_kg.trim();
+  if (targetText) {
+    const t = parseDecimal(targetText);
+    if (t === null || t < TARGET_WEIGHT_MIN || t > WEIGHT_MAX)
+      errors.target_weight_kg = `Enter a goal weight between ${TARGET_WEIGHT_MIN} and ${WEIGHT_MAX} kg, e.g. 68,5.`;
   }
 
   const calorieText = form.calorie_target.trim();
@@ -156,6 +168,7 @@ export default function IntakePage() {
       name: form.name.trim(),
       phone: form.phone.trim() || null,
       weight_kg: parseDecimal(form.weight_kg),
+      target_weight_kg: parseDecimal(form.target_weight_kg),
       calorie_target: calorieText ? Number(calorieText) : null,
       restrictions: form.restrictions.trim() || null,
       allergies: form.allergies.trim() || null,
@@ -415,21 +428,22 @@ export default function IntakePage() {
               {renderError("name")}
             </div>
 
+            <div>
+              <label htmlFor="intake-phone" className="block text-sm font-medium text-gray-700 mb-1">
+                Phone
+              </label>
+              <input
+                id="intake-phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                value={form.phone}
+                onChange={(e) => update("phone", e.target.value)}
+                className={inputClass(false)}
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="intake-phone" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
-                </label>
-                <input
-                  id="intake-phone"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={form.phone}
-                  onChange={(e) => update("phone", e.target.value)}
-                  className={inputClass(false)}
-                />
-              </div>
               <div>
                 <label htmlFor="intake-weight_kg" className="block text-sm font-medium text-gray-700 mb-1">
                   Weight (kg)
@@ -450,6 +464,27 @@ export default function IntakePage() {
                   Between {WEIGHT_MIN} and {WEIGHT_MAX} kg.
                 </p>
                 {renderError("weight_kg")}
+              </div>
+              <div>
+                <label htmlFor="intake-target_weight_kg" className="block text-sm font-medium text-gray-700 mb-1">
+                  Goal weight (kg)
+                </label>
+                <input
+                  id="intake-target_weight_kg"
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder="e.g. 68,5"
+                  value={form.target_weight_kg}
+                  onChange={(e) => update("target_weight_kg", e.target.value)}
+                  aria-invalid={!!fieldErrors.target_weight_kg}
+                  aria-describedby={describedBy("target_weight_kg", true)}
+                  className={inputClass(!!fieldErrors.target_weight_kg)}
+                />
+                <p id="intake-target_weight_kg-hint" className="text-xs text-gray-500 mt-1">
+                  Optional. Between {TARGET_WEIGHT_MIN} and {WEIGHT_MAX} kg.
+                </p>
+                {renderError("target_weight_kg")}
               </div>
             </div>
 

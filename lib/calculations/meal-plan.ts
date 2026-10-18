@@ -156,13 +156,21 @@ export interface ResolvedTargets {
   fat: number | null;
   /** Derived range: 10..14 g per 1000 kcal. Null if calories missing. */
   fiber: { min: number; max: number } | null;
+  /** Weight the per-kg macros were computed on; null when no weight is known. */
+  weightBasis: { kg: number; source: "target" | "current" } | null;
 }
 
 export function resolveTargets(
   plan: Pick<MealPlan, "calorie_target" | "protein_per_kg" | "fat_per_kg">,
-  client: Pick<Client, "weight_kg"> | null | undefined
+  client: Pick<Client, "weight_kg" | "target_weight_kg"> | null | undefined
 ): ResolvedTargets {
-  const kg = client?.weight_kg ?? null;
+  const weightBasis: ResolvedTargets["weightBasis"] =
+    client?.target_weight_kg != null
+      ? { kg: client.target_weight_kg, source: "target" }
+      : client?.weight_kg != null
+        ? { kg: client.weight_kg, source: "current" }
+        : null;
+  const kg = weightBasis?.kg ?? null;
   const calories = plan.calorie_target ?? null;
   const protein =
     kg != null && plan.protein_per_kg != null ? kg * plan.protein_per_kg : null;
@@ -185,5 +193,5 @@ export function resolveTargets(
       ? { min: (calories * 10) / 1000, max: (calories * 14) / 1000 }
       : null;
 
-  return { calories, protein, carbs, carbsOverAllocated, fat, fiber };
+  return { calories, protein, carbs, carbsOverAllocated, fat, fiber, weightBasis };
 }

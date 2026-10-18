@@ -35,6 +35,12 @@ export const clientSchema = z.object({
   name: z.string().min(1, "Name is required"),
   calorie_target: z.number().int().positive().nullable().optional(),
   weight_kg: z.number().positive().nullable().optional(),
+  target_weight_kg: z
+    .number()
+    .min(30, "Goal weight must be between 30 and 300 kg.")
+    .max(300, "Goal weight must be between 30 and 300 kg.")
+    .nullable()
+    .optional(),
   restrictions: z.string().nullable().optional(),
   allergies: z.string().nullable().optional(),
   preferences: z.string().nullable().optional(),
@@ -111,6 +117,12 @@ export const registerSchema = z.object({
     .number()
     .min(20, "Enter a weight between 20 and 300 kg, e.g. 72,5.")
     .max(300, "Enter a weight between 20 and 300 kg, e.g. 72,5.")
+    .nullable()
+    .optional(),
+  target_weight_kg: z
+    .number()
+    .min(30, "Enter a goal weight between 30 and 300 kg, e.g. 68,5.")
+    .max(300, "Enter a goal weight between 30 and 300 kg, e.g. 68,5.")
     .nullable()
     .optional(),
   calorie_target: z
