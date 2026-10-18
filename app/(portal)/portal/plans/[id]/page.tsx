@@ -6,10 +6,10 @@ import {
   MealReview,
 } from "@/lib/supabase/types";
 import {
-  formatLocalDate,
   mondayOfWeek,
   parseLocalDate,
 } from "@/lib/portal/entry-helpers";
+import { portalToday } from "@/lib/portal/today";
 import PlanDetailClient from "./plan-detail-client";
 
 export default async function PortalPlanDetailPage({
@@ -40,14 +40,14 @@ export default async function PortalPlanDetailPage({
     .from("meal_plan_entries")
     .select(`
       *,
-      recipe:recipes (
+      recipe:recipes_public (
         *,
         recipe_ingredients (
           *,
-          ingredient:ingredients (*)
+          ingredient:ingredients_public (*)
         )
       ),
-      ingredient:ingredients (*)
+      ingredient:ingredients_public (*)
     `)
     .eq("meal_plan_id", id);
 
@@ -62,9 +62,8 @@ export default async function PortalPlanDetailPage({
       : Promise.resolve({ data: [] }),
   ]);
 
-  const today = new Date();
-  const todayStr = formatLocalDate(today);
-  const currentMonday = mondayOfWeek(today);
+  const todayStr = await portalToday();
+  const currentMonday = mondayOfWeek(todayStr);
   const isCurrent = plan.week_start === currentMonday;
   // Both dates are local calendar days; Math.round absorbs DST's 23/25-hour days.
   const todayLocal = parseLocalDate(todayStr);

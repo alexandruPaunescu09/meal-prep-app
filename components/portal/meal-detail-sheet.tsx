@@ -1,29 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Circle, Slash } from "lucide-react";
-import {
-  Ingredient,
-  MealPlanEntry,
-  MealReview,
-  MealStatus,
-  Recipe,
-  RecipeIngredient,
-} from "@/lib/supabase/types";
-import { entryNutrition } from "@/lib/portal/entry-helpers";
+import { MealReview, MealStatus, PortalEntry } from "@/lib/supabase/types";
+import { planEntryNutrition } from "@/lib/calculations/diary";
 import ReviewComposer from "./review-composer";
-import { saveMealStatus } from "@/lib/portal/save-status";
+import { MACRO_BG } from "@/lib/portal/macro-colors";
 import { Modal } from "@/components/ui/modal";
-import { useToast } from "@/components/ui/toast";
 import { formatDate, formatQuantity } from "@/lib/format";
 
-type FullEntry = MealPlanEntry & {
-  recipe?: Recipe & {
-    recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
-  };
-  ingredient?: Ingredient;
-};
+type FullEntry = PortalEntry;
 
 const mealLabels: Record<string, string> = {
   breakfast: "Breakfast",
@@ -36,6 +22,7 @@ export default function MealDetailSheet({
   entry,
   existingReview,
   existingStatus,
+  onChangeStatus,
   isFuture,
   date,
   onClose,
@@ -43,13 +30,13 @@ export default function MealDetailSheet({
   entry: FullEntry;
   existingReview: MealReview | null;
   existingStatus: MealStatus | null;
+  /** Persists a status change; resolves false when the save failed (the sheet rolls back). */
+  onChangeStatus: (status: MealStatus | null) => Promise<boolean>;
   isFuture: boolean;
   /** YYYY-MM-DD of the meal's day; used to explain why logging is hidden on future days. */
   date?: string;
   onClose: () => void;
 }) {
-  const router = useRouter();
-  const toast = useToast();
   const [status, setStatus] = useState<MealStatus | null>(existingStatus);
   const [savingStatus, setSavingStatus] = useState(false);
   const [reviewDirty, setReviewDirty] = useState(false);
@@ -59,24 +46,13 @@ export default function MealDetailSheet({
     const previous = status;
     setStatus(s);
     setSavingStatus(true);
-    try {
-      const result = await saveMealStatus(entry.id, s);
-      if (result === "queued") {
-        toast.info("Saved offline — will sync when you're back online");
-      } else {
-        router.refresh();
-      }
-    } catch (e) {
-      setStatus(previous);
-      toast.error(e instanceof Error && e.message ? e.message : "Could not save your status", {
-        action: { label: "Retry", onClick: () => void chooseStatus(s) },
-      });
-    } finally {
-      setSavingStatus(false);
-    }
+    // The diary saves (optimistically, offline-aware) and shows its own toasts.
+    const ok = await onChangeStatus(s);
+    if (!ok) setStatus(previous);
+    setSavingStatus(false);
   }
 
-  const n = entryNutrition(entry);
+  const n = planEntryNutrition(entry);
   const title = entry.recipe?.name ?? entry.ingredient?.name ?? "—";
   const description = entry.recipe?.customer_description;
 
@@ -159,19 +135,19 @@ export default function MealDetailSheet({
                 role="img"
                 aria-label={`Calories from protein ${pct(macroKcal.protein)}%, carbs ${pct(macroKcal.carbs)}%, fat ${pct(macroKcal.fat)}%`}
               >
-                <div className="bg-emerald-500" style={{ width: `${(macroKcal.protein / macroTotal) * 100}%` }} />
-                <div className="bg-amber-400" style={{ width: `${(macroKcal.carbs / macroTotal) * 100}%` }} />
-                <div className="bg-sky-500" style={{ width: `${(macroKcal.fat / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.protein} style={{ width: `${(macroKcal.protein / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.carbs} style={{ width: `${(macroKcal.carbs / macroTotal) * 100}%` }} />
+                <div className={MACRO_BG.fat} style={{ width: `${(macroKcal.fat / macroTotal) * 100}%` }} />
               </div>
               <div className="flex gap-4 mt-1.5 text-xs text-gray-600">
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> Protein {pct(macroKcal.protein)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.protein}`} /> Protein {pct(macroKcal.protein)}%
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" /> Carbs {pct(macroKcal.carbs)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.carbs}`} /> Carbs {pct(macroKcal.carbs)}%
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-sky-500" /> Fat {pct(macroKcal.fat)}%
+                  <span className={`w-2 h-2 rounded-full ${MACRO_BG.fat}`} /> Fat {pct(macroKcal.fat)}%
                 </span>
               </div>
             </div>

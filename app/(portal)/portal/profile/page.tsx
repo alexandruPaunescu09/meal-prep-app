@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Client } from "@/lib/supabase/types";
 import { Mail, Phone, Scale, Flame, Apple, Ban, Heart, User, KeyRound, ChevronRight } from "lucide-react";
+import { formatKg } from "@/lib/weight";
 import SignOutButton from "./sign-out-button";
 
 export default async function PortalProfilePage() {
@@ -48,8 +49,16 @@ export default async function PortalProfilePage() {
 
       <section className="bg-white rounded-2xl border p-4 space-y-3">
         <h2 className="text-sm font-semibold text-gray-900">Targets</h2>
-        {client.weight_kg != null && (
-          <Row icon={<Scale className="w-4 h-4" />} label="Weight" value={`${client.weight_kg} kg`} />
+        {(client.weight_kg != null || client.target_weight_kg != null) && (
+          <Row
+            icon={<Scale className="w-4 h-4" />}
+            label="Weight"
+            value={
+              client.weight_kg != null
+                ? `${formatKg(client.weight_kg)} kg${client.target_weight_kg != null ? ` · goal ${formatKg(client.target_weight_kg)} kg` : ""}`
+                : `Goal ${formatKg(client.target_weight_kg as number)} kg`
+            }
+          />
         )}
         {client.calorie_target != null && (
           <Row icon={<Flame className="w-4 h-4" />} label="Daily calories" value={`${client.calorie_target} kcal`} />

@@ -16,6 +16,7 @@ type IntakeFields = {
   name: string;
   phone: string | null;
   weight_kg: number | null;
+  target_weight_kg: number | null;
   calorie_target: number | null;
   restrictions: string | null;
   allergies: string | null;
@@ -30,6 +31,7 @@ function pickIntakeFields(
     name: body.name,
     phone: body.phone ?? null,
     weight_kg: body.weight_kg ?? null,
+    target_weight_kg: body.target_weight_kg ?? null,
     calorie_target: body.calorie_target ?? null,
     restrictions: body.restrictions ?? null,
     allergies: body.allergies ?? null,
@@ -47,6 +49,7 @@ function pickIntakeUpdates(
   const out: Partial<IntakeFields> = { name: body.name };
   if (body.phone != null) out.phone = body.phone;
   if (body.weight_kg != null) out.weight_kg = body.weight_kg;
+  if (body.target_weight_kg != null) out.target_weight_kg = body.target_weight_kg;
   if (body.calorie_target != null) out.calorie_target = body.calorie_target;
   if (body.restrictions != null) out.restrictions = body.restrictions;
   if (body.allergies != null) out.allergies = body.allergies;

@@ -21,6 +21,7 @@
 | Resend | latest | Transactional email (PDF delivery) |
 | @vercel/og | 0.11.1 | OG image generation (legacy) |
 | Lucide React | 1.14.0 | Icons |
+| Vitest | 3.2 | Unit tests for pure `lib/` code (`npm test`) |
 
 ---
 
@@ -43,6 +44,8 @@ app/
 │   ├── nutrition/search/   # Nutrition API search (USDA + OFF)
 │   ├── nutrition/barcode/  # Barcode lookup (existing ingredient or OFF v2)
 │   ├── invoices/parse|apply/ # Receipt/invoice import (stateless parse, atomic apply)
+│   ├── portal/foods/search/ # Customer catalog search (price-free foods + ingredients + own-plan recipes)
+│   ├── portal/diary/       # Customer food diary upsert/delete (server-side nutrition snapshot)
 │   ├── export/meal-plan/   # PDF generation + email delivery
 │   ├── intake/             # Public client intake form handler
 │   └── og/meal-plan/       # OG image generation (legacy)
@@ -66,13 +69,15 @@ lib/
 │   ├── shopping-list.ts    # generateShoppingList() → grouped ingredient list
 │   ├── cooking-plan.ts     # generateCookingPlan() → recipes (scaled ingredients + per-client breakdown) + direct ingredients
 │   ├── containers.ts       # calculateClientBalance(), calculateExpectedReturns(), calculateChargeableAmount()
-│   └── prep.ts             # generatePrepTasks() → weekly prep task generation from meal plans
+│   ├── prep.ts             # generatePrepTasks() → weekly prep task generation from meal plans
+│   └── diary.ts            # Food diary math: nutritionForAmount, snapshots, calculateDiaryDay (eaten/projected)
 ├── nutrition/
 │   ├── index.ts            # searchNutrition() orchestrator
 │   ├── usda.ts             # USDA FoodData Central API
 │   ├── open-food-facts.ts  # Open Food Facts API (Romania-first)
 │   ├── confidence.ts       # NCS formula (5 components)
-│   └── classification.ts   # Ingredient classification + cooked keywords
+│   ├── classification.ts   # Ingredient classification + cooked keywords
+│   └── nutrients.ts        # Nutrient registry + EU reference intakes (Reg. 1169/2011 Annex XIII)
 ├── pdf/
 │   └── meal-plan.tsx       # React PDF document component
 └── validations/
@@ -123,12 +128,12 @@ middleware.ts               # Auth check on all routes
 
 **`clients`**
 - `id` UUID PK, `name` TEXT, `email` TEXT, `phone` TEXT
-- `calorie_target` INT, `weight_kg` NUMERIC, `restrictions` TEXT, `allergies` TEXT, `preferences` TEXT, `notes` TEXT
+- `calorie_target` INT, `weight_kg` NUMERIC, `target_weight_kg` NUMERIC (nullable, CHECK 30–300; goal weight), `restrictions` TEXT, `allergies` TEXT, `preferences` TEXT, `notes` TEXT
 - `container_tolerance` INT (default 2) — max containers a client can have outstanding before being flagged
 
 **`meal_plans`**
 - `id` UUID PK, `name` TEXT, `client_id` FK→clients SET NULL, `week_start` DATE, `markup_multiplier` NUMERIC (default 2.5)
-- `calorie_target` INT (kcal/day), `protein_per_kg` NUMERIC, `fat_per_kg` NUMERIC — per-plan nutrition targets; macros multiply by `clients.weight_kg`. Carbs and fiber targets are derived (carbs from calories−protein−fat; fiber as 10–14 g/1000 kcal range).
+- `calorie_target` INT (kcal/day), `protein_per_kg` NUMERIC, `fat_per_kg` NUMERIC — per-plan nutrition targets; macros multiply by `clients.target_weight_kg` when set, else `clients.weight_kg`. Carbs and fiber targets are derived (carbs from calories−protein−fat; fiber as 10–14 g/1000 kcal range).
 
 **`meal_plan_entries`**
 - `meal_plan_id` FK→meal_plans CASCADE, `day_of_week` INT (1-7), `meal_type` meal_type
@@ -175,6 +180,24 @@ middleware.ts               # Auth check on all routes
 - PK: `(week_start, recipe_id)`. Row presence = recipe marked cooked. Same pattern as `shopping_check_state`, keyed per week so checks are shared across all plans for that week.
 - Index: `(week_start)`
 
+**`foods`** (shared consumer-product catalog, no prices; customers never write)
+- `id` UUID PK, `barcode` TEXT UNIQUE (nullable), `name` TEXT, `brand` TEXT, `unit` TEXT ('g'|'ml')
+- Per 100 g/ml: `calories`, `protein`, `carbs`, `fat`, `fiber`, `sugar`, `sat_fat`, `salt`, `micronutrients` JSONB
+- `serving_size` NUMERIC (>0), `serving_label` TEXT, `package_size` NUMERIC
+- `source` ('off'|'label_photo'|'admin'), `status` ('active'|'pending'|'hidden'), `created_by_client_id` FK→clients SET NULL, `verified_at`, `promoted_ingredient_id` FK→ingredients SET NULL
+- Indexes: `lower(name)`, `(status)`, `(created_by_client_id, created_at DESC)`. RLS: admin ALL; customer SELECT when `current_client_id() IS NOT NULL AND (status='active' OR (status='pending' AND created_by_client_id = current_client_id()))`; no customer writes (inserts go through `/api/portal/foods/*` with the service client).
+
+**`food_log_entries`** (customer food diary)
+- `id` UUID PK (generated client-side so offline replays upsert idempotently), `client_id` FK→clients CASCADE, `log_date` DATE (customer LOCAL date), `meal_type` meal_type
+- `source_kind` ('food'|'ingredient'|'recipe'|'quick'), `food_id` / `ingredient_id` / `recipe_id` FKs all SET NULL (history survives deletions); CHECK at most one FK, none for quick
+- `quantity` NUMERIC >0, `quantity_unit` ('g'|'ml'|'serving'|'portion')
+- Nutrition SNAPSHOT (totals for this entry, not per 100): `name`, `brand`, 8 nutrient columns, `micronutrients` JSONB — computed server-side at log time.
+- Index `(client_id, log_date)`. RLS: customer ALL on own rows; admin SELECT.
+
+**`meal_entry_status`** (customer eaten/skipped per plan entry)
+- PK `meal_plan_entry_id`, `client_id`, `status` ('eaten'|'skipped'), `updated_at`
+- `portion_factor` NUMERIC NULL, CHECK `> 0 AND <= 5` (`20261019000300_meal_status_portion_factor.sql`): share of the planned portion actually eaten ("Ate a different amount"); NULL = 1×. Only meaningful while `status='eaten'`; `/api/portal/status` stores NULL for any other status.
+
 **`invoices`** (admin-only)
 - `id` UUID PK, `store` TEXT, `invoice_date` DATE, `total` NUMERIC, `file_names` TEXT[], `parsed` JSONB (raw model output), `applied_lines` JSONB, `model` TEXT, `created_at`
 - Index: `(store, invoice_date)`. Rows are written ONLY when the admin approves an import (via `apply_invoice_prices`).
@@ -195,6 +218,8 @@ middleware.ts               # Auth check on all routes
 
 ### RLS
 Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_admin()` for full CRUD; customer-readable tables additionally allow reads via `current_client_id()` (portal users). `profiles.role` ('admin' | 'customer') drives both helpers. New tables must follow this pattern.
+
+**Customer-safe views (`20261019000010_hide_prices_from_customers.sql`):** customers have NO direct SELECT on `ingredients` or `recipes` (admin and customers share the `authenticated` role, so column grants cannot hide `package_price` / `price_per_unit` / `quantity_purchased` / `notes`). They read `ingredients_public` and `recipes_public` instead: owner (definer) views with `WHERE is_admin() OR current_client_id() IS NOT NULL`, granted to `authenticated` only. Never add price or notes columns to them. `recipe_ingredients` keeps its customer read policy. Portal code embeds `recipes_public` / `ingredients_public` (PostgREST resolves the embeds through the base-table FKs) and uses `PublicIngredient` / `PublicRecipe` / `PortalEntry` from `lib/supabase/types.ts`.
 
 ---
 
@@ -220,7 +245,9 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | `/api/export/meal-plan?id=` | POST | Yes | Generate PDF + email to client |
 | `/api/intake` | POST | No | Public client onboarding form submission |
 | `/api/portal/reviews` | POST / DELETE | Customer | Upsert a meal review (always send the intended `photo_path`) / delete own review (`?id=`; removes the photo from `meal-review-photos` first) |
-| `/api/portal/status` | POST | Customer | Set meal status (eaten/skipped/null); client helper `saveMealStatus()` queues offline |
+| `/api/portal/status` | POST | Customer | Set meal status (eaten/skipped/null) + optional `portion_factor` (0–5, kept only for eaten). Body is one change, or `{changes: [...≤50]}` for a batch: ownership-checked as a whole (403 if any entry isn't theirs, nothing written), then one upsert + one delete. Client helpers `saveMealStatus()` / `saveMealStatuses()` queue offline per entry (the queue payload carries `portion_factor`) |
+| `/api/portal/foods/search?q=&limit=` | GET | Customer | Price-free catalog search (q 2–100 chars, limit ≤ 25): active foods + own pending foods, ingredients, recipes from the client's plans (per-portion nutrition). Service client after `requireCustomer()`. Returns `{ results: CatalogItem[] }` |
+| `/api/portal/diary` | POST / DELETE | Customer | POST upserts a `food_log_entries` row by client-generated `id` (snapshot computed server-side; catalog kinds may not send nutrition; quick add kcal 0–5000; `log_date` later than the customer's today + 1 day → 400, see `lib/portal/log-date.ts`) via the RLS client → `{ entry }`; DELETE `?id=` → `{ ok }` or 404. Both revalidate `CACHE_TAGS.foodLog`; client helpers `saveDiaryEntry()` / `deleteDiaryEntry()` queue offline |
 | `/api/og/meal-plan?id=&format=` | GET | No | Generate OG image (legacy, story/landscape) |
 
 ---
@@ -256,7 +283,17 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 - `calculateRecipe(ingredients, portions)` → totalCost, costPerPortion, per-portion macros
 - `calculateDay(entries)` → aggregated day nutrition + cost
 - `calculateWeek(entries, markup)` → weekly totals, averageDaily, sellingPrice
-- `resolveTargets(plan, client)` → resolved nutrition targets (calories absolute, macros = per-kg × client weight)
+- `resolveTargets(plan, client)` → resolved nutrition targets (calories absolute, macros = per-kg × (client goal weight ?? current weight)); also returns `weightBasis: {kg, source: "target"|"current"} | null` for UI labelling
+- `lib/calculations/diary.ts` (pure): `nutritionForAmount(per100, grams)`, `resolveAmount`, `snapshotForCatalogItem`, `planEntryNutrition(entry)` (price-free, accepts any `NutritionSource`), `calculateDiaryDay({planEntries, statuses, logEntries})` → `{eaten, projected, byMeal, counts}`. Plan meals count only when 'eaten' (× optional `portion_factor`), skipped never; `projected` = eaten + pending plan meals at factor 1; logged entries always count. Also `sumTotals`, `scaleTotals`, `emptyTotals`.
+- `lib/nutrition/nutrients.ts`: nutrient registry (`NUTRIENTS`, `MACRO_NUTRIENTS`, `MICRONUTRIENTS`, `getNutrient(key)`, `percentOfReference`) with EU Reg. 1169/2011 Annex XIII reference values (RI for energy/macros/sugar/sat fat/salt, NRV for the 14 micro keys; fiber has none). Unknown micro keys get a derived label.
+- `lib/weight.ts`: `formatKg` ("72,5"), `formatWeightProgress(current, target)` ("95 → 80 kg"), `TARGET_WEIGHT_MIN/MAX` (30/300, mirrors the DB CHECK)
+
+### Portal server helpers
+- `lib/portal/require-customer.ts`: `requireCustomer()` route guard (401/403; returns the RLS client + `clientId`)
+- `lib/portal/catalog.ts` (server only, takes the service client): `searchCatalog`, `loadCatalogItem`, `escapeLike`, `rankItems`; explicit column lists, never price columns or `recipes.notes`
+- `lib/portal/write-queue-logic.ts`: pure queue key / de-dupe / request mapping behind `write-queue.ts`. Kinds: review, status, diary-upsert, diary-delete (diary kinds share key `diary:<id>`, so a later delete replaces a pending upsert)
+- `lib/portal/today.ts`: `portalToday()` = the customer's local date for server pages (`tz` cookie → `todayInTz`, fallback Europe/Bucharest); use it instead of `new Date()` on every portal page. `lib/portal/log-date.ts`: `maxLogDate(tz)`. `lib/portal/format-amount.ts`: `formatEntryAmount`. `lib/portal/macro-colors.ts`: shared P/C/F colours.
+- `lib/portal/save-diary.ts`: `saveDiaryEntry(body)` / `deleteDiaryEntry(id)` → "saved" | "queued"
 - `generateShoppingList(entries)` → deduplicated ingredient list grouped by category
 - `calculateClientBalance(client, deliveries, containerTypes)` → per-client outstanding containers, flag status
 - `calculateExpectedReturns(lastDelivery)` → what client should return this delivery
@@ -300,6 +337,9 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 - Multi-row writes that must succeed together go through an RPC (see Functions), not sequential client calls.
 - Deep links: `?new=1` opens the create form on ingredients/recipes/clients, `?edit=<id>` on ingredients/recipes, `?scan=1` on ingredients; `/meal-plans?client=&week=&new=1`; cards are anchorable as `/clients#client-<id>` and `/containers#client-<id>`.
 
+### Customer catalog reads
+- Customers have no direct read on `ingredients` / `recipes`. Customer API routes call `requireCustomer()` FIRST, then read catalog data via `createServiceClient()` with explicit price-free column lists; writes to customer-owned tables use the customer's RLS client.
+
 ### Responsive
 - Desktop: tables with expandable rows, sidebar always visible
 - Mobile: card layouts (`md:hidden` / `hidden md:block`), hamburger sidebar
@@ -328,6 +368,14 @@ NCS = completeness(0.3) + verification(0.2) + freshness(0.15) + consistency(0.2)
 ```
 - USDA: Foundation=1.0, SR Legacy=0.97, FNDDS=0.93, Branded=0.85
 - OFF: computed via formula, must be ≥ 0.85 to appear
+
+### Customer diary day (FD-2, `/portal`)
+- Sections Breakfast / Lunch / Dinner / Snacks (`components/portal/diary-section.tsx`): plan `MealCard`s + that meal's `food_log_entries` (`diary-entry-list.tsx`, rows editable later via `onSelect`) + a per-section "+ Add" (`onAdd(mealType)`; today opens a stub sheet that FD-3 replaces). Future days show plan meals only, no Add and no eaten toggles; past/today allow logging. The diary works on days with no plan.
+- Summary (`diary-summary.tsx`): kcal eaten / target / remaining, P/C/F bars, fiber aim range, and a "Planned" ghost on the kcal bar (projection = eaten + unmarked plan meals). Totals come from `calculateDiaryDay` (eaten = plan meals marked eaten × `portion_factor` + logged entries; skipped never counts); `planEntryNutrition` replaced the old 5-field `entryNutrition`.
+- Targets: `resolveDayTargets(plans, client, date)` (`lib/portal/day-targets.ts`) = plan covering the date, else the latest earlier plan, else the client's `calorie_target` only; macros on `target_weight_kg ?? weight_kg`.
+- Status writes go through `useMealStatus` (`lib/portal/use-meal-status.ts`): optimistic overlay, batch save (also used by "Mark remaining as eaten", with Undo), rollback + Retry toast, offline-queued. Saves are serialised per entry (a later tap waits for the earlier POST) and an override is dropped as soon as fresh server data arrives unless its save is in flight or queued offline. "Mark remaining as eaten" skips meals whose save is still in flight and sends ONE batch request. Used by Today and the plan detail page; `MealDetailSheet` takes `onChangeStatus` instead of saving itself. `PortionFactorSheet` = "Ate a different amount".
+- Local date: the browser stores its IANA timezone in a `tz` cookie (set from `today-client.tsx`); the page computes today with `todayInTz(cookie)` (fallback `Europe/Bucharest`) and the client refreshes once if its own date differs. Logged rows for the day are read with the customer's RLS client; portal reads of ingredients/recipes use the `*_public` views.
+- "Go to …" empty-day hint targets the nearest day that has plan MEALS (`mealDates`), not a plan-covered day.
 
 ### Container Tracking
 - **Container types**: glass containers with name, volume, replacement cost
@@ -377,7 +425,8 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 ### Local Development
 - `.env.development.local` overrides `.env.local` during `next dev`
 - Local Supabase via Docker: `npm run db:start`
-- Scripts: `db:start`, `db:stop`, `db:reset`
+- Scripts: `db:start`, `db:stop`, `db:reset`, `test` (vitest, `lib/**/*.test.ts`)
+- `npm run build` reads `.env.local` (no Supabase keys locally), so a local production build fails at prerender; load the dev env first: `set -a; . ./.env.development.local; set +a; npm run build`
 
 ### Migrations
 - Prod migration history was reconciled on 2026-10-17: `supabase db diff --linked` confirmed prod matched the 19 migrations up to `20260612000000` (only extra object: the Supabase-managed `rls_auto_enable()` event-trigger function), then `supabase migration repair --status applied` recorded them. **Never apply migrations through the SQL editor again**: use `npx supabase db push --linked` or the workflow, otherwise the history drifts again.
@@ -467,3 +516,10 @@ INVOICE_PARSER_MODEL            # Optional; model for invoice parsing (default: 
 | 2026-10-18 | PR #4 code-review fixes: removing a meal that has a customer review or eaten/skipped status now asks first and offers no Undo (those rows cascade-delete); offline write queue items get stable ids so a flush only removes what it sent (no lost/stale edits when a write is superseded mid-flush), and `dropQueued()` clears older queued writes after a successful direct status/review save or review delete; shared `Modal` handles Escape in the bubble phase and ignores events an inner control already handled (`preventDefault`), so Escape in a dropdown inside a modal closes only the dropdown (`useListboxNav` marks handled Escape) | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `lib/portal/{write-queue,save-status}.ts`, `components/portal/review-composer.tsx`, `components/ui/modal.tsx`, `lib/hooks/use-listbox-nav.ts`, `CLAUDE.md` |
 | 2026-10-18 | Grid remove-confirm no longer trusts cached data: before removing an entry it queries `meal_entry_status` and `meal_reviews` directly (the cached detail bundle can be one view stale after a customer acts, because the portal routes revalidate with stale-while-revalidate), treats a failed check as "has customer data", and ignores duplicate removes while the check runs. Browser-verified with a status written behind the cache. | `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `CLAUDE.md` |
 | 2026-10-18 | PR #4 follow-ups: plans list now expired by grid mutations (`invalidateMealPlan` also expires `mealPlans`); check-offs use upsert/ignoreDuplicates and Retry is a no-op once the week changed; grid rollbacks restore only the affected entry (no whole-list snapshot) and X on an unsaved `temp-` row is blocked; category move drops prep rules identical to the target's before repointing; `currentWeekStart()` now uses `Europe/Bucharest` (`todayInAppTz`) so SSR matches the browser; `prep.ts` uses local date helpers; review API rejects `photo_path` outside `<client_id>/` and deletes replaced/cleared photos; grid table min width (scrolls at ~1024px); duplicate/clone_week rename the embedded week range (`retitleForWeek`, SQL `format_week_range`); portal day dots / "Go to" only count days that have meals; Today header refreshes after the offline queue flushes; Modal focuses immediately on open (works for `?new=1`); /containers lists every client; clone-week toast omits "skipped 0"; a11y: labelled New plan / clone-week inputs, descriptive "Mark … as eaten" names, tag chips `aria-pressed`, Profile copy | `lib/actions/revalidate.ts`, `lib/hooks/use-{shopping,cooking}-checks.ts`, `app/(authenticated)/meal-plans/**`, `app/(authenticated)/ingredients/categories/categories-client.tsx`, `app/(authenticated)/containers/*`, `lib/format.ts`, `lib/calculations/prep.ts`, `app/api/portal/reviews/route.ts`, `app/(portal)/portal/*`, `components/portal/{meal-card,tag-chips}.tsx`, `components/ui/modal.tsx`, `supabase/migrations/20261019000000_clone_week_rename.sql` |
+| 2026-10-18 | Food Diary epic spec (MyFitnessPal-style tracking in the portal): agreed product decisions (shared `foods` catalog fed only by barcode scans / Claude-read label photos, label foods private until admin verifies, quick add, plan meals count only when marked eaten, macro targets on a new target weight, weight log history), current-state findings (customers can read ingredient prices / recipe notes via RLS, no serving sizes, server-UTC default date) and 13 stories FD-0…FD-12 with acceptance criteria, dependencies, order and a tracker table | `docs/superpowers/specs/2026-10-18-food-diary-epic.md`, `CLAUDE.md` |
+| 2026-10-18 | FD-0: customers can no longer read ingredient prices or recipe notes. Dropped the customer SELECT policies on `ingredients` / `recipes`; added `ingredients_public` / `recipes_public` definer views (admin or linked customer only, never anon); portal queries embed the views; `PublicIngredient` / `PublicRecipe` / `PortalEntry` types; portal `entryNutrition` no longer goes through `calculateRecipe` (no cost) | `supabase/migrations/20261019000010_hide_prices_from_customers.sql`, `lib/supabase/types.ts`, `lib/portal/entry-helpers.ts`, `app/(portal)/portal/{page,today-client}.tsx`, `app/(portal)/portal/plans/[id]/{page,plan-detail-client}.tsx`, `components/portal/meal-detail-sheet.tsx`, `CLAUDE.md` |
+| 2026-10-18 | FD-1: food diary foundation. Shared `foods` catalog + `food_log_entries` diary tables with RLS; nutrient registry with EU reference values; pure diary calculations (eaten-only plan semantics, projection); customer catalog search and diary upsert/delete API (server-side snapshot, `requireCustomer()` guard); offline queue diary kinds (logic extracted to `write-queue-logic.ts`) + `save-diary` helper; vitest 3 with 37 tests. No UI yet (FD-2/FD-3) | `supabase/migrations/20261019000100_food_diary_foundation.sql`, `lib/supabase/types.ts`, `lib/validations/schemas.ts`, `lib/nutrition/nutrients.ts`, `lib/calculations/diary.ts`, `lib/portal/{catalog,require-customer,write-queue,write-queue-logic,save-diary}.ts`, `lib/data/tags.ts`, `app/api/portal/{foods/search,diary}/route.ts`, `vitest.config.ts`, `package.json`, `CLAUDE.md` |
+| 2026-10-18 | FD-7: client goal weight. `clients.target_weight_kg` (30–300); `resolveTargets` computes protein/fat on the goal weight (fallback current) and returns `weightBasis`; "Goal weight (kg)" in the admin client form (decimal comma) + "95 → 80 kg" on the card, "Macros on N kg goal/current weight" in the grid summary, optional intake field (sparse-update safe), read-only on the portal profile; `resolveTargets` unit tests | `supabase/migrations/20261019000200_client_target_weight.sql`, `lib/weight.ts`, `lib/supabase/types.ts`, `lib/calculations/{meal-plan,meal-plan.test}.ts`, `lib/validations/schemas.ts`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/meal-plans/[id]/meal-plan-grid.tsx`, `app/intake/page.tsx`, `app/api/intake/route.ts`, `app/(portal)/portal/profile/page.tsx`, `CLAUDE.md` |
+| 2026-10-18 | Food diary step 1 integration (FD-0 + FD-1 + FD-7 built by parallel agents, merged on `food-diary/step-1`): `foods` customer policy also requires `current_client_id() IS NOT NULL`; migrations applied to the local DB with `supabase migration up` (no reset) and RLS checked with customer/admin/anon JWTs; portal Today renders through the views; diary API checked in the browser (search, snapshot math, quick add, spoofed-nutrition 400, delete/404); profile goal weight checked. Not yet pushed | `supabase/migrations/20261019000100_food_diary_foundation.sql`, `app/(portal)/portal/{today-client,plans/[id]/plan-detail-client}.tsx`, `components/portal/meal-detail-sheet.tsx`, `docs/superpowers/specs/2026-10-18-food-diary-epic.md`, `CLAUDE.md` |
+| 2026-10-18 | FD-2: customer diary day view. Today page reworked into Breakfast/Lunch/Dinner/Snacks sections (plan cards + logged entries + "+ Add" stub), summary header with kcal/macros/fiber vs `resolveDayTargets` and a Planned ghost; `meal_entry_status.portion_factor` + "Ate a different amount" + "Mark remaining as eaten" (with Undo); status API/`saveMealStatus`/offline queue carry the factor; `useMealStatus` hook shared with the plan detail page; `entryNutrition` removed in favour of `planEntryNutrition`; default date is the customer's local date via a `tz` cookie (`todayInTz`). Fixed a migration version collision from merging step 1 into main (both had `20261019000000`): `hide_prices_from_customers` is now `20261019000010` (local DB history updated by hand, no reset). Browser-checked at 375×812 and desktop: mixed day (eaten + 0.5× + skipped + quick add) matched hand math (813 kcal eaten / 923 planned), offline queue + flush | `supabase/migrations/20261019000300_meal_status_portion_factor.sql`, `supabase/migrations/20261019000010_hide_prices_from_customers.sql`, `lib/portal/{day-targets,use-meal-status,save-status,write-queue,entry-helpers}.ts`, `lib/format.ts`, `lib/validations/schemas.ts`, `lib/supabase/types.ts`, `app/api/portal/status/route.ts`, `app/(portal)/portal/{page,today-client}.tsx`, `app/(portal)/portal/plans/[id]/plan-detail-client.tsx`, `components/portal/{diary-summary,diary-section,diary-entry-list,portion-factor-sheet,meal-card,meal-detail-sheet}.tsx`, `CLAUDE.md` |
+| 2026-10-19 | PR #6 review fixes: catalog recipe membership no longer reads all of a client's plan entries (recipes matched by name first, then checked with a paginated `meal_plan_entries` query; `loadCatalogItem` checks one id; `collectPages` helper + test) so clients with >1000 entries keep older recipes; diary API rejects `log_date` later than today+1 (`maxLogDate`); `portalToday()` shared by Today, Plans and plan detail (no more server-UTC today); diary amounts show up to 2 decimals and pluralise on the shown value (`formatEntryAmount`, `formatDecimal`); status writes serialised per entry, overrides dropped once server data lands, "Mark remaining" skips in-flight meals and posts one batch (`/api/portal/status` accepts `{changes}`); summary shows "no carb budget" instead of "/0 g"; macro colours shared (`MACRO_BG`) between summary and meal sheet; `todayInAppTz` reuses `todayInTz`. Browser-checked: single batch POST, future log_date 400, batch with a foreign id 403 with nothing written, plan detail toggle | `lib/portal/{catalog,today,log-date,format-amount,macro-colors,save-status,use-meal-status}.ts`, `lib/format.ts`, `lib/validations/schemas.ts`, `app/api/portal/{status,diary}/route.ts`, `app/(portal)/portal/{page,plans/page,plans/[id]/page,today-client}.tsx`, `components/portal/{diary-summary,diary-entry-list,meal-detail-sheet,portion-factor-sheet}.tsx`, `CLAUDE.md` |

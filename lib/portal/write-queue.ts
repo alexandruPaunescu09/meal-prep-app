@@ -1,5 +1,8 @@
 "use client";
 
+import type { DiaryEntryInput } from "@/lib/validations/schemas";
+import { requestFor, stubFor, withoutSuperseded } from "@/lib/portal/write-queue-logic";
+
 const KEY = "portal:write-queue:v1";
 
 type ReviewQueued = {
@@ -14,10 +17,17 @@ type ReviewQueued = {
 };
 type StatusQueued = {
   kind: "status";
-  payload: { meal_plan_entry_id: string; status: "eaten" | "skipped" | null };
+  payload: {
+    meal_plan_entry_id: string;
+    status: "eaten" | "skipped" | null;
+    portion_factor?: number | null;
+  };
 };
 
-export type QueuedWrite = ReviewQueued | StatusQueued;
+type DiaryUpsertQueued = { kind: "diary-upsert"; payload: DiaryEntryInput };
+type DiaryDeleteQueued = { kind: "diary-delete"; payload: { id: string } };
+
+export type QueuedWrite = ReviewQueued | StatusQueued | DiaryUpsertQueued | DiaryDeleteQueued;
 type StoredWrite = QueuedWrite & { id: string };
 
 function newId(): string {
@@ -84,20 +94,19 @@ export function queueSize(): number {
 }
 
 export function queueWrite(w: QueuedWrite) {
-  // A newer write for the same entry supersedes an older queued one of the same kind.
-  const next = read().filter(
-    (i) => !(i.kind === w.kind && i.payload.meal_plan_entry_id === w.payload.meal_plan_entry_id)
-  );
+  // A newer write for the same entry supersedes an older queued one (see queueKey).
+  const next = withoutSuperseded(read(), w);
   next.push({ ...w, id: newId() });
   write(next);
 }
 
-/** Drop queued writes of a kind for an entry (a newer direct save/delete made them stale). */
-export function dropQueued(kind: QueuedWrite["kind"], mealPlanEntryId: string) {
+/**
+ * Drop queued writes for an entry (a newer direct save/delete made them stale).
+ * `id` is the meal_plan_entry_id for review/status and the diary entry id for diary kinds.
+ */
+export function dropQueued(kind: QueuedWrite["kind"], id: string) {
   const items = read();
-  const next = items.filter(
-    (i) => !(i.kind === kind && i.payload.meal_plan_entry_id === mealPlanEntryId)
-  );
+  const next = withoutSuperseded(items, stubFor(kind, id));
   if (next.length !== items.length) write(next);
 }
 
@@ -117,12 +126,12 @@ async function doFlush(): Promise<{ flushed: number; remaining: number }> {
   const done = new Set<string>(); // sent successfully or permanently dropped
   let flushed = 0;
   for (const item of items) {
-    const url = item.kind === "review" ? "/api/portal/reviews" : "/api/portal/status";
+    const req = requestFor(item);
     try {
-      const r = await fetch(url, {
-        method: "POST",
+      const r = await fetch(req.url, {
+        method: req.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(item.payload),
+        body: req.body,
       });
       if (r.ok) {
         flushed += 1;

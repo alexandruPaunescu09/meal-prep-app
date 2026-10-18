@@ -77,6 +77,8 @@ export interface Client {
   phone: string | null;
   calorie_target: number | null;
   weight_kg: number | null;
+  /** Goal weight; when set, per-kg macro targets are computed on it. */
+  target_weight_kg: number | null;
   restrictions: string | null;
   allergies: string | null;
   preferences: string | null;
@@ -272,6 +274,8 @@ export interface MealEntryStatus {
   meal_plan_entry_id: string;
   client_id: string;
   status: MealStatus;
+  /** FD-2: share of the planned portion actually eaten (null = 1). Only set while status = 'eaten'. */
+  portion_factor: number | null;
   updated_at: string;
 }
 
@@ -353,4 +357,145 @@ export interface RegeneratePrepResult {
   inserted: number;
   preserved_completed: number;
   dropped_completed: number;
+}
+
+// ---------------------------------------------------------------------------
+// FD-0: customer-safe shapes (rows of the `ingredients_public` / `recipes_public`
+// views). Portal code must use these so TypeScript proves no price / admin-notes
+// fields are read. Do not add package_price, price_per_unit, quantity_purchased
+// or notes here.
+// ---------------------------------------------------------------------------
+export type PublicIngredient = Omit<
+  Ingredient,
+  | "quantity_purchased"
+  | "package_price"
+  | "price_per_unit"
+  | "api_source"
+  | "created_at"
+  | "updated_at"
+>;
+
+export type PublicRecipe = Omit<Recipe, "notes" | "container_type">;
+
+/** meal_plan_entries row with portal-safe recipe/ingredient embeds. */
+export type PortalEntry = Omit<MealPlanEntry, "recipe" | "ingredient"> & {
+  recipe?: PublicRecipe & {
+    recipe_ingredients: (Omit<RecipeIngredient, "ingredient"> & { ingredient: PublicIngredient })[];
+  };
+  ingredient?: PublicIngredient;
+};
+
+// ---------------------------------------------------------------------------
+// Food diary (epic FD, story FD-1)
+// ---------------------------------------------------------------------------
+
+export type FoodStatus = "active" | "pending" | "hidden";
+export type FoodSource = "off" | "label_photo" | "admin";
+
+/** Shared consumer-product catalog row. Values are per 100 g / 100 ml. No prices. */
+export interface Food {
+  id: string;
+  barcode: string | null;
+  name: string;
+  brand: string | null;
+  unit: "g" | "ml";
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sat_fat: number | null;
+  salt: number | null;
+  micronutrients: Record<string, number>;
+  serving_size: number | null;
+  serving_label: string | null;
+  package_size: number | null;
+  source: FoodSource;
+  status: FoodStatus;
+  created_by_client_id: string | null;
+  verified_at: string | null;
+  promoted_ingredient_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DiarySourceKind = "food" | "ingredient" | "recipe" | "quick";
+export type DiaryQuantityUnit = "g" | "ml" | "serving" | "portion";
+
+/** Diary row. Nutrient columns are the snapshot TOTALS for this entry (not per 100). */
+export interface FoodLogEntry {
+  id: string;
+  client_id: string;
+  log_date: string;
+  meal_type: MealType;
+  source_kind: DiarySourceKind;
+  food_id: string | null;
+  ingredient_id: string | null;
+  recipe_id: string | null;
+  quantity: number;
+  quantity_unit: DiaryQuantityUnit;
+  name: string;
+  brand: string | null;
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber: number | null;
+  sugar: number | null;
+  sat_fat: number | null;
+  salt: number | null;
+  micronutrients: Record<string, number>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Same shape as `DayTotals` in lib/calculations/meal-plan.ts, without `cost`. */
+export interface NutritionTotals {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sat_fat: number;
+  salt: number;
+  micronutrients: Record<string, number>;
+}
+
+/** Nutrition values for a reference amount (per 100 g/ml or per portion). */
+export type CatalogNutrition = NutritionData;
+
+/** Unified, price-free search result for the diary catalog. */
+export interface CatalogItem {
+  kind: "food" | "ingredient" | "recipe";
+  id: string;
+  name: string;
+  brand: string | null;
+  /** g/ml for foods and ingredients, 'portion' for recipes. */
+  unit: "g" | "ml" | "portion";
+  /** Per 100 g/ml. Set for foods and ingredients. */
+  per100?: CatalogNutrition;
+  /** Per one recipe portion. Set for recipes. */
+  perPortion?: CatalogNutrition;
+  /** g/ml per serving, when known (foods only). */
+  servingSize?: number | null;
+  servingLabel?: string | null;
+  /** False for the customer's own unverified (pending) foods. */
+  verified: boolean;
+}
+
+/** Snapshot columns written to food_log_entries by snapshotForCatalogItem(). */
+export interface DiarySnapshot {
+  name: string;
+  brand: string | null;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber: number;
+  sugar: number;
+  sat_fat: number;
+  salt: number;
+  micronutrients: Record<string, number>;
 }
