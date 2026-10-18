@@ -11,8 +11,8 @@ import { planEntryNutrition, type NutritionSource } from "@/lib/calculations/dia
  */
 
 const NUTRITION_COLS = "calories, protein, carbs, fat, fiber, sugar, sat_fat, salt, micronutrients";
-const FOOD_COLS = `id, barcode, name, brand, unit, ${NUTRITION_COLS}, serving_size, serving_label, status, created_by_client_id, promoted_ingredient_id`;
-const INGREDIENT_COLS = `id, name, brand, unit, ${NUTRITION_COLS}`;
+export const FOOD_COLS = `id, barcode, name, brand, unit, ${NUTRITION_COLS}, serving_size, serving_label, status, created_by_client_id, promoted_ingredient_id`;
+export const INGREDIENT_COLS = `id, name, brand, unit, ${NUTRITION_COLS}`;
 const RECIPE_COLS = `id, name, portions, recipe_ingredients(quantity, ingredient:ingredients(${NUTRITION_COLS}))`;
 
 const SEARCH_FETCH_LIMIT = 50;

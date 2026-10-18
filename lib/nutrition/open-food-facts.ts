@@ -26,17 +26,27 @@ const OFF_BARCODE_FIELDS = [
   "product_quantity",
   "product_quantity_unit",
   "quantity",
+  "serving_size",
+  "serving_quantity",
+  "serving_quantity_unit",
 ].join(",");
 
 interface OFFProductWithQuantity extends OFFProductFull {
   product_quantity?: number | string;
   product_quantity_unit?: string;
   quantity?: string;
+  serving_size?: string;
+  serving_quantity?: number | string;
+  serving_quantity_unit?: string;
 }
 
 export interface BarcodeLookup {
   result: NutritionSearchResult;
   packageSize: { quantity: number; unit: "g" | "ml" } | null;
+  /** One serving in g/ml (and the label OFF prints for it), when OFF knows it. */
+  serving: { size: number; label: string | null } | null;
+  /** Unit the per-100 values refer to: ml for drinks, otherwise g. */
+  unit: "g" | "ml";
   perServingOnly: boolean;
 }
 
@@ -190,6 +200,28 @@ function parsePackageSize(
   return null;
 }
 
+const MAX_SERVING = 2000;
+
+/** One serving as g/ml. Prefers OFF's numeric `serving_quantity`, else parses the "30 g" label. */
+export function parseServing(
+  p: Pick<OFFProductWithQuantity, "serving_size" | "serving_quantity" | "serving_quantity_unit">
+): { size: number; unit: "g" | "ml" | null; label: string | null } | null {
+  const label = p.serving_size?.trim().slice(0, 60) || null;
+  const qty = Number(p.serving_quantity);
+  if (p.serving_quantity !== undefined && p.serving_quantity !== "" && qty > 0 && qty <= MAX_SERVING) {
+    const unit = p.serving_quantity_unit?.trim().toLowerCase();
+    return { size: qty, unit: unit === "ml" ? "ml" : unit === "g" ? "g" : null, label };
+  }
+  const m = label?.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|cl|l)(?![a-z])/i);
+  if (m) {
+    const parsed = toBaseUnit(parseFloat(m[1].replace(",", ".")), m[2]);
+    if (parsed && parsed.quantity <= MAX_SERVING) {
+      return { size: parsed.quantity, unit: parsed.unit, label };
+    }
+  }
+  return null;
+}
+
 export async function lookupBarcode(code: string): Promise<BarcodeLookup | null> {
   const res = await fetch(
     `${OFF_PRODUCT_URL}/${encodeURIComponent(code)}?fields=${OFF_BARCODE_FIELDS}`,
@@ -212,5 +244,13 @@ export async function lookupBarcode(code: string): Promise<BarcodeLookup | null>
     (!!p.nutrition_data_per && p.nutrition_data_per !== "100g") ||
     nutriments["energy-kcal_100g"] === undefined;
 
-  return { result, packageSize: parsePackageSize(p), perServingOnly };
+  const packageSize = parsePackageSize(p);
+  const serving = parseServing(p);
+  return {
+    result,
+    packageSize,
+    serving: serving ? { size: serving.size, label: serving.label } : null,
+    unit: packageSize?.unit ?? serving?.unit ?? "g",
+    perServingOnly,
+  };
 }

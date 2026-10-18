@@ -8,6 +8,7 @@ import { MEAL_SECTION_LABEL } from "@/components/portal/diary-section";
 import MealTypeChips from "@/components/portal/meal-type-chips";
 import FoodSearch from "@/components/portal/food-search";
 import AmountPicker from "@/components/portal/amount-picker";
+import BarcodeLookup from "@/components/portal/barcode-lookup";
 import QuickAddForm from "@/components/portal/quick-add-form";
 import {
   buildCatalogInput,
@@ -17,15 +18,16 @@ import {
   type SnapshotLike,
 } from "@/lib/portal/diary-draft";
 
-/** Tabs of the add-food sheet. FD-4 adds "scan" here; FD-6 puts recents above the search list. */
+/** Tabs of the add-food sheet. FD-6 puts recents above the search list. */
 const TABS = [
   { id: "search", label: "Search" },
+  { id: "scan", label: "Scan" },
   { id: "quick", label: "Quick add" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 /**
- * Add-food sheet: search the catalog (pick an amount) or quick add. Saving is optimistic:
+ * Add-food sheet: search the catalog or scan a barcode (pick an amount), or quick add. Saving is optimistic:
  * `onSave` records the entry and the sheet closes straight away.
  */
 export default function AddFoodSheet({
@@ -80,7 +82,7 @@ export default function AddFoodSheet({
           />
         ) : (
           <>
-            <div role="tablist" aria-label="Add food" className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-lg">
+            <div role="tablist" aria-label="Add food" className="grid grid-cols-3 gap-1 p-1 bg-gray-100 rounded-lg">
               {TABS.map((t) => (
                 <button
                   key={t.id}
@@ -100,6 +102,7 @@ export default function AddFoodSheet({
             </div>
             <div role="tabpanel" id={`add-panel-${tab}`} aria-labelledby={`add-tab-${tab}`}>
               {tab === "search" && <FoodSearch onPick={setPicked} />}
+              {tab === "scan" && <BarcodeLookup onPick={setPicked} />}
               {tab === "quick" && (
                 <QuickAddForm
                   submitLabel="Add to diary"

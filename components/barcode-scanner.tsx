@@ -156,6 +156,10 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
         stop();
         return;
       }
+      const track = stream.getVideoTracks()[0];
+      trackRef.current = track ?? null;
+      const caps = track?.getCapabilities?.() as { torch?: boolean } | undefined;
+      if (caps?.torch) setTorchAvailable(true);
       video.srcObject = stream;
       try {
         await video.play();
