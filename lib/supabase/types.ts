@@ -77,6 +77,8 @@ export interface Client {
   phone: string | null;
   calorie_target: number | null;
   weight_kg: number | null;
+  /** Goal weight; when set, per-kg macro targets are computed on it. */
+  target_weight_kg: number | null;
   restrictions: string | null;
   allergies: string | null;
   preferences: string | null;
