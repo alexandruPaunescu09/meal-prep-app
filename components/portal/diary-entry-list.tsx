@@ -2,13 +2,16 @@ import type { FoodLogEntry } from "@/lib/supabase/types";
 import { formatNumber } from "@/lib/format";
 import { formatEntryAmount } from "@/lib/portal/format-amount";
 
-/** Logged (non-plan) foods of one meal. FD-3 makes rows editable through `onSelect`. */
+/** Logged (non-plan) foods of one meal. Rows open for editing through `onSelect`. */
 export default function DiaryEntryList({
   entries,
   onSelect,
+  isUnsynced,
 }: {
   entries: FoodLogEntry[];
   onSelect?: (entry: FoodLogEntry) => void;
+  /** True for entries whose write has not reached the server yet. */
+  isUnsynced?: (id: string) => boolean;
 }) {
   if (entries.length === 0) return null;
   return (
@@ -19,7 +22,11 @@ export default function DiaryEntryList({
             <span className="min-w-0 flex-1 text-left">
               <span className="block text-sm font-medium text-gray-900 truncate">{e.name}</span>
               <span className="block text-xs text-gray-500 truncate">
-                {[e.brand, e.source_kind === "quick" ? "Quick add" : formatEntryAmount(e.quantity, e.quantity_unit)]
+                {[
+                  e.brand,
+                  e.source_kind === "quick" ? "Quick add" : formatEntryAmount(e.quantity, e.quantity_unit),
+                  isUnsynced?.(e.id) ? "Waiting to sync" : null,
+                ]
                   .filter(Boolean)
                   .join(" · ")}
               </span>

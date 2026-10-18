@@ -17,13 +17,16 @@ import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
 import DayScrubber from "@/components/portal/day-scrubber";
 import DiarySummary from "@/components/portal/diary-summary";
-import DiarySection, { MEAL_SECTION_LABEL } from "@/components/portal/diary-section";
+import DiarySection from "@/components/portal/diary-section";
 import DiaryEntryList from "@/components/portal/diary-entry-list";
 import PortionFactorSheet from "@/components/portal/portion-factor-sheet";
-import { Modal } from "@/components/ui/modal";
+import AddFoodSheet from "@/components/portal/add-food-sheet";
+import EditEntrySheet from "@/components/portal/edit-entry-sheet";
 import { useToast } from "@/components/ui/toast";
 import { addDaysLocal, parseLocalDate, sortByMealType } from "@/lib/portal/entry-helpers";
 import { useMealStatus } from "@/lib/portal/use-meal-status";
+import { useDiaryLog } from "@/lib/portal/use-diary-log";
+import { entryToInput } from "@/lib/portal/diary-draft";
 import { formatShortDate, todayInTz } from "@/lib/format";
 
 const FULL_WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -68,8 +71,8 @@ export default function TodayClient({
   const toast = useToast();
   const [openEntryId, setOpenEntryId] = useState<string | null>(null);
   const [factorEntryId, setFactorEntryId] = useState<string | null>(null);
-  // FD-3 replaces this stub with the add-food sheet.
   const [addToMeal, setAddToMeal] = useState<MealType | null>(null);
+  const [editEntryId, setEditEntryId] = useState<string | null>(null);
 
   // pendingDate: the date the user has tapped/picked but for which the
   // server-rendered prop hasn't caught up yet. Drives the scrubber's
@@ -120,6 +123,10 @@ export default function TodayClient({
 
   const { stateOf, saving, applyChanges } = useMealStatus(statuses);
 
+  // Server entries plus the customer's own unsynced changes (optimistic / queued offline).
+  const diaryLog = useDiaryLog(logEntries, selectedDate);
+  const dayLog = diaryLog.entries;
+
   const sorted = useMemo(() => sortByMealType(entries), [entries]);
   const mealDateSet = useMemo(() => new Set(mealDates), [mealDates]);
 
@@ -133,9 +140,9 @@ export default function TodayClient({
             ? [{ meal_plan_entry_id: e.id, status: o.status, portion_factor: o.factor }]
             : [];
         }),
-        logEntries,
+        logEntries: dayLog,
       }),
-    [sorted, stateOf, logEntries]
+    [sorted, stateOf, dayLog]
   );
 
   const cards: MealCardData[] = useMemo(() => {
@@ -195,6 +202,18 @@ export default function TodayClient({
     }
   }
 
+  async function deleteEntry(entry: FoodLogEntry) {
+    setEditEntryId(null);
+    if (!(await diaryLog.remove(entry))) return;
+    // Undo re-creates the same entry (same id), so it is idempotent even when queued offline.
+    const canUndo = entry.source_kind === "quick" || Boolean(entry.food_id ?? entry.ingredient_id ?? entry.recipe_id);
+    toast.success(`Removed ${entry.name}`, {
+      action: canUndo
+        ? { label: "Undo", onClick: () => void diaryLog.save(entryToInput(entry), entry) }
+        : undefined,
+    });
+  }
+
   const selectedJsDate = parseLocalDate(selectedDate);
   const isToday = selectedDate === todayDate;
   const dateLabel = selectedJsDate
@@ -235,7 +254,7 @@ export default function TodayClient({
   function onTouchEnd(e: React.TouchEvent) {
     const start = swipeStart.current;
     swipeStart.current = null;
-    if (!start || openEntryId || factorEntryId || addToMeal) return;
+    if (!start || openEntryId || factorEntryId || addToMeal || editEntryId) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
@@ -245,6 +264,7 @@ export default function TodayClient({
 
   const open = openEntryId ? sorted.find((e) => e.id === openEntryId) ?? null : null;
   const openReview = open ? reviews.find((r) => r.meal_plan_entry_id === open.id) ?? null : null;
+  const editEntry = editEntryId ? dayLog.find((l) => l.id === editEntryId) ?? null : null;
   const factorCard = factorEntryId ? cards.find((c) => c.entryId === factorEntryId) ?? null : null;
 
   const sectionsToShow = canLog
@@ -353,7 +373,7 @@ export default function TodayClient({
 
             {sectionsToShow.map((m) => {
               const sectionCards = cards.filter((c) => c.mealType === m);
-              const sectionLogs = logEntries.filter((l) => l.meal_type === m);
+              const sectionLogs = dayLog.filter((l) => l.meal_type === m);
               return (
                 <DiarySection
                   key={m}
@@ -372,7 +392,11 @@ export default function TodayClient({
                       onChangeAmount={canLog ? () => setFactorEntryId(c.entryId) : undefined}
                     />
                   ))}
-                  <DiaryEntryList entries={sectionLogs} />
+                  <DiaryEntryList
+                    entries={sectionLogs}
+                    onSelect={canLog ? (e) => setEditEntryId(e.id) : undefined}
+                    isUnsynced={diaryLog.unsynced}
+                  />
                   {sectionCards.length === 0 && sectionLogs.length === 0 && (
                     <p className="text-sm text-gray-500 px-1">Nothing logged yet.</p>
                   )}
@@ -409,17 +433,23 @@ export default function TodayClient({
         />
       )}
 
-      {addToMeal && (
-        <Modal
-          open
+      {addToMeal && canLog && (
+        <AddFoodSheet
+          initialMeal={addToMeal}
+          logDate={selectedDate}
+          onSave={diaryLog.save}
           onClose={() => setAddToMeal(null)}
-          variant="sheet"
-          title={`Add to ${MEAL_SECTION_LABEL[addToMeal]}`}
-        >
-          <p className="text-sm text-gray-600">
-            Adding foods to your diary is coming soon. For now, mark your plan meals as eaten.
-          </p>
-        </Modal>
+        />
+      )}
+
+      {editEntry && canLog && (
+        <EditEntrySheet
+          key={editEntry.id}
+          entry={editEntry}
+          onSave={diaryLog.save}
+          onDelete={() => void deleteEntry(editEntry)}
+          onClose={() => setEditEntryId(null)}
+        />
       )}
     </div>
   );
