@@ -19,11 +19,11 @@ Update this table as stories land, with the branch or PR and the date.
 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
-| FD-0 | Stop exposing prices and admin notes to customers | S | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
-| FD-1 | Diary foundation (tables, catalog search, diary API, calc lib, tests) | M | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
-| FD-2 | Diary day view | M | FD-1 | Done 2026-10-18 on `claude/zen-mendel-997ce7` (on top of `food-diary/step-1`; not merged) |
-| FD-3 | Log food from the catalog + quick add | M | FD-2 | Not started |
-| FD-7 | Target weight | S | — | Done 2026-10-18 on `food-diary/step-1` (not merged) |
+| FD-0 | Stop exposing prices and admin notes to customers | S | — | Done 2026-10-18, merged to main with PR #6 (021d9bd) |
+| FD-1 | Diary foundation (tables, catalog search, diary API, calc lib, tests) | M | — | Done 2026-10-18, merged to main with PR #6 (021d9bd) |
+| FD-2 | Diary day view | M | FD-1 | Done 2026-10-18, merged to main with PR #6 (021d9bd) |
+| FD-3 | Log food from the catalog + quick add | M | FD-2 | Done 2026-10-19 on `food-diary/fd-3-log-food` (PR open) |
+| FD-7 | Target weight | S | — | Done 2026-10-18, merged to main with PR #6 (021d9bd) |
 | FD-4 | Barcode scan to log | M | FD-3 | Not started |
 | FD-5 | Add a product from a nutrition-label photo | L | FD-4 | Not started |
 | FD-12 | Admin food moderation | M | FD-4 | Not started |

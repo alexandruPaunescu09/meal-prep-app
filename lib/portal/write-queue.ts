@@ -93,6 +93,15 @@ export function queueSize(): number {
   return cachedSize;
 }
 
+/** Ids of diary entries that still have a write waiting in the queue. */
+export function queuedDiaryIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const i of read()) {
+    if (i.kind === "diary-upsert" || i.kind === "diary-delete") ids.add(i.payload.id);
+  }
+  return ids;
+}
+
 export function queueWrite(w: QueuedWrite) {
   // A newer write for the same entry supersedes an older queued one (see queueKey).
   const next = withoutSuperseded(read(), w);
