@@ -9,7 +9,7 @@ import StarRating from "./star-rating";
 import TagChips from "./tag-chips";
 import PhotoUpload from "./photo-upload";
 import { uploadReviewPhoto } from "@/lib/portal/storage";
-import { queueWrite } from "@/lib/portal/write-queue";
+import { dropQueued, queueWrite } from "@/lib/portal/write-queue";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { formatDate } from "@/lib/format";
@@ -193,6 +193,7 @@ export default function ReviewComposer({
         return;
       }
 
+      dropQueued("review", entryId);
       const result = (await r.json()) as { id: string; client_id: string };
 
       if (pendingFile) {
@@ -227,6 +228,7 @@ export default function ReviewComposer({
         const j = await r.json().catch(() => ({}));
         throw new Error(j.error ?? "Could not delete the review");
       }
+      dropQueued("review", entryId);
       finish("Review deleted");
     } catch (e) {
       const offline = typeof navigator !== "undefined" && !navigator.onLine;

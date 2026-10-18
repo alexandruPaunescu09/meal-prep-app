@@ -1,5 +1,5 @@
 import type { MealStatus } from "@/lib/supabase/types";
-import { queueWrite } from "@/lib/portal/write-queue";
+import { dropQueued, queueWrite } from "@/lib/portal/write-queue";
 
 /**
  * Saves a meal status. Resolves 'saved' on success, 'queued' when the write was
@@ -30,5 +30,6 @@ export async function saveMealStatus(
     const j = await r.json().catch(() => ({}));
     throw new Error(j.error ?? "Could not save status");
   }
+  dropQueued("status", entryId);
   return "saved";
 }

@@ -161,6 +161,7 @@ export default function MealPlanGrid({
   const router = useRouter();
   const supabase = createClient();
   const toast = useToast();
+  const confirm = useConfirm();
   const isDesktop = useIsDesktop();
   const [slotPicker, setSlotPicker] = useState<SlotPickerState | null>(null);
   // Remembered across SlotPicker opens within this page visit.
@@ -400,8 +401,21 @@ export default function MealPlanGrid({
     });
   }
 
-  async function removeEntry(entryId: string) {
+  async function removeEntry(entryId: string, alreadyConfirmed = false) {
     const removed = entries.find((e) => e.id === entryId);
+    // Reviews and eaten/skipped statuses cascade-delete with the entry and
+    // cannot be restored by Undo, so confirm first and drop Undo for them.
+    const hasCustomerData = reviewMap.has(entryId) || statusMap.has(entryId);
+    if (hasCustomerData && !alreadyConfirmed) {
+      const ok = await confirm({
+        title: "Remove this meal?",
+        message:
+          "The customer has already rated or logged this meal. Removing it permanently deletes their review and eaten/skipped status.",
+        confirmLabel: "Remove",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
     const snapshot = entries;
     setRemovingEntry(entryId);
     setEntries((prev) => prev.filter((e) => e.id !== entryId));
@@ -415,12 +429,14 @@ export default function MealPlanGrid({
     if (error) {
       setEntries(snapshot);
       toast.error(`Delete failed: ${error.message}`, {
-        action: { label: "Retry", onClick: () => void removeEntry(entryId) },
+        action: { label: "Retry", onClick: () => void removeEntry(entryId, hasCustomerData) },
       });
       return;
     }
     invalidateMealPlan(plan.id);
-    if (removed) {
+    if (hasCustomerData) {
+      toast.success("Meal removed");
+    } else if (removed) {
       toast.info("Entry removed", {
         action: {
           label: "Undo",

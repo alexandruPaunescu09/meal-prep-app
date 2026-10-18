@@ -18,17 +18,31 @@ type StatusQueued = {
 };
 
 export type QueuedWrite = ReviewQueued | StatusQueued;
+type StoredWrite = QueuedWrite & { id: string };
+
+function newId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 const listeners = new Set<() => void>();
 let flushing: Promise<{ flushed: number; remaining: number }> | null = null;
 // Cached snapshot so useSyncExternalStore gets a stable value between changes.
 let cachedSize = -1;
 
-function read(): QueuedWrite[] {
+function read(): StoredWrite[] {
   if (typeof window === "undefined") return [];
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? "[]");
-    return Array.isArray(v) ? v : [];
+    if (!Array.isArray(v)) return [];
+    // Older queues have no ids: assign one (persisted on the next write) so they still flush.
+    return v.map((i: QueuedWrite & { id?: string }) => (i.id ? i : { ...i, id: newId() })) as StoredWrite[];
   } catch {
     return [];
   }
@@ -45,7 +59,7 @@ function notify() {
   });
 }
 
-function write(items: QueuedWrite[]) {
+function write(items: StoredWrite[]) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(KEY, JSON.stringify(items));
@@ -74,8 +88,17 @@ export function queueWrite(w: QueuedWrite) {
   const next = read().filter(
     (i) => !(i.kind === w.kind && i.payload.meal_plan_entry_id === w.payload.meal_plan_entry_id)
   );
-  next.push(w);
+  next.push({ ...w, id: newId() });
   write(next);
+}
+
+/** Drop queued writes of a kind for an entry (a newer direct save/delete made them stale). */
+export function dropQueued(kind: QueuedWrite["kind"], mealPlanEntryId: string) {
+  const items = read();
+  const next = items.filter(
+    (i) => !(i.kind === kind && i.payload.meal_plan_entry_id === mealPlanEntryId)
+  );
+  if (next.length !== items.length) write(next);
 }
 
 export function flushQueue(): Promise<{ flushed: number; remaining: number }> {
@@ -87,9 +110,11 @@ export function flushQueue(): Promise<{ flushed: number; remaining: number }> {
 }
 
 async function doFlush(): Promise<{ flushed: number; remaining: number }> {
+  // Ids are only stable once persisted; persist any freshly assigned ids first.
   const items = read();
   if (items.length === 0) return { flushed: 0, remaining: 0 };
-  const remaining: QueuedWrite[] = [];
+  write(items);
+  const done = new Set<string>(); // sent successfully or permanently dropped
   let flushed = 0;
   for (const item of items) {
     const url = item.kind === "review" ? "/api/portal/reviews" : "/api/portal/status";
@@ -101,19 +126,18 @@ async function doFlush(): Promise<{ flushed: number; remaining: number }> {
       });
       if (r.ok) {
         flushed += 1;
+        done.add(item.id);
       } else if (r.status >= 400 && r.status < 500 && ![401, 408, 429].includes(r.status)) {
         // Will never succeed (forbidden / invalid): drop instead of retrying forever.
         console.warn("write-queue: dropping rejected write", r.status, item.kind);
-      } else {
-        remaining.push(item);
+        done.add(item.id);
       }
     } catch {
-      remaining.push(item);
+      /* network failure: keep for the next flush */
     }
   }
-  // Keep anything queued while we were flushing.
-  const added = read().slice(items.length);
-  const finalItems = [...remaining, ...added];
+  // Re-read: remove only what we finished; anything added/superseded meanwhile stays as is.
+  const finalItems = read().filter((i) => !done.has(i.id));
   write(finalItems);
   if (flushed > 0 && typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("portal:queue-flushed", { detail: { flushed } }));

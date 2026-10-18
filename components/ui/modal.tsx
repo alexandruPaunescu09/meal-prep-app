@@ -144,14 +144,18 @@ export function Modal({
       )?.focus();
     });
 
+    // Escape runs in the bubble phase so handlers inside the modal (React's root
+    // listener, e.g. an open combobox) get first chance; they consume it with
+    // preventDefault() and the modal then leaves it alone.
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (stack[stack.length - 1] !== id) return; // not top-most
+      e.preventDefault();
+      void requestClose();
+    };
+    // Tab trap stays in the capture phase.
     const onKey = (e: KeyboardEvent) => {
       if (stack[stack.length - 1] !== id) return; // not top-most
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        void requestClose();
-        return;
-      }
       if (e.key !== "Tab") return;
       const panel = panelRef.current;
       if (!panel) return;
@@ -175,10 +179,12 @@ export function Modal({
       }
     };
     document.addEventListener("keydown", onKey, true);
+    document.addEventListener("keydown", onEscape);
 
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("keydown", onEscape);
       const i = stack.indexOf(id);
       if (i >= 0) stack.splice(i, 1);
       unlockScroll();

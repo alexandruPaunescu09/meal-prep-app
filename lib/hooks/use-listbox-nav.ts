@@ -54,6 +54,8 @@ export function useListboxNav({
       e.preventDefault();
       onSelect(activeIndex);
     } else if (e.key === "Escape" && enabled) {
+      // Mark consumed so an enclosing Modal doesn't also close.
+      e.preventDefault();
       onEscape?.(e);
     }
   }
