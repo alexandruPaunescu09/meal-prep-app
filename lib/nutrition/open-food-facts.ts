@@ -8,6 +8,9 @@ const OFF_USER_AGENT = "MealPrepApp/1.0 (meal-prep admin app)";
 
 const OFF_FIELDS = [
   "product_name",
+  "product_name_ro",
+  "product_name_en",
+  "generic_name",
   "brands",
   "code",
   "nutriments",
@@ -32,6 +35,9 @@ const OFF_BARCODE_FIELDS = [
 ].join(",");
 
 interface OFFProductWithQuantity extends OFFProductFull {
+  product_name_ro?: string;
+  product_name_en?: string;
+  generic_name?: string;
   product_quantity?: number | string;
   product_quantity_unit?: string;
   quantity?: string;
@@ -45,8 +51,8 @@ export interface BarcodeLookup {
   packageSize: { quantity: number; unit: "g" | "ml" } | null;
   /** One serving in g/ml (and the label OFF prints for it), when OFF knows it. */
   serving: { size: number; label: string | null } | null;
-  /** Unit the per-100 values refer to: ml for drinks, otherwise g. */
-  unit: "g" | "ml";
+  /** Unit the per-100 values refer to, or null when OFF gives no way to tell (never guessed). */
+  unit: "g" | "ml" | null;
   perServingOnly: boolean;
 }
 
@@ -73,28 +79,31 @@ function extractNutrition(nutriments: Record<string, number>): NutritionData {
   };
 }
 
-function extractMicros(n: Record<string, number>): Record<string, number> {
-  const micros: Record<string, number> = {};
-  const mapping: Record<string, string> = {
-    iron_100g: "iron_mg",
-    calcium_100g: "calcium_mg",
-    potassium_100g: "potassium_mg",
-    magnesium_100g: "magnesium_mg",
-    zinc_100g: "zinc_mg",
-    "vitamin-a_100g": "vitamin_a_ug",
-    "vitamin-c_100g": "vitamin_c_mg",
-    "vitamin-d_100g": "vitamin_d_ug",
-    "vitamin-e_100g": "vitamin_e_mg",
-    "vitamin-k_100g": "vitamin_k_ug",
-    phosphorus_100g: "phosphorus_mg",
-    selenium_100g: "selenium_ug",
-    folate_100g: "folate_ug",
-  };
+// Open Food Facts reports every `*_100g` micronutrient in GRAMS (iron_100g 0.012 = 12 mg). Our keys
+// carry their unit in the suffix, so convert: g -> mg is x1000, g -> ug is x1e6.
+const MICRO_MAP: Record<string, { key: string; factor: number }> = {
+  iron_100g: { key: "iron_mg", factor: 1e3 },
+  calcium_100g: { key: "calcium_mg", factor: 1e3 },
+  potassium_100g: { key: "potassium_mg", factor: 1e3 },
+  magnesium_100g: { key: "magnesium_mg", factor: 1e3 },
+  zinc_100g: { key: "zinc_mg", factor: 1e3 },
+  "vitamin-a_100g": { key: "vitamin_a_ug", factor: 1e6 },
+  "vitamin-c_100g": { key: "vitamin_c_mg", factor: 1e3 },
+  "vitamin-d_100g": { key: "vitamin_d_ug", factor: 1e6 },
+  "vitamin-e_100g": { key: "vitamin_e_mg", factor: 1e3 },
+  "vitamin-k_100g": { key: "vitamin_k_ug", factor: 1e6 },
+  phosphorus_100g: { key: "phosphorus_mg", factor: 1e3 },
+  selenium_100g: { key: "selenium_ug", factor: 1e6 },
+  folate_100g: { key: "folate_ug", factor: 1e6 },
+};
 
-  for (const [offKey, ourKey] of Object.entries(mapping)) {
-    const val = n[offKey];
-    if (val !== undefined && val !== null && val > 0) {
-      micros[ourKey] = val;
+export function extractMicros(n: Record<string, number>): Record<string, number> {
+  const micros: Record<string, number> = {};
+  for (const [offKey, { key, factor }] of Object.entries(MICRO_MAP)) {
+    const val = Number(n[offKey]);
+    if (Number.isFinite(val) && val > 0) {
+      // Round away float noise from the multiplication (0.012 * 1000 = 12.000000000000002).
+      micros[key] = Math.round(val * factor * 1e6) / 1e6;
     }
   }
   return micros;
@@ -121,13 +130,21 @@ function countMissingCore(nutriments: Record<string, number>): number {
   return missing;
 }
 
+/** Primary name, then the Romanian / English / generic names (OFF often fills only one). */
+function productName(p: OFFProductFull & { product_name_ro?: string; product_name_en?: string; generic_name?: string }): string {
+  for (const n of [p.product_name, p.product_name_ro, p.product_name_en, p.generic_name]) {
+    if (n && n.trim()) return n.trim();
+  }
+  return "";
+}
+
 function mapProduct(p: OFFProductFull, nameFallback?: string): NutritionSearchResult {
   const nutrition = extractNutrition(p.nutriments ?? {});
   const ncs = computeNCS(p);
   const category = classifyByCategories(p.categories_tags ?? []);
 
   return {
-    name: p.product_name || nameFallback || "",
+    name: productName(p) || nameFallback || "",
     brand: p.brands || null,
     source: "openfoodfacts" as const,
     barcode: p.code || null,
@@ -222,6 +239,27 @@ export function parseServing(
   return null;
 }
 
+const LIQUID_CATEGORY = /^en:(beverages?|drinks?|waters?|juices?|sodas?|milks?|plant-based-milks?|dairy-drinks?|beers?|wines?|spirits|liqueurs?|energy-drinks?|teas?-based-beverages?)$/;
+
+/**
+ * The unit the per-100 values refer to. Explicit package / serving units win; otherwise liquid
+ * categories mean ml. With no evidence we return null instead of assuming grams (a drink stored
+ * as grams would log the wrong amount), and the caller treats the product as incomplete.
+ */
+export function inferUnit(
+  packageUnit: "g" | "ml" | null | undefined,
+  servingUnit: "g" | "ml" | null | undefined,
+  categories: string[] | undefined
+): "g" | "ml" | null {
+  if (packageUnit) return packageUnit;
+  if (servingUnit) return servingUnit;
+  if ((categories ?? []).some((c) => LIQUID_CATEGORY.test(c))) return "ml";
+  return null;
+}
+
+/** Thrown when Open Food Facts could not answer (rate limit, outage), as opposed to "no such product". */
+export class OffUnavailableError extends Error {}
+
 export async function lookupBarcode(code: string): Promise<BarcodeLookup | null> {
   const res = await fetch(
     `${OFF_PRODUCT_URL}/${encodeURIComponent(code)}?fields=${OFF_BARCODE_FIELDS}`,
@@ -230,7 +268,8 @@ export async function lookupBarcode(code: string): Promise<BarcodeLookup | null>
       headers: { "User-Agent": OFF_USER_AGENT },
     }
   );
-  if (!res.ok) return null;
+  if (res.status === 404) return null;
+  if (!res.ok) throw new OffUnavailableError(`Open Food Facts answered ${res.status}`);
 
   const data = await res.json();
   if (data.status !== 1 || !data.product) return null;
@@ -250,7 +289,7 @@ export async function lookupBarcode(code: string): Promise<BarcodeLookup | null>
     result,
     packageSize,
     serving: serving ? { size: serving.size, label: serving.label } : null,
-    unit: packageSize?.unit ?? serving?.unit ?? "g",
+    unit: inferUnit(packageSize?.unit, serving?.unit, p.categories_tags),
     perServingOnly,
   };
 }

@@ -1,9 +1,11 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera, Loader2, ScanBarcode, WifiOff } from "lucide-react";
 import type { CatalogItem } from "@/lib/supabase/types";
 import BarcodeScanner from "@/components/barcode-scanner";
+
+const LOOKUP_TIMEOUT_MS = 12000;
 
 type Phase =
   | { kind: "idle" }
@@ -33,13 +35,27 @@ export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) 
   const [scanning, setScanning] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const latest = useRef(0);
+  const ctrl = useRef<AbortController | null>(null);
+
+  // Leaving the Scan tab (or closing the sheet) unmounts this: cancel the request and ignore any answer.
+  useEffect(
+    () => () => {
+      latest.current++;
+      ctrl.current?.abort();
+    },
+    []
+  );
 
   async function lookup(code: string) {
     const id = ++latest.current;
+    ctrl.current?.abort();
+    const c = new AbortController();
+    ctrl.current = c;
+    const timer = setTimeout(() => c.abort(), LOOKUP_TIMEOUT_MS);
     setScanning(false);
     setPhase({ kind: "loading", code });
     try {
-      const r = await fetch(`/api/portal/foods/barcode?code=${encodeURIComponent(code)}`);
+      const r = await fetch(`/api/portal/foods/barcode?code=${encodeURIComponent(code)}`, { signal: c.signal });
       const j = (await r.json().catch(() => ({}))) as {
         item?: CatalogItem;
         error?: string;
@@ -63,8 +79,12 @@ export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) 
         kind: "failed",
         code,
         reason: "lookup_failed",
-        message: "Couldn't reach the server. Check your connection and try again.",
+        message: c.signal.aborted
+          ? "This is taking too long. Try again."
+          : "Couldn't reach the server. Check your connection and try again.",
       });
+    } finally {
+      clearTimeout(timer);
     }
   }
 
