@@ -149,14 +149,14 @@ export default async function PortalTodayPage({
       .select(
         `
         *,
-        recipe:recipes (
+        recipe:recipes_public (
           *,
           recipe_ingredients (
             *,
-            ingredient:ingredients (*)
+            ingredient:ingredients_public (*)
           )
         ),
-        ingredient:ingredients (*)
+        ingredient:ingredients_public (*)
       `
       )
       .eq("meal_plan_id", plan.id)

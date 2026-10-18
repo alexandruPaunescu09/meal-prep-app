@@ -12,6 +12,13 @@ import {
   invalidateMealPlans,
   invalidateProfiles,
 } from "@/lib/actions/revalidate";
+import { parseDecimal } from "@/lib/format";
+import {
+  TARGET_WEIGHT_MAX,
+  TARGET_WEIGHT_MIN,
+  formatKg,
+  formatWeightProgress,
+} from "@/lib/weight";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -301,6 +308,11 @@ export default function ClientsClient({
                   Target: {client.calorie_target} kcal/day
                 </p>
               )}
+              {formatWeightProgress(client.weight_kg, client.target_weight_kg) && (
+                <p className="text-sm text-gray-600">
+                  Weight: {formatWeightProgress(client.weight_kg, client.target_weight_kg)}
+                </p>
+              )}
               {(client.email || client.phone) && (
                 <div className="text-xs text-gray-500 mt-1 space-y-0.5">
                   {client.email && <p>{client.email}</p>}
@@ -410,6 +422,8 @@ interface ClientFormState {
   phone: string;
   calorie_target: number | null;
   weight_kg: number | null;
+  /** Free text so a decimal comma can be typed; parsed on submit. */
+  target_weight_kg: string;
   restrictions: string;
   allergies: string;
   preferences: string;
@@ -437,6 +451,8 @@ function ClientForm({
     phone: client?.phone ?? "",
     calorie_target: client?.calorie_target ?? null,
     weight_kg: client?.weight_kg ?? null,
+    target_weight_kg:
+      client?.target_weight_kg != null ? formatKg(client.target_weight_kg) : "",
     restrictions: client?.restrictions ?? "",
     allergies: client?.allergies ?? "",
     preferences: client?.preferences ?? "",
@@ -460,8 +476,23 @@ function ClientForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setError("");
+
+    const targetText = form.target_weight_kg.trim();
+    const targetWeight = targetText ? parseDecimal(targetText) : null;
+    if (
+      targetText &&
+      (targetWeight === null ||
+        targetWeight < TARGET_WEIGHT_MIN ||
+        targetWeight > TARGET_WEIGHT_MAX)
+    ) {
+      const msg = `Goal weight must be between ${TARGET_WEIGHT_MIN} and ${TARGET_WEIGHT_MAX} kg, e.g. 68,5.`;
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setSaving(true);
 
     const payload = {
       name: form.name.trim(),
@@ -469,6 +500,7 @@ function ClientForm({
       phone: form.phone || null,
       calorie_target: form.calorie_target,
       weight_kg: form.weight_kg,
+      target_weight_kg: targetWeight,
       restrictions: form.restrictions || null,
       allergies: form.allergies || null,
       preferences: form.preferences || null,
@@ -533,7 +565,7 @@ function ClientForm({
         <p className="text-sm text-gray-500">
           Weight and calorie target feed the macro targets on this client&apos;s
           meal plans. Protein and fat targets are set per kg on each plan and
-          multiplied by the weight entered here.
+          multiplied by the goal weight if set, otherwise the current weight.
         </p>
 
         <div>
@@ -617,6 +649,26 @@ function ClientForm({
               placeholder="e.g. 70"
               className={inputClass}
             />
+          </div>
+          <div>
+            <label htmlFor="client-target-weight" className={labelClass}>
+              Goal weight (kg)
+            </label>
+            <input
+              id="client-target-weight"
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={form.target_weight_kg}
+              onChange={(e) =>
+                setForm({ ...form, target_weight_kg: e.target.value })
+              }
+              placeholder="e.g. 68,5"
+              className={inputClass}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Optional. When set, protein and fat targets use this instead of the current weight.
+            </p>
           </div>
         </div>
         <div>

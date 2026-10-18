@@ -17,6 +17,7 @@ import {
   MealStatus,
 } from "@/lib/supabase/types";
 import { calculateWeek, resolveTargets } from "@/lib/calculations/meal-plan";
+import { formatKg } from "@/lib/weight";
 import ShoppingListPanel from "@/components/shopping-list-panel";
 import { invalidateMealPlan, invalidateMealPlans } from "@/lib/actions/revalidate";
 import {
@@ -545,7 +546,7 @@ export default function MealPlanGrid({
     invalidateMealPlan(plan.id);
   }
 
-  const missingWeight = plan.client != null && plan.client.weight_kg == null;
+  const missingWeight = plan.client != null && targets.weightBasis == null;
 
   return (
     <div>
@@ -935,6 +936,12 @@ export default function MealPlanGrid({
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
           Weekly Summary
         </h3>
+        {targets.weightBasis && (
+          <p className="mb-3 text-xs text-gray-500">
+            Macros on {formatKg(targets.weightBasis.kg)} kg{" "}
+            {targets.weightBasis.source === "target" ? "goal" : "current"} weight
+          </p>
+        )}
         {(targets.calories == null || missingWeight) && (
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
@@ -2123,7 +2130,7 @@ function PlanSettings({
               />
             </div>
           </div>
-          {plan.client && plan.client.weight_kg == null && (
+          {plan.client && plan.client.weight_kg == null && plan.client.target_weight_kg == null && (
             <p className="text-xs text-amber-700 mt-2">
               Client has no weight set — macro targets won&apos;t resolve until
               you add a weight to the client.

@@ -3,26 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft } from "lucide-react";
-import {
-  Ingredient,
-  MealEntryStatus,
-  MealPlan,
-  MealPlanEntry,
-  MealReview,
-  Recipe,
-  RecipeIngredient,
-} from "@/lib/supabase/types";
+import { MealEntryStatus, MealPlan, MealReview, PortalEntry } from "@/lib/supabase/types";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
 import { entryNutrition, sortByMealType, compareLocalDate } from "@/lib/portal/entry-helpers";
 import { addDays, formatShortDate, formatWeekRange, WEEKDAYS_SHORT } from "@/lib/format";
 
-type FullEntry = MealPlanEntry & {
-  recipe?: Recipe & {
-    recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
-  };
-  ingredient?: Ingredient;
-};
+type FullEntry = PortalEntry;
 
 export default function PlanDetailClient({
   plan,

@@ -1,13 +1,7 @@
-import { Ingredient, MealPlanEntry, Recipe, RecipeIngredient } from "@/lib/supabase/types";
-import { calculateRecipe } from "@/lib/calculations/recipe";
+import { PortalEntry } from "@/lib/supabase/types";
 import { addDays, mondayOf, parseLocalDate, toLocalISODate } from "@/lib/format";
 
-type FullEntry = MealPlanEntry & {
-  recipe?: Recipe & {
-    recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
-  };
-  ingredient?: Ingredient;
-};
+type FullEntry = PortalEntry;
 
 export interface EntryNutrition {
   calories: number;
@@ -19,17 +13,25 @@ export interface EntryNutrition {
 
 export function entryNutrition(entry: FullEntry): EntryNutrition {
   if (entry.recipe) {
-    const items = entry.recipe.recipe_ingredients
-      .filter((ri) => ri.ingredient)
-      .map((ri) => ({ ingredient: ri.ingredient!, quantity: ri.quantity }));
-    const calc = calculateRecipe(items, entry.recipe.portions);
+    // Nutrition only: portal ingredients carry no price fields.
+    const total = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+    for (const ri of entry.recipe.recipe_ingredients) {
+      if (!ri.ingredient) continue;
+      const f = ri.quantity / 100;
+      total.calories += (ri.ingredient.calories ?? 0) * f;
+      total.protein += (ri.ingredient.protein ?? 0) * f;
+      total.carbs += (ri.ingredient.carbs ?? 0) * f;
+      total.fat += (ri.ingredient.fat ?? 0) * f;
+      total.fiber += (ri.ingredient.fiber ?? 0) * f;
+    }
+    const p = Math.max(entry.recipe.portions, 1);
     const m = entry.portions;
     return {
-      calories: calc.perPortion.calories * m,
-      protein: calc.perPortion.protein * m,
-      carbs: calc.perPortion.carbs * m,
-      fat: calc.perPortion.fat * m,
-      fiber: calc.perPortion.fiber * m,
+      calories: (total.calories / p) * m,
+      protein: (total.protein / p) * m,
+      carbs: (total.carbs / p) * m,
+      fat: (total.fat / p) * m,
+      fiber: (total.fiber / p) * m,
     };
   }
   if (entry.ingredient && entry.quantity) {
