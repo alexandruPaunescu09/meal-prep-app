@@ -1,9 +1,12 @@
 -- FD-12: merge a duplicate catalog food into another one.
--- House pattern: SECURITY INVOKER (RLS still applies), is_admin() guard,
--- EXECUTE revoked from PUBLIC and granted to authenticated.
+-- SECURITY DEFINER (unlike the house SECURITY INVOKER RPCs): the admin may only READ customers'
+-- food_log_entries, and repointing them needs UPDATE. Rather than granting the admin a broad UPDATE
+-- policy on diary rows, this one function runs as its owner, guarded by is_admin() (which still sees
+-- the caller's JWT), with a pinned search_path. EXECUTE revoked from PUBLIC, granted to authenticated.
 --
 -- Semantics (p_from is the duplicate that disappears, p_into survives):
---  * p_from = p_into, or either row missing -> error, nothing changes.
+--  * p_from = p_into, either row missing, or p_into not 'active' -> error, nothing changes.
+--    (Merging into a pending/hidden food would hide the product from every other customer.)
 --  * food_log_entries.food_id is repointed to p_into. The nutrition SNAPSHOT columns
 --    (name, calories, ...) are NOT touched: past diary days keep what the customer saw.
 --  * food_favorites.food_id is repointed too. Clients who already favour p_into would violate
@@ -13,22 +16,23 @@
 --  * Finally p_from is deleted. Its promoted_ingredient_id, photos and verification are not
 --    carried over (the survivor is the record of truth).
 -- Returns {entries, favorites_moved, favorites_dropped, barcode_moved}.
--- The admin could only SELECT food_log_entries (customer data). Merging needs UPDATE, otherwise RLS
--- silently matches zero rows and deleting the duplicate would null every entry's food_id (SET NULL).
--- Scoped to admins; the function additionally verifies that no entry is left behind.
+-- The function still verifies that no diary entry is left pointing at p_from before deleting it
+-- (deleting would otherwise SET NULL their food_id).
+
+-- An earlier draft of this story granted the admin a broad UPDATE policy on diary rows; make sure no
+-- local database keeps it.
 DROP POLICY IF EXISTS "Admin repoint food" ON food_log_entries;
-CREATE POLICY "Admin repoint food" ON food_log_entries
-  FOR UPDATE USING (is_admin()) WITH CHECK (is_admin());
 
 CREATE OR REPLACE FUNCTION merge_foods(p_from uuid, p_into uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
   v_from_barcode TEXT;
   v_into_barcode TEXT;
+  v_into_status TEXT;
   v_entries INT;
   v_fav_dropped INT;
   v_fav_moved INT;
@@ -48,9 +52,12 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'food to merge not found';
   END IF;
-  SELECT barcode INTO v_into_barcode FROM foods WHERE id = p_into FOR UPDATE;
+  SELECT barcode, status INTO v_into_barcode, v_into_status FROM foods WHERE id = p_into FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'target food not found';
+  END IF;
+  IF v_into_status <> 'active' THEN
+    RAISE EXCEPTION 'merge target must be an active food';
   END IF;
 
   UPDATE food_log_entries SET food_id = p_into WHERE food_id = p_from;

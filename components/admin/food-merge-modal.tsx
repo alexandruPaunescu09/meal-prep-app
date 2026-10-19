@@ -31,7 +31,9 @@ export default function FoodMergeModal({
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     return candidates
-      .filter((c) => c.id !== from.id)
+      // Only active foods can survive a merge (merge_foods enforces it too): merging into a pending
+      // or hidden food would hide the product from every other customer.
+      .filter((c) => c.id !== from.id && c.status === "active")
       .filter((c) => !s || `${c.name} ${c.brand ?? ""} ${c.barcode ?? ""}`.toLowerCase().includes(s))
       .slice(0, 30);
   }, [candidates, from.id, q]);
@@ -72,7 +74,7 @@ export default function FoodMergeModal({
       open
       onClose={onClose}
       title="Merge duplicate"
-      description={`Choose the food to keep. "${from.name}" is the duplicate that will be removed.`}
+      description={`Choose the active food to keep. "${from.name}" is the duplicate that will be removed.`}
       footer={
         <div className="flex justify-end gap-2">
           <button
@@ -106,7 +108,9 @@ export default function FoodMergeModal({
         />
       </div>
       {matches.length === 0 ? (
-        <p className="text-sm text-gray-500 py-4 text-center">No other foods match.</p>
+        <p className="text-sm text-gray-500 py-4 text-center">
+          No other active foods match. Verify the food you want to keep first.
+        </p>
       ) : (
         <ul role="radiogroup" aria-label="Food to keep" className="divide-y border rounded-lg max-h-72 overflow-y-auto">
           {matches.map((c) => (
