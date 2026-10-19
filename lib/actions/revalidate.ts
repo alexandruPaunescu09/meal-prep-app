@@ -88,6 +88,13 @@ export async function invalidateReviewTags() {
   updateTag(CACHE_TAGS.reviewTags);
 }
 
+export async function invalidateFoods() {
+  // Moderation changes the admin foods list, the sidebar/dashboard pending count and
+  // (via merge) the usage counts, which come from the food log.
+  updateTag(CACHE_TAGS.foods);
+  updateTag(CACHE_TAGS.foodLog);
+}
+
 export async function invalidateMealEntryStatuses() {
   updateTag(CACHE_TAGS.mealEntryStatuses);
 }

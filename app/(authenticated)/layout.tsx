@@ -2,6 +2,7 @@ import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AppShell from "@/components/app-shell";
 import { getUnreadReviewCount } from "@/lib/data/reviews";
+import { getPendingFoodCount } from "@/lib/data/foods";
 
 export default async function AuthenticatedLayout({
   children,
@@ -31,10 +32,13 @@ export default async function AuthenticatedLayout({
 
   // Cached read; runs after the auth gate above, so it is safe to share
   // across all admin sessions.
-  const unreadReviews = await getUnreadReviewCount();
+  const [unreadReviews, pendingFoods] = await Promise.all([
+    getUnreadReviewCount(),
+    getPendingFoodCount(),
+  ]);
 
   return (
-    <AppShell unreadReviews={unreadReviews} userEmail={user.email ?? null}>
+    <AppShell unreadReviews={unreadReviews} pendingFoods={pendingFoods} userEmail={user.email ?? null}>
       {children}
     </AppShell>
   );
