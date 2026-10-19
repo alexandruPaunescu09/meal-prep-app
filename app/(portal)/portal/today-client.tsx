@@ -22,6 +22,7 @@ import DiaryEntryList from "@/components/portal/diary-entry-list";
 import PortionFactorSheet from "@/components/portal/portion-factor-sheet";
 import AddFoodSheet from "@/components/portal/add-food-sheet";
 import EditEntrySheet from "@/components/portal/edit-entry-sheet";
+import CopyMealSheet from "@/components/portal/copy-meal-sheet";
 import { useToast } from "@/components/ui/toast";
 import { addDaysLocal, parseLocalDate, sortByMealType } from "@/lib/portal/entry-helpers";
 import { useMealStatus } from "@/lib/portal/use-meal-status";
@@ -73,6 +74,7 @@ export default function TodayClient({
   const [factorEntryId, setFactorEntryId] = useState<string | null>(null);
   const [addToMeal, setAddToMeal] = useState<MealType | null>(null);
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
+  const [copyToMeal, setCopyToMeal] = useState<MealType | null>(null);
 
   // pendingDate: the date the user has tapped/picked but for which the
   // server-rendered prop hasn't caught up yet. Drives the scrubber's
@@ -254,7 +256,7 @@ export default function TodayClient({
   function onTouchEnd(e: React.TouchEvent) {
     const start = swipeStart.current;
     swipeStart.current = null;
-    if (!start || openEntryId || factorEntryId || addToMeal || editEntryId) return;
+    if (!start || openEntryId || factorEntryId || addToMeal || editEntryId || copyToMeal) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
@@ -381,6 +383,7 @@ export default function TodayClient({
                   eatenKcal={diary.byMeal[m].calories}
                   canAdd={canLog}
                   onAdd={setAddToMeal}
+                  onCopy={setCopyToMeal}
                 >
                   {sectionCards.map((c) => (
                     <MealCard
@@ -442,10 +445,21 @@ export default function TodayClient({
         />
       )}
 
+      {copyToMeal && canLog && (
+        <CopyMealSheet
+          mealType={copyToMeal}
+          targetDate={selectedDate}
+          onSave={diaryLog.save}
+          onRemove={diaryLog.remove}
+          onClose={() => setCopyToMeal(null)}
+        />
+      )}
+
       {editEntry && canLog && (
         <EditEntrySheet
           key={editEntry.id}
           entry={editEntry}
+          logDate={selectedDate}
           onSave={diaryLog.save}
           onDelete={() => void deleteEntry(editEntry)}
           onClose={() => setEditEntryId(null)}

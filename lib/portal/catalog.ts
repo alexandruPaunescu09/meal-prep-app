@@ -257,3 +257,48 @@ export async function loadCatalogItem(
   if (error) throw new Error(error.message);
   return data ? recipeToItem(data as unknown as RecipeRow) : null;
 }
+
+/**
+ * Batch version of loadCatalogItem: resolves many targets in at most three queries and returns
+ * only the ones this client may use (key `kind:id`). Hidden foods, other customers' pending
+ * foods and recipes outside the client's plans are simply absent.
+ */
+export async function loadCatalogItems(
+  service: SupabaseClient,
+  clientId: string,
+  refs: { kind: "food" | "ingredient" | "recipe"; id: string }[]
+): Promise<Map<string, CatalogItem>> {
+  const ids = (kind: string) => [...new Set(refs.filter((r) => r.kind === kind).map((r) => r.id))];
+  const foodIds = ids("food");
+  const ingredientIds = ids("ingredient");
+  const recipeIds = ids("recipe");
+
+  const [foods, ingredients, recipes] = await Promise.all([
+    foodIds.length
+      ? service.from("foods").select(FOOD_COLS).in("id", foodIds)
+      : Promise.resolve({ data: [], error: null }),
+    ingredientIds.length
+      ? service.from("ingredients").select(INGREDIENT_COLS).in("id", ingredientIds)
+      : Promise.resolve({ data: [], error: null }),
+    recipeIds.length
+      ? recipeIdsInClientPlans(service, clientId, recipeIds).then(async (members) => {
+          if (members.size === 0) return { data: [], error: null };
+          return service.from("recipes").select(RECIPE_COLS).in("id", [...members]);
+        })
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  for (const r of [foods, ingredients, recipes]) if (r.error) throw new Error(r.error.message);
+
+  const out = new Map<string, CatalogItem>();
+  for (const f of (foods.data ?? []) as unknown as (FoodRow & { created_by_client_id: string | null })[]) {
+    const usable = f.status === "active" || (f.status === "pending" && f.created_by_client_id === clientId);
+    if (usable) out.set(`food:${f.id}`, foodToItem(f));
+  }
+  for (const i of (ingredients.data ?? []) as unknown as IngredientRow[]) {
+    out.set(`ingredient:${i.id}`, ingredientToItem(i));
+  }
+  for (const r of (recipes.data ?? []) as unknown as RecipeRow[]) {
+    out.set(`recipe:${r.id}`, recipeToItem(r));
+  }
+  return out;
+}

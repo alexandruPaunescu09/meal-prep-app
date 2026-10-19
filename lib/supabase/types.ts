@@ -416,8 +416,30 @@ export interface Food {
   created_by_client_id: string | null;
   verified_at: string | null;
   promoted_ingredient_id: string | null;
+  /** Storage keys in the private `food-label-photos` bucket ({client_id}/{food_id}/label.jpg); label-photo foods only. */
+  label_photo_path: string | null;
+  front_photo_path: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** One label-photo parse attempt (FD-5 daily limit). Written server-side only. */
+export interface FoodLabelParse {
+  id: string;
+  client_id: string;
+  model: string | null;
+  outcome: "ok" | "unreadable" | "error";
+  created_at: string;
+}
+
+/** A customer's starred catalog item (FD-6). Exactly one of the three targets is set. */
+export interface FoodFavorite {
+  id: string;
+  client_id: string;
+  food_id: string | null;
+  ingredient_id: string | null;
+  recipe_id: string | null;
+  created_at: string;
 }
 
 export type DiarySourceKind = "food" | "ingredient" | "recipe" | "quick";

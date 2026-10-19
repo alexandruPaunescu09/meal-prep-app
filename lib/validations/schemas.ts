@@ -213,3 +213,15 @@ export const diaryEntrySchema = z
   });
 
 export type DiaryEntryInput = z.infer<typeof diaryEntrySchema>;
+
+// ---------------------------------------------------------------------------
+// Food favorites (FD-6)
+// ---------------------------------------------------------------------------
+
+/** Body of POST /api/portal/foods/favorites and the query of DELETE (`kind` + `id`). */
+export const favoriteTargetSchema = z.object({
+  kind: z.enum(["food", "ingredient", "recipe"]),
+  id: z.string().uuid(),
+});
+
+export type FavoriteTarget = z.infer<typeof favoriteTargetSchema>;

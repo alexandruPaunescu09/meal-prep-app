@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import type { MealType } from "@/lib/supabase/types";
 import { formatNumber } from "@/lib/format";
 
@@ -19,12 +19,15 @@ export default function DiarySection({
   eatenKcal,
   canAdd,
   onAdd,
+  onCopy,
   children,
 }: {
   mealType: MealType;
   eatenKcal: number;
   canAdd: boolean;
   onAdd: (mealType: MealType) => void;
+  /** "Copy from an earlier day" for this section; absent = no button. */
+  onCopy?: (mealType: MealType) => void;
   children?: React.ReactNode;
 }) {
   const label = MEAL_SECTION_LABEL[mealType];
@@ -38,15 +41,28 @@ export default function DiarySection({
           </span>
         </h2>
         {canAdd && (
-          <button
-            type="button"
-            onClick={() => onAdd(mealType)}
-            aria-label={`Add food to ${label}`}
-            className="inline-flex items-center gap-1 min-h-[44px] px-3 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 active:bg-emerald-100"
-          >
-            <Plus className="w-4 h-4" />
-            Add
-          </button>
+          <div className="flex items-center">
+            {onCopy && (
+              <button
+                type="button"
+                onClick={() => onCopy(mealType)}
+                aria-label={`Copy ${label} from an earlier day`}
+                className="inline-flex items-center gap-1 min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 active:bg-gray-200"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onAdd(mealType)}
+              aria-label={`Add food to ${label}`}
+              className="inline-flex items-center gap-1 min-h-[44px] px-3 rounded-lg text-sm font-medium text-emerald-700 hover:bg-emerald-50 active:bg-emerald-100"
+            >
+              <Plus className="w-4 h-4" />
+              Add
+            </button>
+          </div>
         )}
       </div>
       {children}
