@@ -215,6 +215,59 @@ export const diaryEntrySchema = z
 export type DiaryEntryInput = z.infer<typeof diaryEntrySchema>;
 
 // ---------------------------------------------------------------------------
+// Food favorites (FD-6)
+// ---------------------------------------------------------------------------
+
+/** Body of POST /api/portal/foods/favorites and the query of DELETE (`kind` + `id`). */
+export const favoriteTargetSchema = z.object({
+  kind: z.enum(["food", "ingredient", "recipe"]),
+  id: z.string().uuid(),
+});
+
+export type FavoriteTarget = z.infer<typeof favoriteTargetSchema>;
+
+// --- FD-5: label photo -> pending food -------------------------------------------------------
+
+const nullableNum = z.number().finite().nullable();
+
+/** POST /api/portal/foods/label body. Paths are checked against the customer's folder in the route. */
+export const labelParseSchema = z.object({
+  food_id: z.string().uuid(),
+  barcode: z.string().max(20).nullable().optional(),
+  label_photo_path: z.string().min(1).max(200),
+  front_photo_path: z.string().min(1).max(200).nullable().optional(),
+});
+export type LabelParseInput = z.infer<typeof labelParseSchema>;
+
+/** POST /api/portal/foods/label/confirm body: the signed draft the parse call returned. */
+export const labelConfirmSchema = z.object({
+  food_id: z.string().uuid(),
+  barcode: z.string().max(20).nullable().optional(),
+  label_photo_path: z.string().min(1).max(200),
+  front_photo_path: z.string().min(1).max(200).nullable().optional(),
+  draft: z.object({
+    name: z.string().min(1).max(120),
+    brand: z.string().max(80).nullable(),
+    unit: z.enum(["g", "ml"]),
+    calories: z.number().finite(),
+    protein: z.number().finite(),
+    carbs: z.number().finite(),
+    fat: z.number().finite(),
+    fiber: nullableNum,
+    sugar: nullableNum,
+    sat_fat: nullableNum,
+    salt: nullableNum,
+    micronutrients: z.record(z.string(), z.number().finite()),
+    serving_size: nullableNum,
+    serving_label: z.string().max(60).nullable(),
+    package_size: nullableNum,
+  }),
+  issued_at: z.number().int(),
+  signature: z.string().max(128),
+});
+export type LabelConfirmInput = z.infer<typeof labelConfirmSchema>;
+
+// ---------------------------------------------------------------------------
 // FD-12: admin edit of a shared catalog food (per 100 g/ml)
 // ---------------------------------------------------------------------------
 

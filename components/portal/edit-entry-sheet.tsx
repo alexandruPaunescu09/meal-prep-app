@@ -1,19 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Repeat2, Trash2 } from "lucide-react";
 import type { FoodLogEntry, MealType } from "@/lib/supabase/types";
 import type { DiaryEntryInput } from "@/lib/validations/schemas";
 import { Modal } from "@/components/ui/modal";
 import MealTypeChips from "@/components/portal/meal-type-chips";
 import MacroPreview from "@/components/portal/macro-preview";
 import QuickAddForm from "@/components/portal/quick-add-form";
+import { useToast } from "@/components/ui/toast";
+import { buildLogAgain, snapshotOf } from "@/lib/portal/recents";
 import { formatDecimal } from "@/lib/format";
 import { formatEntryAmount } from "@/lib/portal/format-amount";
 import {
   buildQuickInput,
   entryToInput,
   isEditable,
+  newEntryId,
   parseAmount,
   quickSnapshot,
   scaleEntry,
@@ -25,15 +28,19 @@ const UNIT_SUFFIX = { g: "g", ml: "ml", serving: "servings", portion: "portions"
 /** Edit a logged entry: amount (same unit) and meal, or name/macros for a quick add; or delete. */
 export default function EditEntrySheet({
   entry,
+  logDate,
   onSave,
   onDelete,
   onClose,
 }: {
   entry: FoodLogEntry;
+  /** The day being viewed: "Log again" creates the new entry here. */
+  logDate: string;
   onSave: (input: DiaryEntryInput, snapshot: SnapshotLike) => Promise<boolean>;
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const [mealType, setMealType] = useState<MealType>(entry.meal_type);
   const [text, setText] = useState(formatDecimal(entry.quantity));
 
@@ -48,6 +55,23 @@ export default function EditEntrySheet({
     void onSave(input, snapshot);
     onClose();
   }
+
+  // Same item, same amount (not the edited text), new entry on the viewed day in the chosen meal.
+  function logAgain() {
+    commit(buildLogAgain(entry, { logDate, mealType, id: newEntryId() }), snapshotOf(entry));
+    toast.success(`Logged ${entry.name} again`);
+  }
+
+  const logAgainButton = editable ? (
+    <button
+      type="button"
+      onClick={logAgain}
+      className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl border border-emerald-300 text-emerald-700 text-sm font-medium hover:bg-emerald-50"
+    >
+      <Repeat2 className="w-4 h-4" />
+      Log again
+    </button>
+  ) : null;
 
   const deleteButton = (
     <button
@@ -120,6 +144,7 @@ export default function EditEntrySheet({
           </p>
         )}
 
+        {logAgainButton}
         {deleteButton}
       </div>
     </Modal>
