@@ -9,10 +9,11 @@ import {
   MealEntryStatus,
   MealReview,
   MealType,
+  NutritionTotals,
   PortalEntry,
 } from "@/lib/supabase/types";
 import type { ResolvedTargets } from "@/lib/calculations/meal-plan";
-import { calculateDiaryDay, MEAL_TYPES, planEntryNutrition } from "@/lib/calculations/diary";
+import { calculateDiaryDay, MEAL_TYPES, planEntryNutrition, sumTotals } from "@/lib/calculations/diary";
 import MealCard, { MealCardData } from "@/components/portal/meal-card";
 import MealDetailSheet from "@/components/portal/meal-detail-sheet";
 import DayScrubber from "@/components/portal/day-scrubber";
@@ -23,6 +24,8 @@ import PortionFactorSheet from "@/components/portal/portion-factor-sheet";
 import AddFoodSheet from "@/components/portal/add-food-sheet";
 import EditEntrySheet from "@/components/portal/edit-entry-sheet";
 import CopyMealSheet from "@/components/portal/copy-meal-sheet";
+import NutritionSheet from "@/components/portal/nutrition-sheet";
+import { coverage as coverageOf, entryTotals } from "@/lib/calculations/nutrition-details";
 import { useToast } from "@/components/ui/toast";
 import { addDaysLocal, parseLocalDate, sortByMealType } from "@/lib/portal/entry-helpers";
 import { useMealStatus } from "@/lib/portal/use-meal-status";
@@ -75,6 +78,7 @@ export default function TodayClient({
   const [addToMeal, setAddToMeal] = useState<MealType | null>(null);
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
   const [copyToMeal, setCopyToMeal] = useState<MealType | null>(null);
+  const [showNutrition, setShowNutrition] = useState(false);
 
   // pendingDate: the date the user has tapped/picked but for which the
   // server-rendered prop hasn't caught up yet. Drives the scrubber's
@@ -146,6 +150,29 @@ export default function TodayClient({
       }),
     [sorted, stateOf, dayLog]
   );
+
+  // What the Nutrition sheet shows. Future days show the plan (nothing can be eaten yet); other
+  // days show what was eaten. `items` also drives the micronutrient coverage note.
+  const nutrition = useMemo(() => {
+    const planItems = sorted
+      .filter((e) => {
+        const st = stateOf(e.id).status;
+        return isFuture ? st !== "skipped" : st === "eaten";
+      })
+      .map((e) => ({ meal: e.meal_type, t: planEntryNutrition(e) }));
+    const logItems = dayLog.map((l) => ({ meal: l.meal_type, t: entryTotals(l) }));
+    const items = [...planItems, ...logItems];
+    const byMeal = isFuture
+      ? (Object.fromEntries(
+          MEAL_TYPES.map((m) => [m, sumTotals(items.filter((i) => i.meal === m).map((i) => i.t))])
+        ) as Record<MealType, NutritionTotals>)
+      : diary.byMeal;
+    return {
+      totals: isFuture ? diary.projected : diary.eaten,
+      byMeal,
+      coverage: coverageOf(items.map((i) => i.t)),
+    };
+  }, [sorted, stateOf, dayLog, isFuture, diary]);
 
   const cards: MealCardData[] = useMemo(() => {
     const reviewByEntry = new Map(reviews.map((r) => [r.meal_plan_entry_id, r]));
@@ -339,6 +366,7 @@ export default function TodayClient({
               targets={targets}
               hasPendingPlan={diary.counts.planPending > 0}
               isFuture={isFuture}
+              onOpenNutrition={() => setShowNutrition(true)}
             />
 
             {canLog && pendingCards.length > 0 && (
@@ -409,6 +437,17 @@ export default function TodayClient({
           </>
         )}
       </div>
+
+      {showNutrition && (
+        <NutritionSheet
+          totals={nutrition.totals}
+          byMeal={nutrition.byMeal}
+          coverage={nutrition.coverage}
+          planned={isFuture}
+          dateLabel={heading}
+          onClose={() => setShowNutrition(false)}
+        />
+      )}
 
       {open && (
         <MealDetailSheet

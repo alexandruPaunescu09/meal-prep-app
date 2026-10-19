@@ -7,6 +7,7 @@ import type { DiaryEntryInput } from "@/lib/validations/schemas";
 import { Modal } from "@/components/ui/modal";
 import MealTypeChips from "@/components/portal/meal-type-chips";
 import MacroPreview from "@/components/portal/macro-preview";
+import NutritionLabel from "@/components/portal/nutrition-label";
 import QuickAddForm from "@/components/portal/quick-add-form";
 import { useToast } from "@/components/ui/toast";
 import { buildLogAgain, snapshotOf } from "@/lib/portal/recents";
@@ -143,6 +144,15 @@ export default function EditEntrySheet({
             {formatEntryAmount(entry.quantity, entry.quantity_unit)}; you can still delete it.
           </p>
         )}
+
+        <details className="group rounded-xl border border-gray-200">
+          <summary className="cursor-pointer min-h-[44px] flex items-center px-3 text-sm font-medium text-gray-800">
+            Nutrition label
+          </summary>
+          <div className="p-2">
+            <NutritionLabel entry={entry} />
+          </div>
+        </details>
 
         {logAgainButton}
         {deleteButton}
