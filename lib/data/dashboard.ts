@@ -2,7 +2,8 @@ import { unstable_cache } from "next/cache";
 import { createServiceClient } from "./service-client";
 import { CACHE_TAGS } from "./tags";
 
-const REVALIDATE = 120;
+// Short: customers add pending foods through portal routes that do not invalidate this bundle.
+const REVALIDATE = 60;
 
 export interface DashboardData {
   counts: {
@@ -15,6 +16,7 @@ export interface DashboardData {
   };
   attention: {
     unreadReviews: number;
+    pendingFoods: number;
     ingredientsNoPrice: number;
     ingredientsNoNutrition: number;
     recipesNoContainer: number;
@@ -49,6 +51,7 @@ export const getDashboardData = unstable_cache(
       planNext,
       prepTotal,
       prepDone,
+      pendingFoods,
     ] = await Promise.all([
       sb.from("ingredients").select("id", head),
       sb.from("recipes").select("id", head),
@@ -71,6 +74,7 @@ export const getDashboardData = unstable_cache(
         .select("id", head)
         .eq("week_start", thisWeek)
         .eq("completed", true),
+      sb.from("foods").select("id", head).eq("status", "pending"),
     ]);
 
     return {
@@ -84,6 +88,7 @@ export const getDashboardData = unstable_cache(
       },
       attention: {
         unreadReviews: unreadReviews.count ?? 0,
+        pendingFoods: pendingFoods.count ?? 0,
         ingredientsNoPrice: noPrice.count ?? 0,
         ingredientsNoNutrition: noNutrition.count ?? 0,
         recipesNoContainer: noContainer.count ?? 0,
@@ -104,6 +109,7 @@ export const getDashboardData = unstable_cache(
       CACHE_TAGS.prepTasks,
       CACHE_TAGS.containerTypes,
       CACHE_TAGS.mealReviews,
+      CACHE_TAGS.foods,
     ],
     revalidate: REVALIDATE,
   }

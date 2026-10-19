@@ -16,6 +16,7 @@ import {
   ReceiptText,
   ScanBarcode,
   Search,
+  Users,
   ArrowUpDown,
   X,
 } from "lucide-react";
@@ -319,6 +320,15 @@ export default function IngredientsClient({
           >
             <ReceiptText className="w-4 h-4" />
             <span className="hidden sm:inline">Import receipt</span>
+          </Link>
+          <Link
+            href="/ingredients/foods"
+            aria-label="Customer foods"
+            title="Customer foods"
+            className="flex items-center gap-2 px-3 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <Users className="w-4 h-4" />
+            <span className="hidden sm:inline">Customer foods</span>
           </Link>
           <Link
             href="/ingredients/categories"

@@ -25,7 +25,7 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   badgeKey?: "reviews";
-  children?: { name: string; href: string }[];
+  children?: { name: string; href: string; badgeKey?: "foods" }[];
 }
 
 const navigation: NavItem[] = [
@@ -37,6 +37,7 @@ const navigation: NavItem[] = [
     children: [
       { name: "Categories", href: "/ingredients/categories" },
       { name: "Import receipt", href: "/ingredients/import" },
+      { name: "Customer foods", href: "/ingredients/foods", badgeKey: "foods" },
     ],
   },
   { name: "Recipes", href: "/recipes", icon: CookingPot },
@@ -50,10 +51,13 @@ const navigation: NavItem[] = [
 export default function AppShell({
   children,
   unreadReviews = 0,
+  pendingFoods = 0,
   userEmail = null,
 }: {
   children: React.ReactNode;
   unreadReviews?: number;
+  /** Customer-added foods waiting for review (badge on Ingredients > Customer foods). */
+  pendingFoods?: number;
   userEmail?: string | null;
 }) {
   const pathname = usePathname();
@@ -176,7 +180,17 @@ export default function AppShell({
                               : "text-gray-400 hover:bg-gray-800 hover:text-white"
                           }`}
                         >
-                          {child.name}
+                          <span className="flex items-center justify-between gap-2">
+                            {child.name}
+                            {child.badgeKey === "foods" && pendingFoods > 0 && (
+                              <span
+                                className="text-xs font-semibold bg-emerald-500 text-white px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center"
+                                aria-label={`${pendingFoods} to review`}
+                              >
+                                {pendingFoods}
+                              </span>
+                            )}
+                          </span>
                         </Link>
                       );
                     })}

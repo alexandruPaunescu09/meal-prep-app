@@ -24,4 +24,5 @@ export const CACHE_TAGS = {
   mealReviews: "meal-reviews",
   mealEntryStatuses: "meal-entry-statuses",
   foodLog: "food-log",
+  foods: "foods",
 } as const;

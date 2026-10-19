@@ -507,6 +507,14 @@ export interface CatalogItem {
   verified: boolean;
 }
 
+/** Result of the `merge_foods(p_from, p_into)` RPC (FD-12). */
+export interface MergeFoodsResult {
+  entries: number;
+  favorites_moved: number;
+  favorites_dropped: number;
+  barcode_moved: boolean;
+}
+
 /** Snapshot columns written to food_log_entries by snapshotForCatalogItem(). */
 export interface DiarySnapshot {
   name: string;

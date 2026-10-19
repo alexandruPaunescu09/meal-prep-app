@@ -266,3 +266,27 @@ export const labelConfirmSchema = z.object({
   signature: z.string().max(128),
 });
 export type LabelConfirmInput = z.infer<typeof labelConfirmSchema>;
+
+// ---------------------------------------------------------------------------
+// FD-12: admin edit of a shared catalog food (per 100 g/ml)
+// ---------------------------------------------------------------------------
+
+const per100 = (max: number) => z.number().min(0, "Must be >= 0").max(max, `Must be <= ${max}`);
+
+export const foodEditSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120, "Name is too long"),
+  brand: z.string().trim().max(80, "Brand is too long").nullable(),
+  unit: z.enum(["g", "ml"]),
+  calories: per100(900),
+  protein: per100(100),
+  carbs: per100(100),
+  fat: per100(100),
+  fiber: per100(100).nullable(),
+  sugar: per100(100).nullable(),
+  sat_fat: per100(100).nullable(),
+  salt: per100(100).nullable(),
+  serving_size: z.number().positive("Must be > 0").max(5000, "Must be <= 5000").nullable(),
+  serving_label: z.string().trim().max(60, "Label is too long").nullable(),
+});
+
+export type FoodEditInput = z.infer<typeof foodEditSchema>;
