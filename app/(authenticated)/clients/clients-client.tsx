@@ -12,7 +12,7 @@ import {
   invalidateMealPlans,
   invalidateProfiles,
 } from "@/lib/actions/revalidate";
-import { parseDecimal } from "@/lib/format";
+import { formatDate, parseDecimal } from "@/lib/format";
 import {
   TARGET_WEIGHT_MAX,
   TARGET_WEIGHT_MIN,
@@ -130,6 +130,24 @@ export default function ClientsClient({
     await invalidateMealPlans();
     await invalidateContainerDeliveries();
     toast.success(`Deleted ${client.name}`);
+    router.refresh();
+  }
+
+  // Copies the customer's latest logged weight onto clients.weight_kg (what plans and targets use).
+  async function applyLatestWeight(client: ClientWithPortalStatus) {
+    if (!client.latest_weight) return;
+    setBusyId(client.id);
+    const { error } = await supabase
+      .from("clients")
+      .update({ weight_kg: client.latest_weight.weight_kg })
+      .eq("id", client.id);
+    setBusyId(null);
+    if (error) {
+      toast.error(`Could not update ${client.name}'s weight: ${error.message}`);
+      return;
+    }
+    await invalidateClients();
+    toast.success(`${client.name}'s current weight is now ${formatKg(client.latest_weight.weight_kg)} kg`);
     router.refresh();
   }
 
@@ -312,6 +330,24 @@ export default function ClientsClient({
                 <p className="text-sm text-gray-600">
                   Weight: {formatWeightProgress(client.weight_kg, client.target_weight_kg)}
                 </p>
+              )}
+              {client.latest_weight && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+                  <span>
+                    Logged: {formatKg(client.latest_weight.weight_kg)} kg
+                    <span className="text-xs text-gray-500"> on {formatDate(client.latest_weight.log_date)}</span>
+                  </span>
+                  {client.weight_kg !== client.latest_weight.weight_kg && (
+                    <button
+                      type="button"
+                      disabled={busyId === client.id}
+                      onClick={() => void applyLatestWeight(client)}
+                      className="min-h-[32px] px-2 text-xs font-medium text-emerald-700 border border-emerald-200 rounded-md hover:bg-emerald-50 disabled:opacity-60"
+                    >
+                      Use as current weight
+                    </button>
+                  )}
+                </div>
               )}
               {(client.email || client.phone) && (
                 <div className="text-xs text-gray-500 mt-1 space-y-0.5">

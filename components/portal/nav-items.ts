@@ -1,4 +1,4 @@
-import { Home, CalendarDays, User, type LucideIcon } from "lucide-react";
+import { Home, CalendarDays, TrendingUp, User, type LucideIcon } from "lucide-react";
 
 export interface PortalNavItem {
   href: string;
@@ -12,6 +12,7 @@ export interface PortalNavItem {
 export const PORTAL_NAV_ITEMS: PortalNavItem[] = [
   { href: "/portal", label: "Today", icon: Home, exact: true },
   { href: "/portal/plans", label: "Plans", icon: CalendarDays, exact: false },
+  { href: "/portal/progress", label: "Progress", icon: TrendingUp, exact: false },
   { href: "/portal/profile", label: "Profile", icon: User, exact: false },
 ];
 

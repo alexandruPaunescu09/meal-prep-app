@@ -29,7 +29,7 @@ Update this table as stories land, with the branch or PR and the date.
 | FD-12 | Admin food moderation | M | FD-4 | Done 2026-10-19, merged to main with PR #11 |
 | FD-6 | Recents, favorites and copy | S–M | FD-3 | Done 2026-10-19, merged to main with PR #9 (f499634) |
 | FD-8 | Nutrition details and micronutrients | M | FD-2 | Not started |
-| FD-9 | Weight log | S–M | FD-7 | Not started |
+| FD-9 | Weight log | S–M | FD-7 | Done (PR open) |
 | FD-10 | Progress tab: trends and streaks | M | FD-3 (FD-9 optional) | Not started |
 | FD-11 | Admin diary insights | M–L | FD-3 (FD-9 for weight) | Not started |
 
