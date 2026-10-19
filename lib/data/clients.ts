@@ -4,6 +4,7 @@ import { CACHE_TAGS } from "./tags";
 import type {
   Client,
   ClientWithPortalStatus,
+  LatestWeight,
   PortalStatus,
 } from "@/lib/supabase/types";
 
@@ -78,11 +79,27 @@ export const getClientsWithPortalStatus = unstable_cache(
         .map((p) => p.client_id)
     );
 
+    // Latest logged weight per client (FD-9). Newest first, so the first row per client wins.
+    // One tiny query per client: a global "newest first" scan would hit the API row cap as logs grow.
+    const latest = new Map<string, LatestWeight>();
+    await Promise.all(
+      ids.map(async (id) => {
+        const { data } = await supabase
+          .from("weight_logs")
+          .select("log_date, weight_kg")
+          .eq("client_id", id)
+          .order("log_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) latest.set(id, { log_date: data.log_date, weight_kg: Number(data.weight_kg) });
+      })
+    );
+
     return list.map((c) => {
       let portal_status: PortalStatus = "not_invited";
       if (linked.has(c.id)) portal_status = "active";
       else if (c.invited_at) portal_status = "invited";
-      return { ...c, portal_status };
+      return { ...c, portal_status, latest_weight: latest.get(c.id) ?? null };
     });
   },
   ["clients-with-portal-status"],

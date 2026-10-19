@@ -92,6 +92,7 @@ export interface Client {
 export type PortalStatus = "not_invited" | "invited" | "active" | "disabled";
 
 export interface ClientWithPortalStatus extends Client {
+  latest_weight?: LatestWeight | null;
   portal_status: PortalStatus;
 }
 
@@ -513,6 +514,32 @@ export interface MergeFoodsResult {
   favorites_moved: number;
   favorites_dropped: number;
   barcode_moved: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// FD-9: weight log
+// ---------------------------------------------------------------------------
+
+export interface WeightLog {
+  id: string;
+  client_id: string;
+  log_date: string;
+  weight_kg: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Latest logged weight for a client (admin card). */
+export interface LatestWeight {
+  log_date: string;
+  weight_kg: number;
+}
+
+/** GET /api/portal/weight response. */
+export interface WeightResponse {
+  logs: Pick<WeightLog, "id" | "log_date" | "weight_kg">[];
+  weight_kg: number | null;
+  target_weight_kg: number | null;
 }
 
 /** Snapshot columns written to food_log_entries by snapshotForCatalogItem(). */

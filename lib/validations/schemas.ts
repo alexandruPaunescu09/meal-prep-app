@@ -290,3 +290,19 @@ export const foodEditSchema = z.object({
 });
 
 export type FoodEditInput = z.infer<typeof foodEditSchema>;
+
+// ---------------------------------------------------------------------------
+// FD-9: weight log
+// ---------------------------------------------------------------------------
+
+export const WEIGHT_LOG_MIN = 20;
+export const WEIGHT_LOG_MAX = 300;
+
+const WEIGHT_RANGE_MSG = `Enter a weight between ${WEIGHT_LOG_MIN} and ${WEIGHT_LOG_MAX} kg, e.g. 72,5.`;
+
+export const weightLogSchema = z.object({
+  log_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date"),
+  weight_kg: z.number().min(WEIGHT_LOG_MIN, WEIGHT_RANGE_MSG).max(WEIGHT_LOG_MAX, WEIGHT_RANGE_MSG),
+});
+
+export type WeightLogInput = z.infer<typeof weightLogSchema>;

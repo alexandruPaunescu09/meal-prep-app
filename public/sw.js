@@ -1,6 +1,6 @@
 /* Meal Prep Portal — service worker */
-const CACHE_VERSION = "mp-portal-v2";
-const APP_SHELL = ["/portal", "/portal/plans", "/portal/profile", "/manifest.webmanifest"];
+const CACHE_VERSION = "mp-portal-v3";
+const APP_SHELL = ["/portal", "/portal/plans", "/portal/progress", "/portal/profile", "/manifest.webmanifest"];
 
 // Offline page for a day that was never cached. The cached /portal shell shows
 // whichever day it was saved for, so serving it here would show the wrong day.

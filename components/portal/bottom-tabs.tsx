@@ -11,7 +11,7 @@ export default function BottomTabs() {
       aria-label="Portal"
       className="fixed bottom-0 inset-x-0 z-30 bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
-      <ul className="grid grid-cols-3">
+      <ul className="grid grid-cols-4">
         {PORTAL_NAV_ITEMS.map((t) => {
           const active = isPortalNavActive(pathname, t);
           return (
