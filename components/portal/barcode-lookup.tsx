@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera, Loader2, ScanBarcode, WifiOff } from "lucide-react";
 import type { CatalogItem } from "@/lib/supabase/types";
 import BarcodeScanner from "@/components/barcode-scanner";
+import LabelPhotoFlow from "@/components/portal/label-photo-flow";
 
 const LOOKUP_TIMEOUT_MS = 12000;
 
@@ -24,7 +25,7 @@ function subscribeOnline(cb: () => void) {
 /**
  * Scan tab of the add-food sheet: opens the camera scanner (manual entry fallback), looks the code up
  * and hands the catalog item to `onPick` so the normal amount picker logs it. When nothing usable is
- * found it offers the label-photo path (built in FD-5, disabled until then).
+ * found it offers the label-photo path (`LabelPhotoFlow`, FD-5), carrying the scanned barcode.
  */
 export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) => void }) {
   const online = useSyncExternalStore(
@@ -34,6 +35,8 @@ export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) 
   );
   const [scanning, setScanning] = useState(false);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // Label-photo flow open: `barcode` is the scanned code, or null when started without a scan.
+  const [labelFlow, setLabelFlow] = useState<{ barcode: string | null } | null>(null);
   const latest = useRef(0);
   const ctrl = useRef<AbortController | null>(null);
 
@@ -90,6 +93,20 @@ export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) 
 
   const noProduct = phase.kind === "failed" && (phase.reason === "not_found" || phase.reason === "incomplete_data");
 
+  if (labelFlow) {
+    return (
+      <LabelPhotoFlow
+        barcode={labelFlow.barcode}
+        onPick={(item) => {
+          setLabelFlow(null);
+          setPhase({ kind: "idle" });
+          onPick(item);
+        }}
+        onCancel={() => setLabelFlow(null)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-3">
       {!online && (
@@ -136,22 +153,26 @@ export default function BarcodeLookup({ onPick }: { onPick: (item: CatalogItem) 
             </button>
           )}
           {noProduct && (
-            <div>
-              <button
-                type="button"
-                disabled
-                aria-describedby="label-photo-hint"
-                className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 disabled:opacity-60"
-              >
-                <Camera className="w-4 h-4" />
-                Photograph the label
-              </button>
-              <p id="label-photo-hint" className="mt-1 text-xs text-gray-500">
-                Coming soon. For now, use Quick add to log this product.
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setLabelFlow({ barcode: phase.code })}
+              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Camera className="w-4 h-4" />
+              Photograph the label
+            </button>
           )}
         </div>
+      )}
+
+      {phase.kind !== "loading" && !noProduct && (
+        <button
+          type="button"
+          onClick={() => setLabelFlow({ barcode: null })}
+          className="w-full text-center text-sm font-medium text-gray-600 underline"
+        >
+          No barcode? Photograph the label
+        </button>
       )}
 
       {scanning && <BarcodeScanner onDetected={(code) => void lookup(code)} onClose={() => setScanning(false)} />}

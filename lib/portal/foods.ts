@@ -65,6 +65,46 @@ const finite = (v: unknown): v is number => typeof v === "number" && Number.isFi
 /** A per-100 value, or null when missing / impossible (negative or above `max`). */
 const bounded = (v: unknown, max: number): number | null => (finite(v) && v >= 0 && v <= max ? v : null);
 
+export interface Per100Input {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  fiber?: number | null;
+  sugar?: number | null;
+  sat_fat?: number | null;
+  salt?: number | null;
+}
+export type Per100Macros = {
+  [K in "calories" | "protein" | "carbs" | "fat" | "fiber" | "sugar" | "sat_fat" | "salt"]: number | null;
+};
+
+/**
+ * The catalog's shared plausibility check for per-100 values (used for Open Food Facts and label
+ * photos): kcal and P/C/F required and in range, macros not heavier than the food, energy roughly
+ * 4P+4C+9F. Optional columns that are missing or impossible become null. Returns null when rejected.
+ */
+export function validatePer100(n: Per100Input): Per100Macros | null {
+  const calories = bounded(n.calories, 900);
+  const protein = bounded(n.protein, 100);
+  const carbs = bounded(n.carbs, 100);
+  const fat = bounded(n.fat, 100);
+  if (calories === null || protein === null || carbs === null || fat === null) return null;
+  // Per 100 g the three macros cannot weigh more than the food itself (small slack for rounding).
+  if (protein + carbs + fat > 110) return null;
+  if (!energyMatchesMacros(calories, protein, carbs, fat)) return null;
+  return {
+    calories,
+    protein,
+    carbs,
+    fat,
+    fiber: bounded(n.fiber, 100),
+    sugar: bounded(n.sugar, 100),
+    sat_fat: bounded(n.sat_fat, 100),
+    salt: bounded(n.salt, 100),
+  };
+}
+
 /**
  * Decides whether an Open Food Facts product is complete enough for the shared catalog and maps it
  * to a `foods` row. Needs per-100 data with kcal and protein/carbs/fat; anything else is rejected
@@ -78,14 +118,8 @@ export function mapOffToFood(lookup: BarcodeLookup, code: string, clientId: stri
   const cleanName = name?.trim().slice(0, 120);
   if (!cleanName) return null;
 
-  const calories = bounded(n.calories, 900);
-  const protein = bounded(n.protein, 100);
-  const carbs = bounded(n.carbs, 100);
-  const fat = bounded(n.fat, 100);
-  if (calories === null || protein === null || carbs === null || fat === null) return null;
-  // Per 100 g the three macros cannot weigh more than the food itself (small slack for rounding).
-  if (protein + carbs + fat > 110) return null;
-  if (!energyMatchesMacros(calories, protein, carbs, fat)) return null;
+  const macros = validatePer100(n);
+  if (!macros) return null;
 
   const micronutrients: Record<string, number> = {};
   for (const [k, v] of Object.entries(n.micronutrients ?? {})) if (finite(v) && v >= 0) micronutrients[k] = v;
@@ -95,14 +129,7 @@ export function mapOffToFood(lookup: BarcodeLookup, code: string, clientId: stri
     name: cleanName,
     brand: brand?.trim().slice(0, 80) || null,
     unit: lookup.unit,
-    calories,
-    protein,
-    carbs,
-    fat,
-    fiber: bounded(n.fiber, 100),
-    sugar: bounded(n.sugar, 100),
-    sat_fat: bounded(n.sat_fat, 100),
-    salt: bounded(n.salt, 100),
+    ...macros,
     micronutrients,
     serving_size: lookup.serving?.size ?? null,
     serving_label: lookup.serving?.label ?? null,
@@ -160,7 +187,7 @@ async function ingredientItem(service: SupabaseClient, by: { id: string } | { ba
   return row ? ingredientToItem(row as unknown as Parameters<typeof ingredientToItem>[0]) : null;
 }
 
-async function createdInLast24h(service: SupabaseClient, clientId: string): Promise<number> {
+export async function createdInLast24h(service: SupabaseClient, clientId: string): Promise<number> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { count, error } = await service
     .from("foods")
