@@ -5,6 +5,7 @@ import { Loader2, Search, WifiOff } from "lucide-react";
 import type { CatalogItem } from "@/lib/supabase/types";
 import { formatNumber } from "@/lib/format";
 import { useListboxNav } from "@/lib/hooks/use-listbox-nav";
+import FavoriteStar from "@/components/portal/favorite-star";
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 250;
@@ -16,6 +17,15 @@ function subscribeOnline(cb: () => void) {
     window.removeEventListener("online", cb);
     window.removeEventListener("offline", cb);
   };
+}
+
+/** Live navigator.onLine (true during SSR). */
+export function useOnline(): boolean {
+  return useSyncExternalStore(
+    subscribeOnline,
+    () => navigator.onLine,
+    () => true
+  );
 }
 
 /** "120 kcal / 100 g", "95 kcal / serving (30 g)", "320 kcal / portion". */
@@ -31,19 +41,31 @@ export function describeKcal(item: CatalogItem): string {
   return `${formatNumber(Math.round(per100), 0)} kcal / 100 ${item.unit}`;
 }
 
-/** One catalog row. Shared by search results and (later) recents / favorites lists. */
+/** Star state for a row: absent = no star shown. */
+export interface RowFavorite {
+  on: boolean;
+  disabled?: boolean;
+  onToggle: (item: CatalogItem) => void;
+}
+
+/** One catalog row. Shared by search results and the recents / favorites lists. */
 export function FoodRow({
   item,
   index,
   optionProps,
   active,
   onPick,
+  detail,
+  favorite,
 }: {
   item: CatalogItem;
   index: number;
   optionProps: Record<string, unknown>;
   active: boolean;
   onPick: (item: CatalogItem) => void;
+  /** Extra subtitle part, e.g. the last-used amount. */
+  detail?: string;
+  favorite?: RowFavorite;
 }) {
   return (
     <li
@@ -64,7 +86,7 @@ export function FoodRow({
           )}
         </span>
         <span className="block text-xs text-gray-500 truncate">
-          {[item.brand, describeKcal(item)].filter(Boolean).join(" · ")}
+          {[item.brand, detail, describeKcal(item)].filter(Boolean).join(" · ")}
         </span>
       </span>
       {!item.verified && (
@@ -72,17 +94,28 @@ export function FoodRow({
           Unverified
         </span>
       )}
+      {favorite && (
+        <FavoriteStar
+          on={favorite.on}
+          disabled={favorite.disabled}
+          name={item.name}
+          onToggle={() => favorite.onToggle(item)}
+        />
+      )}
     </li>
   );
 }
 
 /** Debounced catalog search with keyboard navigation. Calls `onPick` with the chosen item. */
-export default function FoodSearch({ onPick }: { onPick: (item: CatalogItem) => void }) {
-  const online = useSyncExternalStore(
-    subscribeOnline,
-    () => navigator.onLine,
-    () => true
-  );
+export default function FoodSearch({
+  onPick,
+  favorite,
+}: {
+  onPick: (item: CatalogItem) => void;
+  /** Star toggle for each result; receives the row's item. */
+  favorite?: (item: CatalogItem) => RowFavorite;
+}) {
+  const online = useOnline();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CatalogItem[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -188,10 +221,61 @@ export default function FoodSearch({ onPick }: { onPick: (item: CatalogItem) => 
               optionProps={nav.getOptionProps(i)}
               active={i === nav.activeIndex}
               onPick={onPick}
+              favorite={favorite?.(item)}
             />
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * A keyboard-navigable list of catalog rows (recents, favorites). Arrow keys move, Enter picks;
+ * rows can carry a detail text and a star.
+ */
+export function PickList({
+  label,
+  rows,
+  onPick,
+  favorite,
+}: {
+  label: string;
+  rows: { item: CatalogItem; detail?: string }[];
+  onPick: (item: CatalogItem, index: number) => void;
+  favorite?: (item: CatalogItem) => RowFavorite;
+}) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const listId = useId();
+  const nav = useListboxNav({
+    count: rows.length,
+    onSelect: (i) => onPick(rows[i].item, i),
+    idPrefix: listId,
+    listRef,
+  });
+  return (
+    <ul
+      id={listId}
+      ref={listRef}
+      role="listbox"
+      tabIndex={0}
+      aria-label={label}
+      aria-activedescendant={nav.activeId}
+      onKeyDown={nav.onKeyDown}
+      className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white max-h-[45vh] overflow-y-auto"
+    >
+      {rows.map((r, i) => (
+        <FoodRow
+          key={`${r.item.kind}:${r.item.id}`}
+          item={r.item}
+          index={i}
+          detail={r.detail}
+          optionProps={nav.getOptionProps(i)}
+          active={i === nav.activeIndex}
+          onPick={(it) => onPick(it, i)}
+          favorite={favorite?.(r.item)}
+        />
+      ))}
+    </ul>
   );
 }

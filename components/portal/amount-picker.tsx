@@ -6,6 +6,8 @@ import type { CatalogItem, DiaryQuantityUnit, DiarySnapshot } from "@/lib/supaba
 import { formatDecimal } from "@/lib/format";
 import { availableUnits, defaultAmount, parseAmount, previewSnapshot } from "@/lib/portal/diary-draft";
 import MacroPreview from "@/components/portal/macro-preview";
+import FavoriteStar from "@/components/portal/favorite-star";
+import type { RowFavorite } from "@/components/portal/food-search";
 
 const UNIT_LABEL: Record<DiaryQuantityUnit, string> = {
   g: "grams",
@@ -19,13 +21,25 @@ export default function AmountPicker({
   item,
   onBack,
   onSubmit,
+  initialAmount,
+  favorite,
 }: {
   item: CatalogItem;
   onBack: () => void;
   onSubmit: (quantity: number, unit: DiaryQuantityUnit, snapshot: DiarySnapshot) => void;
+  /** Start from this amount (e.g. the last one logged) when its unit is valid for the item. */
+  initialAmount?: { quantity: number; unit: DiaryQuantityUnit };
+  /** Star toggle in the header; absent = no star. */
+  favorite?: RowFavorite;
 }) {
   const units = useMemo(() => availableUnits(item), [item]);
-  const initial = useMemo(() => defaultAmount(item), [item]);
+  const initial = useMemo(
+    () =>
+      initialAmount && units.includes(initialAmount.unit) && parseAmount(String(initialAmount.quantity)) !== null
+        ? initialAmount
+        : defaultAmount(item),
+    [item, units, initialAmount]
+  );
   const [unit, setUnit] = useState<DiaryQuantityUnit>(initial.unit);
   const [text, setText] = useState(formatDecimal(initial.quantity));
 
@@ -47,16 +61,26 @@ export default function AmountPicker({
         className="inline-flex items-center gap-1 min-h-[44px] -ml-2 px-2 text-sm text-gray-600 hover:text-gray-900"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to search
+        Back
       </button>
 
-      <div>
-        <p className="text-base font-semibold text-gray-900">{item.name}</p>
-        {item.brand && <p className="text-sm text-gray-500">{item.brand}</p>}
-        {!item.verified && (
-          <p className="text-xs text-amber-800 mt-1">
-            Unverified: added by you, not yet checked by the team.
-          </p>
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-semibold text-gray-900">{item.name}</p>
+          {item.brand && <p className="text-sm text-gray-500">{item.brand}</p>}
+          {!item.verified && (
+            <p className="text-xs text-amber-800 mt-1">
+              Unverified: added by you, not yet checked by the team.
+            </p>
+          )}
+        </div>
+        {favorite && (
+          <FavoriteStar
+            on={favorite.on}
+            disabled={favorite.disabled}
+            name={item.name}
+            onToggle={() => favorite.onToggle(item)}
+          />
         )}
       </div>
 
