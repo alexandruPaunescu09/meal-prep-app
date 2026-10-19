@@ -1,3 +1,4 @@
+import { BarChart3 } from "lucide-react";
 import type { NutritionTotals } from "@/lib/supabase/types";
 import type { ResolvedTargets } from "@/lib/calculations/meal-plan";
 import { formatNumber } from "@/lib/format";
@@ -60,7 +61,9 @@ export default function DiarySummary({
   targets,
   hasPendingPlan,
   isFuture,
+  onOpenNutrition,
 }: {
+  onOpenNutrition?: () => void;
   eaten: NutritionTotals;
   projected: NutritionTotals;
   targets: ResolvedTargets;
@@ -143,6 +146,17 @@ export default function DiarySummary({
           </>
         )}
       </p>
+
+      {onOpenNutrition && (
+        <button
+          type="button"
+          onClick={onOpenNutrition}
+          className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] rounded-xl border border-gray-300 text-gray-800 text-sm font-medium hover:bg-gray-50"
+        >
+          <BarChart3 className="w-4 h-4" aria-hidden />
+          {isFuture ? "Planned nutrition details" : "Nutrition details"}
+        </button>
+      )}
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import React from "react";
+import { NUTRITION_DISCLAIMER } from "@/lib/nutrition/disclaimer";
 import {
   Document,
   Page,
@@ -116,7 +117,7 @@ export function MealPlanDocument({ data }: { data: MealPlanPDFData }) {
         })}
 
         <Text style={styles.disclaimer}>
-          Disclaimer: Except for protein, fiber, fat, and carbs, nutritional values may contain inaccuracies.
+          Disclaimer: {NUTRITION_DISCLAIMER}
         </Text>
       </Page>
     </Document>
