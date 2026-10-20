@@ -100,6 +100,8 @@ export interface Profile {
   id: string;
   role: "admin" | "customer";
   client_id: string | null;
+  /** Last acknowledged "What's new" release id (lib/portal/whats-new.ts); null = none. */
+  whats_new_seen: string | null;
   created_at: string;
 }
 

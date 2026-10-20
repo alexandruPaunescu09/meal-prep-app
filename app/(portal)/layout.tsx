@@ -6,6 +6,8 @@ import BottomTabs from "@/components/portal/bottom-tabs";
 import InstallBanner from "@/components/portal/install-banner";
 import OfflineBanner from "@/components/portal/offline-banner";
 import AuthWatcher from "@/components/auth-watcher";
+import { WhatsNewAutoOpen } from "@/components/portal/whats-new-sheet";
+import { pendingReleases } from "@/lib/portal/whats-new";
 
 export const metadata = {
   title: "My Meals",
@@ -25,7 +27,7 @@ export default async function PortalLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role, client_id")
+    .select("role, client_id, whats_new_seen, created_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -45,6 +47,12 @@ export default async function PortalLayout({
 
   const greeting = client?.name ? `Hi, ${client.name.split(" ")[0]}` : "Hi";
 
+  // Existing customers only: releases newer than the last acknowledged one and dated after signup.
+  const whatsNewIds = pendingReleases({
+    seenId: profile.whats_new_seen,
+    accountCreatedAt: profile.created_at,
+  }).map((r) => r.id);
+
   // Bottom padding clears the fixed tab bar plus the iOS home-indicator inset.
   return (
     <div className="min-h-full bg-gray-50">
@@ -59,6 +67,7 @@ export default async function PortalLayout({
         {children}
       </main>
       <BottomTabs />
+      <WhatsNewAutoOpen releaseIds={whatsNewIds} />
     </div>
   );
 }
