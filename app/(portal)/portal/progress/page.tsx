@@ -1,6 +1,9 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import WeightSection from "@/components/portal/weight-section";
+import ProgressTrends from "@/components/portal/progress-trends";
+import { loadProgressDays } from "@/lib/portal/progress-loader";
+import { buildProgressView } from "@/lib/portal/progress-stats";
 import { portalToday } from "@/lib/portal/today";
 import { addDays } from "@/lib/format";
 
@@ -29,6 +32,8 @@ export default async function PortalProgressPage() {
     supabase.from("clients").select("target_weight_kg").eq("id", profile.client_id).maybeSingle(),
   ]);
 
+  const view = buildProgressView(await loadProgressDays(profile.client_id, today), today);
+
   const logs = (logsRes.data ?? []).map((l) => ({ log_date: l.log_date as string, weight_kg: Number(l.weight_kg) }));
   const target = clientRes.data?.target_weight_kg != null ? Number(clientRes.data.target_weight_kg) : null;
 
@@ -39,8 +44,8 @@ export default async function PortalProgressPage() {
         <p className="text-sm text-gray-500 mt-0.5">Track your weight and see how far you&apos;ve come.</p>
       </header>
 
-      {/* Stacked sections: FD-10 adds trends and streaks below. */}
       <WeightSection initialLogs={logs} targetWeight={target} today={today} />
+      <ProgressTrends view={view} />
     </div>
   );
 }
