@@ -15,13 +15,16 @@ import {
   Circle,
   ChevronRight,
 } from "lucide-react";
-import { getDashboardData } from "@/lib/data/dashboard";
-import { currentWeekStart, nextWeekStart, formatWeekRange } from "@/lib/format";
+import { getDashboardData, getInactiveClients } from "@/lib/data/dashboard";
+import { currentWeekStart, nextWeekStart, formatWeekRange, todayInTz } from "@/lib/format";
 
 export default async function DashboardPage() {
   const thisWeek = currentWeekStart();
   const nextWeek = nextWeekStart();
-  const d = await getDashboardData(thisWeek, nextWeek);
+  const [d, inactive] = await Promise.all([
+    getDashboardData(thisWeek, nextWeek),
+    getInactiveClients(todayInTz()),
+  ]);
 
   const stats = [
     { label: "Ingredients", value: d.counts.ingredients, href: "/ingredients", icon: Carrot, color: "text-emerald-700", bg: "bg-emerald-50" },
@@ -91,7 +94,7 @@ export default async function DashboardPage() {
             <AlertTriangle className="w-4 h-4 text-amber-600" aria-hidden="true" />
             Needs attention
           </h2>
-          {attention.length === 0 ? (
+          {attention.length === 0 && inactive.length === 0 ? (
             <p className="flex items-center gap-2 text-sm text-gray-600">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
               All caught up.
@@ -107,6 +110,25 @@ export default async function DashboardPage() {
                     <a.icon className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
                     <span className="flex-1">
                       <strong className="font-semibold">{a.n}</strong> {a.label}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
+                  </Link>
+                </li>
+              ))}
+              {inactive.map((c) => (
+                <li key={c.clientId}>
+                  <Link
+                    href={`/clients/${c.clientId}`}
+                    className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-amber-50 text-sm text-gray-800 hover:bg-amber-100 transition-colors"
+                  >
+                    <Users className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
+                    <span className="flex-1">
+                      <strong className="font-semibold">{c.name}</strong>{" "}
+                      {c.daysSince == null
+                        ? "has no diary activity in 14+ days"
+                        : c.lastActivity
+                          ? `has not logged for ${c.daysSince} days`
+                          : `has not logged anything since getting portal access (${c.daysSince} days)`}
                     </span>
                     <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
                   </Link>
