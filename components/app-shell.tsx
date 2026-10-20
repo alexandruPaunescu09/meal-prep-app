@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { clearPortalLocalState } from "@/lib/portal/local-state";
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -71,6 +72,7 @@ export default function AppShell({
 
   async function handleLogout() {
     setSigningOut(true);
+    await clearPortalLocalState();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();

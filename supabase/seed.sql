@@ -6,6 +6,8 @@
 -- (test-only credentials for the local stack; never reuse them anywhere else)
 -- QA customer (not seeded; register via /intake after a reset, matching a
 -- client with this email): qa-customer@mealprep.local / qa-customer-pass
+-- Second QA customer (also registered via /intake; used to test cross-user
+-- sign-out isolation): qa-customer-b@mealprep.local / qa-customer-b-pass
 
 DO $$
 DECLARE

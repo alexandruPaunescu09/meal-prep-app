@@ -34,6 +34,23 @@ export function withoutSuperseded<T extends QueueLike>(items: T[], incoming: Que
   return items.filter((i) => queueKey(i) !== key);
 }
 
+/**
+ * Splits queued writes by owner for a flush under `currentUserId`.
+ * Items carry the auth user id that queued them. An item owned by someone else must never be
+ * replayed (the API derives the client from the session, so it would land in the wrong account).
+ * Legacy items queued before owner tracking shipped have no `owner`; they are kept and flushed
+ * as before so pending offline writes on existing devices are never lost.
+ */
+export function partitionByOwner<T extends QueueLike & { owner?: string }>(
+  items: T[],
+  currentUserId: string
+): { mine: T[]; foreign: T[] } {
+  const mine: T[] = [];
+  const foreign: T[] = [];
+  for (const i of items) (!i.owner || i.owner === currentUserId ? mine : foreign).push(i);
+  return { mine, foreign };
+}
+
 /** HTTP request used to flush a queued write. */
 export function requestFor(w: { kind: QueueKind; payload: unknown }): {
   url: string;

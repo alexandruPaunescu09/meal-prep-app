@@ -1,7 +1,8 @@
 "use client";
 
 import type { DiaryEntryInput } from "@/lib/validations/schemas";
-import { requestFor, stubFor, withoutSuperseded } from "@/lib/portal/write-queue-logic";
+import { createClient } from "@/lib/supabase/client";
+import { partitionByOwner, requestFor, stubFor, withoutSuperseded } from "@/lib/portal/write-queue-logic";
 
 const KEY = "portal:write-queue:v1";
 
@@ -28,7 +29,32 @@ type DiaryUpsertQueued = { kind: "diary-upsert"; payload: DiaryEntryInput };
 type DiaryDeleteQueued = { kind: "diary-delete"; payload: { id: string } };
 
 export type QueuedWrite = ReviewQueued | StatusQueued | DiaryUpsertQueued | DiaryDeleteQueued;
-type StoredWrite = QueuedWrite & { id: string };
+/** `owner` = auth user id that queued the write; absent on items queued before owner tracking. */
+type StoredWrite = QueuedWrite & { id: string; owner?: string };
+
+// Auth user id of the current session, cached so queueWrite() can stay synchronous.
+let ownerId: string | undefined;
+let ownerWatch = false;
+
+async function currentUserId(): Promise<string | undefined> {
+  try {
+    const { data } = await createClient().auth.getSession();
+    ownerId = data.session?.user.id;
+  } catch {
+    /* offline / storage blocked: keep the last known value */
+  }
+  if (!ownerWatch && typeof window !== "undefined") {
+    ownerWatch = true;
+    try {
+      createClient().auth.onAuthStateChange((_e, session) => {
+        ownerId = session?.user.id;
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  return ownerId;
+}
 
 function newId(): string {
   try {
@@ -105,7 +131,7 @@ export function queuedDiaryIds(): Set<string> {
 export function queueWrite(w: QueuedWrite) {
   // A newer write for the same entry supersedes an older queued one (see queueKey).
   const next = withoutSuperseded(read(), w);
-  next.push({ ...w, id: newId() });
+  next.push({ ...w, id: newId(), ...(ownerId ? { owner: ownerId } : {}) });
   write(next);
 }
 
@@ -119,6 +145,16 @@ export function dropQueued(kind: QueuedWrite["kind"], id: string) {
   if (next.length !== items.length) write(next);
 }
 
+/** Removes every queued write (sign-out). */
+export function clearQueue() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
 export function flushQueue(): Promise<{ flushed: number; remaining: number }> {
   if (flushing) return flushing;
   flushing = doFlush().finally(() => {
@@ -129,9 +165,18 @@ export function flushQueue(): Promise<{ flushed: number; remaining: number }> {
 
 async function doFlush(): Promise<{ flushed: number; remaining: number }> {
   // Ids are only stable once persisted; persist any freshly assigned ids first.
-  const items = read();
+  let items = read();
   if (items.length === 0) return { flushed: 0, remaining: 0 };
+  const uid = await currentUserId();
+  if (!uid) return { flushed: 0, remaining: items.length }; // signed out: leave the queue alone
+  // Another user's writes would be replayed into this account (the API takes the client from
+  // the session), so drop them. Ownerless legacy items are kept and flushed as before.
+  const { mine, foreign } = partitionByOwner(items, uid);
+  if (foreign.length > 0) console.warn("write-queue: dropping writes queued by another user", foreign.length);
+  items = mine;
+  const foreignIds = new Set(foreign.map((i) => i.id));
   write(items);
+  if (items.length === 0) return { flushed: 0, remaining: 0 };
   const done = new Set<string>(); // sent successfully or permanently dropped
   let flushed = 0;
   for (const item of items) {
@@ -155,7 +200,7 @@ async function doFlush(): Promise<{ flushed: number; remaining: number }> {
     }
   }
   // Re-read: remove only what we finished; anything added/superseded meanwhile stays as is.
-  const finalItems = read().filter((i) => !done.has(i.id));
+  const finalItems = read().filter((i) => !done.has(i.id) && !foreignIds.has(i.id));
   write(finalItems);
   if (flushed > 0 && typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("portal:queue-flushed", { detail: { flushed } }));
@@ -165,6 +210,7 @@ async function doFlush(): Promise<{ flushed: number; remaining: number }> {
 
 export function attachQueueFlusher(): (() => void) | undefined {
   if (typeof window === "undefined") return;
+  void currentUserId(); // prime the owner cache so queued writes are tagged
   const handler = () => {
     flushQueue().catch(() => {});
   };

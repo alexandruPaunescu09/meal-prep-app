@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { clearPortalLocalState } from "@/lib/portal/local-state";
 
 export default function SignOutButton() {
   const router = useRouter();
@@ -12,6 +13,7 @@ export default function SignOutButton() {
   async function signOut() {
     setPending(true);
     const supabase = createClient();
+    await clearPortalLocalState();
     await supabase.auth.signOut();
     router.push("/login");
     router.refresh();

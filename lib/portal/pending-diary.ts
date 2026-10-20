@@ -68,6 +68,17 @@ export function usePendingDiary(): PendingDiaryRecord[] {
   return useSyncExternalStore(subscribe, read, () => EMPTY);
 }
 
+/** Forgets every pending record (sign-out): clears storage and the in-memory cache. */
+export function clearPending() {
+  cache = [];
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
+  listeners.forEach((l) => l());
+}
+
 /** Records a write; replaces an older record for the same entry. */
 export function putPending(r: PendingDiaryRecord) {
   write([...read().filter((p) => recordId(p) !== recordId(r)), r]);
