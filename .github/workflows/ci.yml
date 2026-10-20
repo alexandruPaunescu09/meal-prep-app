@@ -1,0 +1,77 @@
+# PR gate: lint, typecheck, unit tests, then replay every migration + seed on a
+# fresh local Supabase stack, run pgTAP tests (when supabase/tests exists) and
+# build the app. migrate.yml (prod deploy) is separate and untouched.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, types, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+
+  db-build:
+    name: Migrations, DB tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.121.0
+      - run: npm ci
+
+      # Applies every migration and seed.sql from scratch: proves they replay.
+      # Services the app and tests do not need are excluded to save time.
+      - name: Start local Supabase
+        run: supabase start -x studio,mailpit,imgproxy,postgres-meta,edge-runtime,logflare,vector,supavisor,realtime
+
+      - name: Database tests (pgTAP)
+        run: |
+          if [ -d supabase/tests ]; then
+            supabase test db
+          else
+            echo "No supabase/tests directory yet; skipping."
+          fi
+
+      # The build prerenders pages that create Supabase clients, so it needs
+      # the URL/keys. They come from the throwaway local stack; the other
+      # values are dummies (never real secrets) just so the code paths load.
+      - name: Build
+        run: |
+          eval "$(supabase status -o env | sed -n 's/^\(API_URL\|ANON_KEY\|SERVICE_ROLE_KEY\)=/CI_\1=/p')"
+          export NEXT_PUBLIC_SUPABASE_URL="$CI_API_URL"
+          export NEXT_PUBLIC_SUPABASE_ANON_KEY="$CI_ANON_KEY"
+          export SUPABASE_SERVICE_ROLE_KEY="$CI_SERVICE_ROLE_KEY"
+          export USDA_API_KEY=ci-dummy RESEND_API_KEY=ci-dummy ANTHROPIC_API_KEY=ci-dummy
+          npm run build
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup
