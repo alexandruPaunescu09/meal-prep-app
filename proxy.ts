@@ -4,7 +4,6 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PREFIXES = [
   "/login",
   "/auth/callback",
-  "/api/og",
   "/api/intake",
   "/intake",
   "/manifest.webmanifest",
@@ -24,7 +23,7 @@ function isPublic(pathname: string) {
     pathname === "/sw.js";
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

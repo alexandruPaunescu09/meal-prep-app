@@ -19,7 +19,6 @@
 | @dnd-kit/core | latest | Drag-and-drop (meal plan grid) |
 | @react-pdf/renderer | latest | PDF generation (meal plan export) |
 | Resend | latest | Transactional email (PDF delivery) |
-| @vercel/og | 0.11.1 | OG image generation (legacy) |
 | Lucide React | 1.14.0 | Icons |
 | Vitest | 3.2 | Unit tests for pure `lib/` code (`npm test`) |
 
@@ -50,8 +49,7 @@ app/
 │   ├── portal/foods/barcode/ # Customer barcode lookup (foods → ingredients → Open Food Facts, inserts new OFF foods)
 │   ├── portal/diary/       # Customer food diary upsert/delete (server-side nutrition snapshot)
 │   ├── export/meal-plan/   # PDF generation + email delivery
-│   ├── intake/             # Public client intake form handler
-│   └── og/meal-plan/       # OG image generation (legacy)
+│   └── intake/             # Public client intake form handler
 ├── intake/                 # Public intake form page
 └── login/                  # Login page
 components/
@@ -97,7 +95,7 @@ supabase/
     ├── 20250516000000_prep_workflow.sql
     ├── 20250517000000_categories_table.sql
     └── 20250518000000_drop_recipe_category.sql
-middleware.ts               # Auth check on all routes
+proxy.ts                   # Auth check on all routes (Next 16 "proxy", formerly middleware.ts)
 ```
 
 ---
@@ -242,9 +240,9 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 
 ## Auth & Routing
 
-- **Middleware** (`middleware.ts`): Checks Supabase auth on every request
+- **Proxy** (`proxy.ts`, renamed from `middleware.ts` in Next 16): Checks Supabase auth on every request
 - **Protected**: All routes under `app/(authenticated)/`
-- **Public**: `/login`, `/intake`, `/api/og/*`, `/api/intake`
+- **Public**: `/login`, `/intake`, `/api/intake`
 - **Flow**: No user → redirect `/login`; User on `/login` → redirect `/`
 - **Session**: Cookie-based via @supabase/ssr
 
@@ -271,7 +269,6 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 | `/api/portal/foods/recent` | GET | Customer | Distinct catalog items the customer logged in the last 30 days, newest first, each with its last amount/unit. Log rows via the RLS client, items resolved price-free in one batch (`loadCatalogItems`, service client); unusable items (hidden foods, others' pending foods, recipes outside the client's plans) dropped. Returns `{ results: { item, quantity, unit, lastDate }[] }` |
 | `/api/portal/foods/favorites` | GET / POST / DELETE | Customer | GET → `{ results: CatalogItem[] (usable, newest first), keys: "kind:id"[] }`; POST `{kind, id}` stars an item (404 when not usable; unique violation = already a favorite = success); DELETE `?kind=&id=` unstars (idempotent). Writes through the RLS client into `food_favorites` |
 | `/api/portal/weight` | GET / POST / DELETE | Customer | GET → `{ logs (last 365 days, ascending), weight_kg, target_weight_kg }`; POST `{log_date, weight_kg}` (decimal, 20–300) upserts on `(client_id, log_date)`, `log_date` later than the customer's today + 1 → 400; DELETE `?log_date=` → `{ ok }` or 404. Writes use the RLS client and revalidate `CACHE_TAGS.clients` (admin card shows the latest weight). Requires a connection (not in the offline queue) |
-| `/api/og/meal-plan?id=&format=` | GET | No | Generate OG image (legacy, story/landscape) |
 
 ---
 
@@ -583,3 +580,4 @@ LABEL_SIGNING_SECRET            # Optional; HMAC key for label drafts (default: 
 | 2026-10-20 | FD-11: admin diary insights. `/clients/[id]` (linked from the client card name): average kcal and P/C/F vs targets, plan adherence, off-plan kcal share, streak over 7/30 days, top 10 off-plan foods, day-by-day table/cards drilling into a read-only day sheet (`?day=`), weight trend with goal line + "Use as current weight", empty states. Cached bundle `lib/data/client-diary.ts` (base tables, service client). Dashboard "needs attention" lists portal clients inactive 3+ days. Unit tests for top-foods grouping and the inactivity selection. Browser-checked as admin on 127.0.0.1 (desktop + 375 px) against a seeded fortnight; day totals equal the day table and use the same `calculateDiaryDay` as the customer Today page. No migration | `lib/data/{client-diary,client-diary-view,dashboard}.ts`, `lib/calculations/client-insights{,.test}.ts`, `app/(authenticated)/clients/[id]/page.tsx`, `app/(authenticated)/clients/clients-client.tsx`, `app/(authenticated)/page.tsx`, `components/admin/client-diary-{client,day-sheet}.tsx`, `CLAUDE.md` |
 | 2026-10-20 | Food Diary epic complete: all 13 stories (FD-0 to FD-12) merged to main via PRs #6-#15, every migration applied in production; spec status + tracker finalised. Also closed a blank line that split the changelog table | `docs/superpowers/specs/2026-10-18-food-diary-epic.md`, `CLAUDE.md` |
 | 2026-10-20 | PR CI: new `ci.yml` (lint, tsc, vitest; fresh-stack migration/seed replay, optional pgTAP, production build with local-stack env). Fixed pre-existing lint errors (unescaped apostrophe; `no-explicit-any` disabled for the legacy export/OG routes via `eslint.config.mjs`) | `.github/workflows/ci.yml`, `eslint.config.mjs`, `app/login/forgot-password/page.tsx`, `CLAUDE.md` |
+| 2026-10-20 | Hardening H2: deleted the legacy `/api/og/meal-plan` route (public, service-role read of `meal_plans` + `clients(*)` keyed only by plan id: client data exposure) and uninstalled `@vercel/og`; removed `/api/og` from the public prefixes; renamed `middleware.ts` to `proxy.ts` (exported `proxy`, same matcher and logic) per the Next 16 file-convention rename | `app/api/og/meal-plan/route.tsx` (deleted), `proxy.ts`, `package.json`, `package-lock.json`, `lib/data/service-client.ts`, `CLAUDE.md` |
