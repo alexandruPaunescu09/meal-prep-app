@@ -1,7 +1,7 @@
 # EPIC: Customer Food Diary — MyFitnessPal-style tracking in the portal
 
 **Date:** 2026-10-18
-**Status:** Approved. Step 1 (FD-0, FD-1, FD-7) built and integrated on `food-diary/step-1`; not yet merged to `main`.
+**Status:** Complete (2026-10-20). All 13 stories, FD-0 to FD-12, are merged to `main` through PRs #6–#15, and every migration is applied in production. Items in the "Out of scope (parking lot)" row below were not built.
 
 ## Problem
 
@@ -26,12 +26,12 @@ Update this table as stories land, with the branch or PR and the date.
 | FD-7 | Target weight | S | — | Done 2026-10-18, merged to main with PR #6 (021d9bd) |
 | FD-4 | Barcode scan to log | M | FD-3 | Done 2026-10-19, merged to main with PR #8 (aea9bb5) |
 | FD-5 | Add a product from a nutrition-label photo | L | FD-4 | Done 2026-10-19, merged to main with PR #10 (c2bdda0) |
-| FD-12 | Admin food moderation | M | FD-4 | Done 2026-10-19, merged to main with PR #11 |
+| FD-12 | Admin food moderation | M | FD-4 | Done 2026-10-19, merged to main with PR #11 (a394d58) |
 | FD-6 | Recents, favorites and copy | S–M | FD-3 | Done 2026-10-19, merged to main with PR #9 (f499634) |
 | FD-8 | Nutrition details and micronutrients | M | FD-2 | Done 2026-10-19, merged to main with PR #12 (966b1e0) |
-| FD-9 | Weight log | S–M | FD-7 | Done 2026-10-19, merged to main with PR #13 |
-| FD-10 | Progress tab: trends and streaks | M | FD-3 (FD-9 optional) | In review (PR) |
-| FD-11 | Admin diary insights | M–L | FD-3 (FD-9 for weight) | Not started |
+| FD-9 | Weight log | S–M | FD-7 | Done 2026-10-19, merged to main with PR #13 (b4d6646) |
+| FD-10 | Progress tab: trends and streaks | M | FD-3 (FD-9 optional) | Done 2026-10-20, merged to main with PR #14 (2ebb06d) |
+| FD-11 | Admin diary insights | M–L | FD-3 (FD-9 for weight) | Done 2026-10-20, merged to main with PR #15 |
 
 ## Product decisions
 

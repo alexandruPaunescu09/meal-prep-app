@@ -304,7 +304,11 @@ export default function ClientsClient({
               className="scroll-mt-20 bg-white rounded-xl border p-4 hover:shadow-sm transition-shadow [&:target]:ring-2 [&:target]:ring-emerald-500"
             >
               <div className="flex items-start justify-between mb-2 gap-2">
-                <h3 className="font-semibold text-gray-900 min-w-0 break-words">{client.name}</h3>
+                <h3 className="font-semibold text-gray-900 min-w-0 break-words">
+                  <Link href={`/clients/${client.id}`} className="hover:text-emerald-700 hover:underline">
+                    {client.name}
+                  </Link>
+                </h3>
                 <div className="flex items-center gap-1 shrink-0">
                   <IconButton label={`Edit ${client.name}`} tone="primary" onClick={() => openEdit(client)}>
                     <Pencil size={16} aria-hidden="true" />
