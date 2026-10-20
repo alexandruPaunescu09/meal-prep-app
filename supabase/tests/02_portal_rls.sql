@@ -195,12 +195,26 @@ delete from meal_entry_status where meal_plan_entry_id = '10000000-0000-4000-800
 delete from meal_reviews where meal_plan_entry_id = '10000000-0000-4000-8000-00000000000b';
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
-select todo_start('KNOWN HOLE: meal_entry_status policy does not check the plan entry belongs to the customer');
 select throws_ok($$insert into meal_entry_status (meal_plan_entry_id, client_id, status) values ('10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000a', 'eaten')$$, '42501', null, 'A cannot set status on B''s plan entry');
-select todo_end();
-select todo_start('KNOWN HOLE: meal_reviews policy does not check the plan entry belongs to the customer');
 select throws_ok($$insert into meal_reviews (meal_plan_entry_id, client_id, rating) values ('10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000a', 1)$$, '42501', null, 'A cannot review B''s plan entry');
-select todo_end();
+
+-- Update-repoint: A cannot move own status/review onto B's entry.
+select lives_ok($$insert into meal_reviews (id, meal_plan_entry_id, client_id, rating) values ('20000000-0000-4000-8000-0000000000a2', '10000000-0000-4000-8000-0000000000a2', 'c0000000-0000-4000-8000-00000000000a', 3)$$, 'A can review own plan entry');
+select throws_ok($$update meal_reviews set meal_plan_entry_id = '10000000-0000-4000-8000-00000000000b' where id = '20000000-0000-4000-8000-0000000000a2'$$, '42501', null, 'A cannot repoint own review to B''s entry');
+select throws_ok($$update meal_entry_status set meal_plan_entry_id = '10000000-0000-4000-8000-00000000000b' where meal_plan_entry_id = '10000000-0000-4000-8000-00000000000a'$$, '42501', null, 'A cannot repoint own status to B''s entry');
+
+-- meal_review_tags: only on own reviews.
+reset role;
+insert into review_tags (id, label, sentiment) values ('60000000-0000-4000-8000-000000000001', 'H6 tag', 'neutral');
+insert into meal_reviews (id, meal_plan_entry_id, client_id, rating) values ('20000000-0000-4000-8000-00000000000c', '10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', 4);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+select throws_ok($$insert into meal_review_tags (review_id, tag_id) values ('20000000-0000-4000-8000-00000000000c', '60000000-0000-4000-8000-000000000001')$$, '42501', null, 'A cannot tag B''s review');
+select lives_ok($$insert into meal_review_tags (review_id, tag_id) values ('20000000-0000-4000-8000-0000000000a2', '60000000-0000-4000-8000-000000000001')$$, 'A can tag own review');
+
+-- Legitimate own-entry writes still pass (status upsert on own entry, review update).
+select lives_ok($$insert into meal_entry_status (meal_plan_entry_id, client_id, status) values ('10000000-0000-4000-8000-0000000000a2', 'c0000000-0000-4000-8000-00000000000a', 'skipped') on conflict (meal_plan_entry_id) do update set status = excluded.status$$, 'A can upsert status on own plan entry');
+select lives_ok($$update meal_reviews set rating = 5 where id = '20000000-0000-4000-8000-0000000000a2'$$, 'A can update own review on own entry');
 
 reset role;
 select * from finish();
