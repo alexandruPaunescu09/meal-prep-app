@@ -4,7 +4,7 @@ import { requireCustomer } from "@/lib/portal/require-customer";
 import { createServiceClient } from "@/lib/data/service-client";
 import { labelParseSchema } from "@/lib/validations/schemas";
 import { DAILY_NEW_FOOD_LIMIT, canCreateFood, createdInLast24h, normalizeBarcode } from "@/lib/portal/foods";
-import { LABEL_PARSES_PER_DAY, labelParsesInLast24h, photoPathsValid } from "@/lib/portal/label-food";
+import { LABEL_PARSES_PER_DAY, photoPathsValid, reserveLabelParse } from "@/lib/portal/label-food";
 import { DEFAULT_LABEL_MODEL, LabelParseError, parseLabelPhotos, type LabelImage } from "@/lib/portal/label-parse";
 import { mapLabel } from "@/lib/portal/label-map";
 import { labelSigningSecret, signLabelDraft, type SignedLabelPayload } from "@/lib/portal/label-sign";
@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
   if (!photoPathsValid(clientId, body.food_id, body.label_photo_path, frontPath)) {
     return json({ error: "bad_paths", message: "Invalid photo reference." }, 400);
   }
+  const secret = labelSigningSecret();
+  if (!secret) {
+    console.error("LABEL_SIGNING_SECRET is not set; label reading is disabled");
+    return json({ error: "not_configured", message: "Label reading isn't configured." }, 500);
+  }
   if (!process.env.ANTHROPIC_API_KEY) {
     return json({ error: "unavailable", message: "Label reading isn't available right now. Use Quick add instead." }, 503);
   }
@@ -51,12 +56,6 @@ export async function POST(req: NextRequest) {
 
   const service = createServiceClient();
   try {
-    if ((await labelParsesInLast24h(service, clientId)) >= LABEL_PARSES_PER_DAY) {
-      return json(
-        { error: "rate_limited", message: `You've read ${LABEL_PARSES_PER_DAY} labels today. Try again tomorrow, or use Quick add.` },
-        429
-      );
-    }
     if (!canCreateFood(await createdInLast24h(service, clientId))) {
       return json(
         { error: "food_limit", message: `You've added ${DAILY_NEW_FOOD_LIMIT} new products today. Try again tomorrow, or use Quick add.` },
@@ -65,15 +64,16 @@ export async function POST(req: NextRequest) {
     }
 
     const model = process.env.LABEL_PARSER_MODEL || DEFAULT_LABEL_MODEL;
-    // Reserve the attempt BEFORE the model call so parallel requests count against the limit; the outcome is set after.
-    const { data: attempt, error: attemptErr } = await service
-      .from("food_label_parses")
-      .insert({ client_id: clientId, model, outcome: "error" })
-      .select("id")
-      .single();
-    if (attemptErr || !attempt) throw new Error(attemptErr?.message ?? "could not log parse attempt");
+    // Reserve the attempt BEFORE the model call, atomically against the daily limit; the outcome is set after.
+    const attemptId = await reserveLabelParse(service, clientId, model);
+    if (!attemptId) {
+      return json(
+        { error: "rate_limited", message: `You've read ${LABEL_PARSES_PER_DAY} labels today. Try again tomorrow, or use Quick add.` },
+        429
+      );
+    }
     const setOutcome = async (outcome: "ok" | "unreadable" | "error") => {
-      await service.from("food_label_parses").update({ outcome }).eq("id", attempt.id);
+      await service.from("food_label_parses").update({ outcome }).eq("id", attemptId);
     };
 
     try {
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
         draft: mapped.draft,
         issued_at: Date.now(),
       };
-      return json({ draft: mapped.draft, issued_at: payload.issued_at, signature: signLabelDraft(payload, labelSigningSecret()) });
+      return json({ draft: mapped.draft, issued_at: payload.issued_at, signature: signLabelDraft(payload, secret) });
     } catch (e) {
       await setOutcome("error");
       if (e instanceof LabelParseError) {

@@ -66,6 +66,7 @@ function fakeService(db: Db): { client: SupabaseClient; inserts: Row[] } {
     filters: [string, string, unknown][] = [];
     op: "select" | "insert" = "select";
     head = false;
+    isSingle = false;
     payload: Row | null = null;
     constructor(public table: "foods" | "ingredients") {}
     select(_cols?: string, opts?: { head?: boolean }) {
@@ -96,6 +97,7 @@ function fakeService(db: Db): { client: SupabaseClient; inserts: Row[] } {
       return this;
     }
     single() {
+      this.isSingle = true;
       return this;
     }
     run(): { data?: unknown; error?: unknown; count?: number } {
@@ -114,13 +116,27 @@ function fakeService(db: Db): { client: SupabaseClient; inserts: Row[] } {
           op === "eq" ? r[c] === v : op === "in" ? (v as unknown[]).includes(r[c]) : String(r[c]) >= String(v)
         )
       );
-      return this.head ? { count: hit.length } : { data: hit };
+      return this.head ? { count: hit.length } : { data: this.isSingle ? hit[0] : hit };
     }
     then<T>(ok: (v: unknown) => T, bad?: (e: unknown) => T) {
       return Promise.resolve(this.run()).then(ok, bad);
     }
   }
-  const client = { from: (t: "foods" | "ingredients") => new Q(t) } as unknown as SupabaseClient;
+  /** Stand-in for the `create_food_with_quota` RPC: count the creator's last-24h foods, then insert. */
+  const rpc = async (name: string, args: { p_client_id: string; p_food: Row; p_limit: number }) => {
+    if (name !== "create_food_with_quota") throw new Error(`unexpected rpc ${name}`);
+    const since = Date.now() - 24 * 3600 * 1000;
+    const count = db.foods.filter(
+      (r) => r.created_by_client_id === args.p_client_id && new Date(r.created_at as string).getTime() >= since
+    ).length;
+    if (count >= args.p_limit) return { data: null, error: null };
+    const res = new Q("foods").insert({ ...args.p_food, created_by_client_id: args.p_client_id }).run() as {
+      data?: Row;
+      error?: unknown;
+    };
+    return res.error ? { data: null, error: res.error } : { data: res.data!.id, error: null };
+  };
+  const client = { from: (t: "foods" | "ingredients") => new Q(t), rpc } as unknown as SupabaseClient;
   return { client, inserts };
 }
 

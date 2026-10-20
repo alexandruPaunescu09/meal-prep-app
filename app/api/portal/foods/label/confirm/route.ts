@@ -29,6 +29,12 @@ export async function POST(req: NextRequest) {
     return json({ error: "bad_paths", message: "Invalid photo reference." }, 400);
   }
 
+  const secret = labelSigningSecret();
+  if (!secret) {
+    console.error("LABEL_SIGNING_SECRET is not set; label reading is disabled");
+    return json({ error: "not_configured", message: "Label reading isn't configured." }, 500);
+  }
+
   const payload: SignedLabelPayload = {
     food_id: body.food_id,
     client_id: clientId,
@@ -38,7 +44,7 @@ export async function POST(req: NextRequest) {
     draft: body.draft,
     issued_at: body.issued_at,
   };
-  const verdict = verifyLabelDraft(payload, body.signature, labelSigningSecret());
+  const verdict = verifyLabelDraft(payload, body.signature, secret);
   if (!verdict.ok) {
     return verdict.reason === "expired"
       ? json({ error: "expired", message: "This took too long. Retake the photo to read it again." }, 410)

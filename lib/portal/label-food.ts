@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CatalogItem } from "@/lib/supabase/types";
 import { FOOD_COLS, foodToItem } from "@/lib/portal/catalog";
-import { canCreateFood, createdInLast24h, findFood, normalizeBarcode } from "@/lib/portal/foods";
+import { canCreateFood, createdInLast24h, findFood, insertFoodWithQuota, normalizeBarcode } from "@/lib/portal/foods";
 import type { LabelDraft } from "@/lib/portal/label-map";
 
 /**
@@ -29,17 +29,6 @@ export function photoPathsValid(
   if (!UUID_RE.test(foodId)) return false;
   const p = labelPhotoPaths(clientId, foodId);
   return labelPath === p.label && (frontPath == null || frontPath === p.front);
-}
-
-export async function labelParsesInLast24h(service: SupabaseClient, clientId: string): Promise<number> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count, error } = await service
-    .from("food_label_parses")
-    .select("id", { count: "exact", head: true })
-    .eq("client_id", clientId)
-    .gte("created_at", since);
-  if (error) throw new Error(error.message);
-  return count ?? 0;
 }
 
 export type CreateLabelFoodResult =
@@ -120,14 +109,30 @@ export async function createLabelFood(service: SupabaseClient, a: CreateLabelFoo
   };
 
   let kept = barcode !== null;
-  let res = await service.from("foods").insert({ ...base, barcode }).select(FOOD_COLS).single();
-  if (res.error?.code === "23505") {
+  // The quota check and insert are one atomic RPC (per-customer lock), so parallel confirms cannot overshoot.
+  let res = await insertFoodWithQuota(service, a.clientId, { ...base, barcode });
+  if (res.status === "conflict") {
     // Either a racing retry of this same food id, or another customer took the barcode a moment ago.
     const raced = await own();
     if (raced) return { ok: true, item: raced, created: false, barcodeKept: true };
     kept = false;
-    res = await service.from("foods").insert({ ...base, barcode: null }).select(FOOD_COLS).single();
+    res = await insertFoodWithQuota(service, a.clientId, { ...base, barcode: null });
+    if (res.status === "conflict") throw new Error("could not insert label food");
   }
-  if (res.error) throw new Error(res.error.message);
-  return { ok: true, item: foodToItem(res.data as unknown as Row), created: true, barcodeKept: kept };
+  if (res.status === "quota") return { ok: false, reason: "rate_limited" };
+  return { ok: true, item: foodToItem(res.row), created: true, barcodeKept: kept };
+}
+
+/**
+ * Atomically reserves one of the customer's daily label parses (RPC `reserve_label_parse`).
+ * Returns the attempt id, or null when the daily limit is reached.
+ */
+export async function reserveLabelParse(service: SupabaseClient, clientId: string, model: string): Promise<string | null> {
+  const { data, error } = await service.rpc("reserve_label_parse", {
+    p_client_id: clientId,
+    p_model: model,
+    p_limit: LABEL_PARSES_PER_DAY,
+  });
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? null;
 }

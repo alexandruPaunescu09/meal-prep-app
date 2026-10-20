@@ -198,6 +198,35 @@ export async function createdInLast24h(service: SupabaseClient, clientId: string
   return count ?? 0;
 }
 
+export type QuotaInsert =
+  | { status: "created"; row: FoodLookupRow }
+  | { status: "quota" }
+  | { status: "conflict" };
+
+/**
+ * Atomic "count this customer's foods in the last 24 h, then insert" (RPC `create_food_with_quota`
+ * takes a per-customer advisory lock). `conflict` = unique barcode/id violation (23505).
+ */
+export async function insertFoodWithQuota(
+  service: SupabaseClient,
+  clientId: string,
+  food: Record<string, unknown>
+): Promise<QuotaInsert> {
+  const { data, error } = await service.rpc("create_food_with_quota", {
+    p_client_id: clientId,
+    p_food: food,
+    p_limit: DAILY_NEW_FOOD_LIMIT,
+  });
+  if (error) {
+    if (error.code === "23505") return { status: "conflict" };
+    throw new Error(error.message);
+  }
+  if (!data) return { status: "quota" };
+  const { data: row, error: selErr } = await service.from("foods").select(FOOD_COLS).eq("id", data as string).single();
+  if (selErr) throw new Error(selErr.message);
+  return { status: "created", row: row as unknown as FoodLookupRow };
+}
+
 export interface ResolveDeps {
   lookup?: (code: string) => Promise<BarcodeLookup | null>;
   /** Returns true when this customer may call Open Food Facts now. */
@@ -210,9 +239,8 @@ export interface ResolveDeps {
  * Throws on database errors and `OffUnavailableError` when OFF could not answer (route -> 502).
  *
  * Quotas: OFF is only called for a customer under both the per-hour lookup cap and the daily
- * new-food cap. The daily cap is read before the OFF call (to spare it) and again right before the
- * insert. A count-then-insert cannot be atomic without a database function, so parallel requests for
- * different new barcodes can overshoot the daily cap by the number of requests in flight.
+ * new-food cap. The daily cap is read before the OFF call (to spare it) and enforced atomically by
+ * `create_food_with_quota` at insert time, so parallel requests cannot overshoot it.
  */
 export async function resolveBarcode(
   service: SupabaseClient,
@@ -248,15 +276,13 @@ export async function resolveBarcode(
   const row = mapOffToFood(found, canonical, clientId);
   if (!row) return { ok: false, reason: "incomplete_data" };
 
-  if (!canCreateFood(await createdInLast24h(service, clientId))) return { ok: false, reason: "rate_limited" };
-
-  const { data, error } = await service.from("foods").insert(row).select(FOOD_COLS).single();
-  if (error) {
-    if (error.code !== "23505") throw new Error(error.message);
+  const res = await insertFoodWithQuota(service, clientId, row);
+  if (res.status === "quota") return { ok: false, reason: "rate_limited" };
+  if (res.status === "conflict") {
     // Another scan created it first: return that row so there is exactly one food per barcode.
     const winner = await findFood(service, variants, canonical);
     if (winner && usable(winner, clientId)) return { ok: true, item: foodToItem(winner), source: "food", created: false };
     return { ok: false, reason: "not_found" };
   }
-  return { ok: true, item: foodToItem(data as unknown as FoodLookupRow), source: "off", created: true };
+  return { ok: true, item: foodToItem(res.row), source: "off", created: true };
 }

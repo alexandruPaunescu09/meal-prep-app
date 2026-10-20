@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LABEL_DRAFT_TTL_MS, canonicalJson, signLabelDraft, verifyLabelDraft, type SignedLabelPayload } from "./label-sign";
+import { LABEL_DRAFT_TTL_MS, canonicalJson, labelSigningSecret, signLabelDraft, verifyLabelDraft, type SignedLabelPayload } from "./label-sign";
 import { labelPhotoPaths, photoPathsValid } from "./label-food";
 
 const SECRET = "test-secret";
@@ -85,6 +85,14 @@ describe("label draft signature", () => {
 
   it("refuses to sign without a secret", () => {
     expect(() => signLabelDraft(payload(), "")).toThrow();
+  });
+});
+
+describe("labelSigningSecret", () => {
+  it("reads only LABEL_SIGNING_SECRET and never falls back to the service key", () => {
+    expect(labelSigningSecret({ LABEL_SIGNING_SECRET: " s3cret " })).toBe("s3cret");
+    expect(labelSigningSecret({ SUPABASE_SERVICE_ROLE_KEY: "svc" })).toBe("");
+    expect(labelSigningSecret({})).toBe("");
   });
 });
 
