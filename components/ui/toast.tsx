@@ -121,7 +121,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const polite = items.filter((t) => t.kind !== "error");
   const assertive = items.filter((t) => t.kind === "error");
   // Two live regions (always mounted so screen readers pick up insertions).
-  // bottom-20 leaves room for the portal bottom tabs on mobile.
+  // bottom-20 (+ safe-area inset) leaves room for the portal bottom tabs on mobile.
   const region =
     "pointer-events-none fixed inset-x-0 z-[70] flex flex-col items-center gap-2 px-4 md:items-end md:px-6";
 
@@ -131,7 +131,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div
         aria-live="polite"
         role="status"
-        className={`${region} bottom-20 md:bottom-6`}
+        className={`${region} bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6`}
       >
         {polite.map((t) => (
           <ToastView key={t.id} item={t} onDismiss={dismiss} />
@@ -141,7 +141,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         aria-live="assertive"
         role="alert"
         className={`${region} ${
-          polite.length ? "bottom-40 md:bottom-24" : "bottom-20 md:bottom-6"
+          polite.length ? "bottom-[calc(10rem+env(safe-area-inset-bottom))] md:bottom-24" : "bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-6"
         }`}
       >
         {assertive.map((t) => (

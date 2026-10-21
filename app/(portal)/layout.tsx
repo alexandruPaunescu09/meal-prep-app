@@ -55,7 +55,7 @@ export default async function PortalLayout({
 
   // Bottom padding clears the fixed tab bar plus the iOS home-indicator inset.
   return (
-    <div className="min-h-full bg-gray-50">
+    <div className="min-h-dvh bg-gray-50">
       <AuthWatcher />
       <TopBar greeting={greeting} />
       <TopNav />

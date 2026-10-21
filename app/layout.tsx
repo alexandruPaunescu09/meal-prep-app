@@ -24,6 +24,12 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   // Keep in sync with theme_color in app/manifest.ts.
   themeColor: "#059669",
+  width: "device-width",
+  initialScale: 1,
+  // Required for env(safe-area-inset-*) to be non-zero in the installed app.
+  viewportFit: "cover",
+  // The app is light-only: opts out of Android/Samsung forced dark.
+  colorScheme: "only light",
 };
 
 export default function RootLayout({

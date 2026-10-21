@@ -152,7 +152,7 @@ export default function DayScrubber({
           </button>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 overflow-hidden">
           <button
             type="button"
             onClick={() => shift(-1)}
