@@ -12,7 +12,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  * Why this is safe:
  *   The admin app is single-tenant. RLS for admin tables is just
  *   `auth.uid() IS NOT NULL`, granting any signed-in user full read/write.
- *   Authentication is enforced at middleware + layout level *before* any
+ *   Authentication is enforced at proxy + layout level *before* any
  *   cached data function is called. By the time we hit a cached read the
  *   request is already known to come from an authenticated admin, and the
  *   data returned is identical for every admin.
