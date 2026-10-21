@@ -48,20 +48,16 @@ const FOCUSABLE =
 // Module-level stack of open modals: only the last one reacts to Escape/Tab.
 const stack: string[] = [];
 let scrollLocks = 0;
-let prevOverflow = "";
 let prevRootOverflow = "";
 
 function lockScroll() {
   if (scrollLocks++ === 0) {
-    prevOverflow = document.body.style.overflow;
     prevRootOverflow = document.documentElement.style.overflow;
-    document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
   }
 }
 function unlockScroll() {
   if (--scrollLocks === 0) {
-    document.body.style.overflow = prevOverflow;
     document.documentElement.style.overflow = prevRootOverflow;
   }
 }
