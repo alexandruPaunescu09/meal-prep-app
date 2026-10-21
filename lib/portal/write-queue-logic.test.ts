@@ -1,25 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { partitionByOwner, queueKey, requestFor, stubFor, withoutSuperseded, type QueueLike } from "./write-queue-logic";
+import { queueKey, requestFor, stubFor, withoutSuperseded, type QueueLike } from "./write-queue-logic";
 
 const status = (id: string): QueueLike => ({ kind: "status", payload: { meal_plan_entry_id: id } });
 const review = (id: string): QueueLike => ({ kind: "review", payload: { meal_plan_entry_id: id } });
 const upsert = (id: string): QueueLike => ({ kind: "diary-upsert", payload: { id } });
 const del = (id: string): QueueLike => ({ kind: "diary-delete", payload: { id } });
-
-describe("partitionByOwner", () => {
-  const it1 = { ...status("e1"), id: "1", owner: "A" };
-  const it2 = { ...status("e2"), id: "2", owner: "B" };
-  const legacy = { ...status("e3"), id: "3" };
-
-  it("keeps own and legacy (ownerless) items, separates other users' items", () => {
-    expect(partitionByOwner([it1, it2, legacy], "A")).toEqual({ mine: [it1, legacy], foreign: [it2] });
-    expect(partitionByOwner([it1, it2, legacy], "B")).toEqual({ mine: [it2, legacy], foreign: [it1] });
-  });
-
-  it("never drops legacy items", () => {
-    expect(partitionByOwner([legacy], "Z")).toEqual({ mine: [legacy], foreign: [] });
-  });
-});
 
 describe("queueKey / withoutSuperseded", () => {
   it("keeps review/status behaviour: same kind + entry supersedes, other kinds do not", () => {

@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import type { FoodLogEntry } from "@/lib/supabase/types";
 import type { DiaryEntryInput } from "@/lib/validations/schemas";
 import { useToast } from "@/components/ui/toast";
-import { mergeLogEntries } from "@/lib/portal/diary-merge";
+import { mergeLogEntries, visiblePending } from "@/lib/portal/diary-merge";
 import { optimisticEntry, type SnapshotLike } from "@/lib/portal/diary-draft";
+import { useOwnerId } from "@/lib/portal/owner";
 import { deleteDiaryEntry, saveDiaryEntry } from "@/lib/portal/save-diary";
 import {
   beginInflight,
@@ -29,7 +30,10 @@ import {
 export function useDiaryLog(logEntries: FoodLogEntry[], selectedDate: string) {
   const router = useRouter();
   const toast = useToast();
-  const pending = usePendingDiary();
+  const owner = useOwnerId();
+  const allPending = usePendingDiary();
+  // Another user's leftover records stay in storage but are never shown.
+  const pending = useMemo(() => visiblePending(allPending, owner), [allPending, owner]);
 
   const entries = useMemo(
     () => mergeLogEntries(logEntries, pending, selectedDate),

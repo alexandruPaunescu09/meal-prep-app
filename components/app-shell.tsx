@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { clearPortalLocalState } from "@/lib/portal/local-state";
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndClear } from "@/lib/portal/local-state";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
+import AuthWatcher from "@/components/auth-watcher";
 import {
   LayoutDashboard,
   Carrot,
@@ -64,6 +66,7 @@ export default function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const toast = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
@@ -72,8 +75,11 @@ export default function AppShell({
 
   async function handleLogout() {
     setSigningOut(true);
-    await clearPortalLocalState();
-    await supabase.auth.signOut();
+    if (!(await signOutAndClear(supabase))) {
+      toast.error(SIGN_OUT_FAILED_MESSAGE);
+      setSigningOut(false);
+      return;
+    }
     router.push("/login");
     router.refresh();
   }
@@ -101,6 +107,7 @@ export default function AppShell({
 
   return (
     <div className="h-full flex">
+      <AuthWatcher />
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div

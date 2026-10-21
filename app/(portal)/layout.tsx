@@ -5,6 +5,7 @@ import TopNav from "@/components/portal/top-nav";
 import BottomTabs from "@/components/portal/bottom-tabs";
 import InstallBanner from "@/components/portal/install-banner";
 import OfflineBanner from "@/components/portal/offline-banner";
+import AuthWatcher from "@/components/auth-watcher";
 
 export const metadata = {
   title: "My Meals",
@@ -47,6 +48,7 @@ export default async function PortalLayout({
   // Bottom padding clears the fixed tab bar plus the iOS home-indicator inset.
   return (
     <div className="min-h-full bg-gray-50">
+      <AuthWatcher />
       <TopBar greeting={greeting} />
       <TopNav />
       <main className="max-w-3xl mx-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6">

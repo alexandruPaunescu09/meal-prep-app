@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { PendingDiaryRecord } from "@/lib/portal/diary-merge";
 import { queuedDiaryIds } from "@/lib/portal/write-queue";
+import { getOwnerId } from "@/lib/portal/owner";
 
 // What the customer just did to their diary, kept so the day view reflects it immediately and
 // (for offline writes) after a reload, until the server data catches up. Display only: the
@@ -81,7 +82,8 @@ export function clearPending() {
 
 /** Records a write; replaces an older record for the same entry. */
 export function putPending(r: PendingDiaryRecord) {
-  write([...read().filter((p) => recordId(p) !== recordId(r)), r]);
+  const owner = getOwnerId();
+  write([...read().filter((p) => recordId(p) !== recordId(r)), owner ? { ...r, owner } : r]);
 }
 
 /** Forgets a record (the write failed for good and was rolled back). */

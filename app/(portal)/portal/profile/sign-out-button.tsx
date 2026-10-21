@@ -3,18 +3,22 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
-import { clearPortalLocalState } from "@/lib/portal/local-state";
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndClear } from "@/lib/portal/local-state";
 
 export default function SignOutButton() {
   const router = useRouter();
+  const toast = useToast();
   const [pending, setPending] = useState(false);
 
   async function signOut() {
     setPending(true);
-    const supabase = createClient();
-    await clearPortalLocalState();
-    await supabase.auth.signOut();
+    if (!(await signOutAndClear(createClient()))) {
+      toast.error(SIGN_OUT_FAILED_MESSAGE);
+      setPending(false);
+      return;
+    }
     router.push("/login");
     router.refresh();
   }
