@@ -123,7 +123,7 @@ export default function EditEntrySheet({
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 aria-invalid={quantity === null}
-                className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm"
+                className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-base md:text-sm"
               />
               {quantity === null && (
                 <p className="text-xs text-red-600 mt-1">Enter an amount between 0 and 5000.</p>

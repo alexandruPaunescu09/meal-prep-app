@@ -96,7 +96,7 @@ export default function AmountPicker({
             value={text}
             onChange={(e) => setText(e.target.value)}
             aria-invalid={invalid}
-            className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm"
+            className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-base md:text-sm"
           />
         </div>
         {units.length > 1 ? (

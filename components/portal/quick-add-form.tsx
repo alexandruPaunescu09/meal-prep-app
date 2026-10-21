@@ -42,7 +42,7 @@ function Field({
         aria-invalid={invalid}
         aria-required={required}
         placeholder={placeholder}
-        className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm"
+        className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-base md:text-sm"
       />
     </div>
   );
@@ -92,7 +92,7 @@ export default function QuickAddForm({
           maxLength={100}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Coffee with milk"
-          className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm"
+          className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-gray-900 text-base md:text-sm"
         />
       </div>
       <Field

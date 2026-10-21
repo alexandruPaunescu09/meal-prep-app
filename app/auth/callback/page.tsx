@@ -100,7 +100,7 @@ function CallbackInner() {
   }, [params, router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-dvh flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm bg-white rounded-xl shadow-lg p-8 text-center">
         {error ? (
           <>
@@ -128,7 +128,7 @@ export default function AuthCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="min-h-dvh flex items-center justify-center bg-gray-50 px-4">
           <div className="w-full max-w-sm bg-white rounded-xl shadow-lg p-8 text-center">
             <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
             <p className="text-sm text-gray-600">Signing you in…</p>

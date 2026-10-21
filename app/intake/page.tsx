@@ -101,7 +101,7 @@ function validate(form: FormState): FieldErrors {
 }
 
 const inputBase =
-  "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm";
+  "w-full px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-base md:text-sm";
 
 function inputClass(invalid: boolean, extra = "") {
   return `${inputBase} ${invalid ? "border-red-500" : "border-gray-300"} ${extra}`.trim();
@@ -222,7 +222,7 @@ export default function IntakePage() {
 
   if (outcome === "portal") {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-dvh bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl shadow-sm border max-w-md w-full p-8 text-center">
           <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg
@@ -262,7 +262,7 @@ export default function IntakePage() {
 
   if (outcome === "signin") {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="min-h-dvh bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl shadow-sm border max-w-md w-full p-8 text-center">
           <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg
@@ -303,7 +303,7 @@ export default function IntakePage() {
   const errorList = VALIDATED_FIELDS.filter((k) => fieldErrors[k]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-dvh bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-sm border max-w-lg w-full">
         <div className="px-6 py-5 border-b">
           <h1 className="text-xl font-bold text-gray-900">Create your account</h1>

@@ -275,7 +275,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
         )}
       </div>
 
-      <div className="bg-white p-3 max-h-[50dvh] overflow-y-auto">
+      <div className="bg-white p-3 max-h-[50dvh] overflow-y-auto overscroll-contain">
         <button
           type="button"
           onClick={() => setManualOpen((o) => !o)}
@@ -300,7 +300,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
                 placeholder="e.g. 5449000000996"
                 aria-label="Barcode number"
                 autoFocus
-                className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-sm"
+                className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none text-base md:text-sm"
               />
               <button
                 type="submit"

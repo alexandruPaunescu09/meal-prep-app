@@ -12,11 +12,16 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Light-only app: the canvas (html) must never turn dark, otherwise overscroll
+ * and pinch-zoom expose it. Matches the portal wrapper (gray-50). */
+html {
+  background: #f9fafb;
+  color-scheme: light;
+}
+
+html,
+body {
+  overscroll-behavior: none;
 }
 
 body {

@@ -48,16 +48,18 @@ const FOCUSABLE =
 // Module-level stack of open modals: only the last one reacts to Escape/Tab.
 const stack: string[] = [];
 let scrollLocks = 0;
-let prevOverflow = "";
+let prevRootOverflow = "";
 
 function lockScroll() {
   if (scrollLocks++ === 0) {
-    prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    prevRootOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
   }
 }
 function unlockScroll() {
-  if (--scrollLocks === 0) document.body.style.overflow = prevOverflow;
+  if (--scrollLocks === 0) {
+    document.documentElement.style.overflow = prevRootOverflow;
+  }
 }
 
 const subscribeNoop = () => () => {};
@@ -258,7 +260,7 @@ export function Modal({
         </div>
         <div
           ref={bodyRef}
-          className={`flex-1 overflow-y-auto px-5 py-4 ${
+          className={`flex-1 overflow-y-auto overscroll-contain px-5 py-4 ${
             footer ? "" : sheet ? "pb-[max(1rem,env(safe-area-inset-bottom))]" : ""
           }`}
         >

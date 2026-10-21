@@ -114,7 +114,7 @@ export default function CopyMealSheet({
               max={yesterday}
               value={sourceDate}
               onChange={(e) => setSourceDate(e.target.value)}
-              className="min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-sm text-gray-900"
+              className="min-h-[44px] px-3 rounded-lg border border-gray-300 bg-white text-base md:text-sm text-gray-900"
             />
           </div>
         </div>

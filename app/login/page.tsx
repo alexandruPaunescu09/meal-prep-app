@@ -68,7 +68,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-dvh flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-sm p-8 bg-white rounded-xl shadow-lg">
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 bg-emerald-600 rounded-lg flex items-center justify-center">
@@ -91,7 +91,7 @@ export default function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-base md:text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
               required
             />
           </div>
@@ -110,7 +110,7 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-3 pr-11 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
+                className="w-full pl-3 pr-11 py-2 border border-gray-300 rounded-lg text-base md:text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none"
                 required
               />
               <button
