@@ -62,7 +62,10 @@ export function verifyLabelDraft(
   return { ok: true };
 }
 
-/** The server secret. Falls back to the service-role key, which never leaves the server. */
-export function labelSigningSecret(): string {
-  return process.env.LABEL_SIGNING_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+/**
+ * The server secret (`LABEL_SIGNING_SECRET`, random, 32+ bytes). Empty string when unset: routes must
+ * then fail closed with a 500. There is deliberately no fallback to another key.
+ */
+export function labelSigningSecret(env: Record<string, string | undefined> = process.env): string {
+  return env.LABEL_SIGNING_SECRET?.trim() || "";
 }

@@ -556,3 +556,27 @@ export interface DiarySnapshot {
   salt: number;
   micronutrients: Record<string, number>;
 }
+
+// ---- Abuse-limit RPCs (migration 20261020000000_abuse_limits; service_role only) ----
+
+/** supabase.rpc("check_rate_limit", { p_bucket, p_key_hash, p_limit, p_window }) -> true when allowed (hit recorded) */
+export interface CheckRateLimitArgs {
+  p_bucket: string;
+  p_key_hash: string;
+  p_limit: number;
+  p_window: string;
+}
+
+/** supabase.rpc("create_food_with_quota", { p_client_id, p_food, p_limit }) -> new food id, or null when over quota */
+export interface CreateFoodWithQuotaArgs {
+  p_client_id: string;
+  p_food: Record<string, unknown>;
+  p_limit: number;
+}
+
+/** supabase.rpc("reserve_label_parse", { p_client_id, p_model, p_limit }) -> parse attempt id, or null when over limit */
+export interface ReserveLabelParseArgs {
+  p_client_id: string;
+  p_model: string;
+  p_limit: number;
+}

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServer } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { registerSchema } from "@/lib/validations/schemas";
+import { clientIp, hashKey } from "@/lib/rate-limit-key";
+
+// Registrations (valid or not) allowed per IP per hour.
+const INTAKE_LIMIT = 5;
 
 function service() {
   return createServiceClient(
@@ -59,6 +63,24 @@ function pickIntakeUpdates(
 }
 
 export async function POST(req: NextRequest) {
+  // 0. Rate limit per hashed IP, before any other work so invalid bodies count too.
+  const { data: allowed, error: limitErr } = await service().rpc("check_rate_limit", {
+    p_bucket: "intake",
+    p_key_hash: hashKey(clientIp(req.headers)),
+    p_limit: INTAKE_LIMIT,
+    p_window: "1 hour",
+  });
+  if (limitErr) {
+    console.error("intake rate limit check failed", limitErr.message);
+    return NextResponse.json({ ok: false, error: "Something went wrong. Please try again." }, { status: 500 });
+  }
+  if (!allowed) {
+    return NextResponse.json(
+      { ok: false, error: "Too many sign-up attempts. Please try again in an hour." },
+      { status: 429, headers: { "Retry-After": "3600" } }
+    );
+  }
+
   // 1. Validate input.
   let body;
   try {
