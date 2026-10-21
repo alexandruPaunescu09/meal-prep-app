@@ -18,20 +18,23 @@ REVOKE ALL ON rate_limit_hits FROM PUBLIC, anon, authenticated;
 
 -- Returns true and records a hit when fewer than p_limit hits exist in the window, else false.
 -- The advisory lock serialises callers sharing a (bucket, key) so the check cannot be raced.
-CREATE FUNCTION check_rate_limit(p_bucket text, p_key_hash text, p_limit int, p_window interval)
+CREATE OR REPLACE FUNCTION check_rate_limit(p_bucket text, p_key_hash text, p_limit int, p_window interval)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count int;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(p_bucket || ':' || p_key_hash));
 
-  -- Opportunistic cleanup (a small fraction of calls) of rows no window needs any more.
+  -- Opportunistic cleanup (a small fraction of calls). Retention is 7 days: every caller's
+  -- p_window must stay below it or hits would be deleted before they stop counting.
+  -- Uses idx_rate_limit_hits_created and is bounded to a batch so one call never does a huge delete.
   IF random() < 0.05 THEN
-    DELETE FROM rate_limit_hits WHERE created_at < now() - interval '1 day';
+    DELETE FROM rate_limit_hits
+     WHERE id IN (SELECT id FROM rate_limit_hits WHERE created_at < now() - interval '7 days' LIMIT 1000);
   END IF;
 
   SELECT count(*) INTO v_count
@@ -54,11 +57,11 @@ GRANT EXECUTE ON FUNCTION check_rate_limit(text, text, int, interval) TO service
 -- (23505) propagates to the caller, who then returns the existing row. Called by the barcode and
 -- label-confirm routes with the service client.
 -- ---------------------------------------------------------------------------
-CREATE FUNCTION create_food_with_quota(p_client_id uuid, p_food jsonb, p_limit int)
+CREATE OR REPLACE FUNCTION create_food_with_quota(p_client_id uuid, p_food jsonb, p_limit int)
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count int;
@@ -91,7 +94,7 @@ BEGIN
     (p_food->>'sugar')::numeric,
     (p_food->>'sat_fat')::numeric,
     (p_food->>'salt')::numeric,
-    COALESCE(p_food->'micronutrients', '{}'::jsonb),
+    CASE WHEN jsonb_typeof(p_food->'micronutrients') = 'object' THEN p_food->'micronutrients' ELSE '{}'::jsonb END,
     (p_food->>'serving_size')::numeric,
     p_food->>'serving_label',
     (p_food->>'package_size')::numeric,
@@ -112,11 +115,11 @@ GRANT EXECUTE ON FUNCTION create_food_with_quota(uuid, jsonb, int) TO service_ro
 -- the limit, records the attempt (outcome 'error' until the route sets the real one). Returns the
 -- new row id, or NULL when over the limit.
 -- ---------------------------------------------------------------------------
-CREATE FUNCTION reserve_label_parse(p_client_id uuid, p_model text, p_limit int)
+CREATE OR REPLACE FUNCTION reserve_label_parse(p_client_id uuid, p_model text, p_limit int)
 RETURNS uuid
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_count int;
