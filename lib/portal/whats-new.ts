@@ -1,3 +1,4 @@
+import { APP_TIMEZONE, todayInTz } from "@/lib/format";
 import {
   Apple,
   Barcode,
@@ -97,7 +98,9 @@ export const RELEASES: Release[] = [
 /**
  * Releases to show now: newer than the one the customer last acknowledged AND dated after their
  * account was created (new signups never see history). Newest first. An unknown/empty `seenId`
- * counts as "never seen".
+ * counts as "never seen". The creation day is the account's Europe/Bucharest calendar day (not
+ * the UTC day: 22:30 UTC is already tomorrow in Romania); a release shows only when that day is
+ * strictly before the release date. A missing/invalid `accountCreatedAt` shows nothing.
  */
 export function pendingReleases({
   seenId,
@@ -105,11 +108,13 @@ export function pendingReleases({
   releases = RELEASES,
 }: {
   seenId: string | null | undefined;
-  accountCreatedAt: string;
+  accountCreatedAt: string | null | undefined;
   releases?: Release[];
 }): Release[] {
   const seenIndex = seenId ? releases.findIndex((r) => r.id === seenId) : -1;
   const newer = seenIndex === -1 ? releases : releases.slice(0, seenIndex);
-  const createdDay = accountCreatedAt.slice(0, 10);
+  const created = accountCreatedAt ? new Date(accountCreatedAt) : null;
+  if (!created || Number.isNaN(created.getTime())) return [];
+  const createdDay = todayInTz(APP_TIMEZONE, created);
   return newer.filter((r) => createdDay < r.date);
 }

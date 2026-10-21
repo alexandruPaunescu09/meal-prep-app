@@ -1,25 +1,34 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { RELEASES } from "@/lib/portal/whats-new";
 
-/** Fire-and-forget: a failure just means the sheet shows again next visit. */
+/**
+ * Fire-and-forget, deliberately silent: a network failure OR a non-2xx response just means the
+ * sheet shows again next visit (no toast, no offline queue).
+ */
 function markSeen(releaseId: string) {
   void fetch("/api/portal/whats-new", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ release_id: releaseId }),
     keepalive: true,
-  }).catch(() => {});
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error(`whats-new ${res.status}`);
+    })
+    .catch(() => {});
 }
 
 /**
  * The "What's new" list. `releaseIds` are registry ids, newest first; their items are shown
  * together. With `markSeenId` set, closing (Got it, Show me, Escape, backdrop) acknowledges that
- * release; without it (Profile re-open) nothing is written.
+ * release; without it (Profile re-open) nothing is written. Escape/backdrop deliberately count as
+ * "seen" (product decision): dismissing the sheet is not a request to see it again. A "Show me"
+ * whose href is the current page is hidden (it would only close the sheet).
  */
 export function WhatsNewSheet({
   releaseIds,
@@ -31,6 +40,7 @@ export function WhatsNewSheet({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const items = releaseIds.flatMap((id) => RELEASES.find((r) => r.id === id)?.items ?? []);
   if (items.length === 0) return null;
 
@@ -67,7 +77,7 @@ export function WhatsNewSheet({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-gray-900">{item.title}</p>
                 <p className="mt-0.5 text-sm text-gray-600">{item.body}</p>
-                {item.href && (
+                {item.href && item.href !== pathname && (
                   <button
                     type="button"
                     onClick={() => finish(item.href)}
