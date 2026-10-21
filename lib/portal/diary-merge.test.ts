@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FoodLogEntry } from "@/lib/supabase/types";
-import { mergeLogEntries, type PendingDiaryRecord } from "./diary-merge";
+import { mergeLogEntries, visiblePending, type PendingDiaryRecord } from "./diary-merge";
 
 function row(id: string, over: Partial<FoodLogEntry> = {}): FoodLogEntry {
   return {
@@ -55,5 +55,31 @@ describe("mergeLogEntries", () => {
     expect(mergeLogEntries([row("a")], [del("a")], D)).toEqual([]);
     expect(mergeLogEntries([row("a")], [del("a"), up(row("a"))], D)).toHaveLength(1);
     expect(mergeLogEntries([], [up(row("a")), del("a")], D)).toEqual([]);
+  });
+});
+
+describe("pending-diary owner filtering", () => {
+  const upsertBy = (id: string, owner?: string): PendingDiaryRecord => ({
+    op: "upsert",
+    entry: row(id),
+    settled: false,
+    ...(owner ? { owner } : {}),
+  });
+  const idOf = (p: PendingDiaryRecord) => (p.op === "upsert" ? p.entry.id : p.id);
+
+  it("shows only the current user's pending records (plus legacy ownerless ones)", () => {
+    const pending = [upsertBy("a", "A"), upsertBy("b", "B"), upsertBy("c")];
+    expect(visiblePending(pending, "A").map(idOf)).toEqual(["a", "c"]);
+    expect(visiblePending(pending, undefined).map(idOf)).toEqual(["c"]);
+  });
+
+  it("mergeLogEntries ignores another user's pending upserts and deletes", () => {
+    const server = [row("s1")];
+    const pending: PendingDiaryRecord[] = [
+      upsertBy("b-new", "B"),
+      { op: "delete", id: "s1", settled: false, owner: "B" },
+    ];
+    expect(mergeLogEntries(server, pending, "2026-10-19", "A")).toEqual(server);
+    expect(mergeLogEntries(server, pending, "2026-10-19", "B").map((e) => e.id)).toEqual(["b-new"]);
   });
 });

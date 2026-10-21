@@ -54,3 +54,70 @@ export function requestFor(w: { kind: QueueKind; payload: unknown }): {
       };
   }
 }
+
+/** A stored queue item: queued write + stable id + auth user id that queued it (absent on legacy items). */
+export type OwnedItem = QueueLike & { id: string; owner?: string };
+
+/**
+ * Whether `owner` may see / flush this item. Legacy items (no owner) belong to everyone, as before
+ * owner tracking; items owned by another user are kept in storage but never shown or sent.
+ */
+export function isVisibleTo(item: { owner?: string }, owner: string | undefined): boolean {
+  return !item.owner || item.owner === owner;
+}
+
+/**
+ * Storage contents after queueing `w`: older writes it supersedes are removed (only the
+ * caller's own, never another user's kept items), then `w` is appended tagged with `owner`.
+ */
+export function dropSuperseded<T extends OwnedItem>(items: T[], stub: QueueLike, owner: string | undefined): T[] {
+  const key = queueKey(stub);
+  return items.filter((i) => !isVisibleTo(i, owner) || queueKey(i) !== key);
+}
+
+export function enqueue<T extends OwnedItem>(items: T[], w: QueueLike, id: string, owner: string | undefined): T[] {
+  return [...dropSuperseded(items, w, owner), { ...(w as object), id, ...(owner ? { owner } : {}) } as T];
+}
+
+export type SendOutcome = "ok" | "drop" | "keep";
+
+export interface FlushDeps<T extends OwnedItem> {
+  /** Reads CURRENT storage (called again after every await; never reuse an old array). */
+  read(): T[];
+  write(items: T[]): void;
+  getUserId(): Promise<string | undefined>;
+  send(item: T): Promise<SendOutcome>;
+}
+
+/**
+ * Flushes the current user's queued writes. Storage is re-read after every await and only
+ * written when something finished, filtered by id against the CURRENT contents, so a write queued
+ * (or superseded / dropped) while we awaited is never lost or resurrected. Items owned by
+ * another user stay untouched.
+ */
+export async function runFlush<T extends OwnedItem>(deps: FlushDeps<T>): Promise<{ flushed: number; remaining: number }> {
+  if (deps.read().length === 0) return { flushed: 0, remaining: 0 };
+  const uid = await deps.getUserId();
+  const visible = () => deps.read().filter((i) => isVisibleTo(i, uid)).length;
+  if (!uid) return { flushed: 0, remaining: visible() }; // no known owner: leave the queue alone
+  const batch = deps.read().filter((i) => isVisibleTo(i, uid));
+  const done = new Set<string>(); // sent successfully or permanently dropped
+  let flushed = 0;
+  for (const item of batch) {
+    // Superseded / dropped while an earlier item was in flight: don't send stale content.
+    if (!deps.read().some((i) => i.id === item.id)) continue;
+    const outcome = await deps.send(item);
+    if (outcome === "ok") {
+      flushed += 1;
+      done.add(item.id);
+    } else if (outcome === "drop") {
+      done.add(item.id);
+    }
+  }
+  if (done.size > 0) {
+    const cur = deps.read();
+    const next = cur.filter((i) => !done.has(i.id));
+    if (next.length !== cur.length) deps.write(next);
+  }
+  return { flushed, remaining: visible() };
+}

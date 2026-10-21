@@ -3,16 +3,26 @@
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { LogOut, Utensils } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useToast } from "@/components/ui/toast";
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndClear } from "@/lib/portal/local-state";
 import { attachQueueFlusher } from "@/lib/portal/write-queue";
 import SyncStatus from "./sync-status";
 
 export default function TopBar({ greeting }: { greeting: string }) {
   const supabase = createClient();
   const router = useRouter();
+  const toast = useToast();
+  const [signingOut, setSigningOut] = useState(false);
 
   async function logout() {
-    await supabase.auth.signOut();
+    if (signingOut) return;
+    setSigningOut(true);
+    if (!(await signOutAndClear(supabase))) {
+      toast.error(SIGN_OUT_FAILED_MESSAGE);
+      setSigningOut(false);
+      return;
+    }
     router.push("/login");
     router.refresh();
   }
@@ -39,6 +49,7 @@ export default function TopBar({ greeting }: { greeting: string }) {
         <button
           type="button"
           onClick={logout}
+          disabled={signingOut}
           className="p-3 -m-1 rounded-lg hover:bg-gray-100 text-gray-500"
           aria-label="Sign out"
           title="Sign out"
