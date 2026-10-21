@@ -5,6 +5,7 @@ import { Client } from "@/lib/supabase/types";
 import { Mail, Phone, Scale, Flame, Apple, Ban, Heart, User, KeyRound, ChevronRight } from "lucide-react";
 import { formatKg } from "@/lib/weight";
 import SignOutButton from "./sign-out-button";
+import { WhatsNewRow } from "@/components/portal/whats-new-sheet";
 
 export default async function PortalProfilePage() {
   const supabase = await createServer();
@@ -97,6 +98,7 @@ export default async function PortalProfilePage() {
           <span className="flex-1">Change password</span>
           <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
         </Link>
+        <WhatsNewRow />
         <div className="pt-2">
           <SignOutButton />
         </div>
