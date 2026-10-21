@@ -78,6 +78,8 @@ select throws_ok($$select apply_invoice_prices('{}'::jsonb, '[]'::jsonb)$$, null
 select throws_ok($$select save_recipe(null, '{}'::jsonb, '[]'::jsonb)$$, null, 'forbidden', 'anon blocked by is_admin guard: save_recipe');
 select throws_ok($$select duplicate_meal_plan(null, 'x', null, '2030-01-14', 2.5)$$, null, 'forbidden', 'anon blocked by is_admin guard: duplicate_meal_plan');
 select throws_ok($$select clone_week('2030-01-07', '2030-01-14')$$, null, 'forbidden', 'anon blocked by is_admin guard: clone_week');
+select throws_ok($$select log_container_delivery('c0000000-0000-4000-8000-00000000000a', null, '2030-01-07', null, '[]'::jsonb)$$, null, 'forbidden', 'anon blocked by is_admin guard: log_container_delivery');
+select throws_ok($$select regenerate_prep_tasks('2030-01-07', '[]'::jsonb)$$, null, 'forbidden', 'anon blocked by is_admin guard: regenerate_prep_tasks');
 
 -- ===== admin positive path =====
 set local role authenticated;
@@ -86,6 +88,42 @@ select lives_ok($$select merge_foods('30000000-0000-4000-8000-000000000002', '30
 select is((select count(*)::int from foods where id = '30000000-0000-4000-8000-000000000002'), 0, 'merged-away food is deleted');
 select is((select count(*)::int from foods where id = '30000000-0000-4000-8000-000000000001'), 1, 'merge target survives');
 select lives_ok($$select save_recipe(null, '{"name":"H5 admin recipe"}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":5}]'::jsonb)$$, 'admin can save_recipe');
+
+-- duplicate_meal_plan: copies the plan and its entries (Plan A has 2 entries)
+reset role;
+create temp table h5_ids (k text, v uuid);
+grant all on h5_ids to authenticated;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"99999999-9999-4999-8999-999999999999","role":"authenticated"}';
+select lives_ok($$insert into h5_ids select 'dup', duplicate_meal_plan('f0000000-0000-4000-8000-00000000000a', 'H5 copy', 'c0000000-0000-4000-8000-00000000000a', '2030-02-04', 3)$$, 'admin can duplicate_meal_plan');
+select is((select count(*)::int from meal_plans where id = (select v from h5_ids where k = 'dup') and name = 'H5 copy' and markup_multiplier = 3), 1, 'duplicate_meal_plan created the plan');
+select is((select count(*)::int from meal_plan_entries where meal_plan_id = (select v from h5_ids where k = 'dup')), 2, 'duplicate_meal_plan copied the entries');
+
+-- clone_week: plans A and B of 2030-01-07 are copied into 2030-03-04; a second run skips them
+select lives_ok($$select clone_week('2030-01-07', '2030-03-04')$$, 'admin can clone_week');
+select is((select count(*)::int from meal_plans where week_start = '2030-03-04' and client_id in ('c0000000-0000-4000-8000-00000000000a', 'c0000000-0000-4000-8000-00000000000b')), 2, 'clone_week created plans for A and B');
+select is((select count(*)::int from meal_plan_entries e join meal_plans p on p.id = e.meal_plan_id where p.week_start = '2030-03-04' and p.client_id = 'c0000000-0000-4000-8000-00000000000a'), 2, 'clone_week copied A''s entries');
+select is((clone_week('2030-01-07', '2030-03-04')->'created'), '[]'::jsonb, 'second clone_week creates nothing (clients already have a plan)');
+
+-- log_container_delivery: all-zero items are skipped
+reset role;
+insert into container_types (id, name, volume_ml, cost) values ('80000000-0000-4000-8000-000000000001', 'H5 jar', 500, 4), ('80000000-0000-4000-8000-000000000002', 'H5 box', 300, 2);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"99999999-9999-4999-8999-999999999999","role":"authenticated"}';
+select lives_ok($$insert into h5_ids select 'deliv', log_container_delivery('c0000000-0000-4000-8000-00000000000a', null, '2030-01-07', 'h5 note', '[{"container_type_id":"80000000-0000-4000-8000-000000000001","quantity_sent":3,"quantity_returned":1},{"container_type_id":"80000000-0000-4000-8000-000000000002","quantity_sent":0,"quantity_returned":0}]'::jsonb)$$, 'admin can log_container_delivery');
+select is((select count(*)::int from container_deliveries where id = (select v from h5_ids where k = 'deliv') and client_id = 'c0000000-0000-4000-8000-00000000000a'), 1, 'delivery row created');
+select is((select count(*)::int from container_delivery_items where delivery_id = (select v from h5_ids where k = 'deliv')), 1, 'only the non-zero item row was created');
+
+-- regenerate_prep_tasks: replaces the week, keeps the completed state of a matching task
+reset role;
+insert into prep_tasks (week_start, prep_date, cook_date, ingredient_id, prep_type, quantity, unit, completed, completed_at)
+values ('2030-04-01', '2030-04-01', '2030-04-03', 'd0000000-0000-4000-8000-000000000001', 'wash', 100, 'g', true, now());
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"99999999-9999-4999-8999-999999999999","role":"authenticated"}';
+select is(regenerate_prep_tasks('2030-04-01', '[{"prep_date":"2030-04-01","cook_date":"2030-04-03","ingredient_id":"d0000000-0000-4000-8000-000000000001","prep_type":"wash","quantity":150,"unit":"g","recipe_names":["H5 Bread"]},{"prep_date":"2030-04-02","cook_date":"2030-04-03","ingredient_id":"d0000000-0000-4000-8000-000000000001","prep_type":"chop","quantity":50,"unit":"g","recipe_names":[]}]'::jsonb), '{"inserted": 2, "preserved_completed": 1, "dropped_completed": 0}'::jsonb, 'admin can regenerate_prep_tasks; result counts match');
+select is((select count(*)::int from prep_tasks where week_start = '2030-04-01'), 2, 'week has the two regenerated tasks');
+select is((select completed from prep_tasks where week_start = '2030-04-01' and prep_type = 'wash'), true, 'completed flag carried over');
+select is((select quantity from prep_tasks where week_start = '2030-04-01' and prep_type = 'wash'), 150::numeric, 'regenerated task has the new quantity');
 
 reset role;
 select * from finish();

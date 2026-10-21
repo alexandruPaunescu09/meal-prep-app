@@ -24,6 +24,9 @@ insert into profiles (id, role, client_id) values
 insert into ingredients (id, name, category, quantity_purchased, unit, package_price)
 values ('d0000000-0000-4000-8000-000000000001', 'H5 Flour', 'other', 1000, 'g', 12.5);
 
+insert into ingredient_price_history (id, ingredient_id, package_price, quantity_purchased, unit, price_per_unit)
+values ('60000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000001', 10, 1000, 'g', 0.01);
+
 insert into recipes (id, name, portions, notes, customer_description)
 values ('e0000000-0000-4000-8000-000000000001', 'H5 Bread', 2, 'H5 SECRET NOTES', 'public text');
 insert into recipe_ingredients (recipe_id, ingredient_id, quantity)
@@ -54,6 +57,14 @@ insert into foods (id, name, source, status, created_by_client_id) values
 insert into food_log_entries (id, client_id, log_date, meal_type, source_kind, quantity, quantity_unit, name, calories) values
   ('40000000-0000-4000-8000-00000000000a', 'c0000000-0000-4000-8000-00000000000a', '2030-01-07', 'snack', 'quick', 1, 'serving', 'H5 A snack', 100),
   ('40000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', '2030-01-07', 'snack', 'quick', 1, 'serving', 'H5 B snack', 200);
+
+insert into food_favorites (id, client_id, food_id) values
+  ('70000000-0000-4000-8000-00000000000a', 'c0000000-0000-4000-8000-00000000000a', '30000000-0000-4000-8000-000000000001'),
+  ('70000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', '30000000-0000-4000-8000-000000000001');
+
+-- a user with no profile (for the profile INSERT test)
+insert into auth.users (instance_id, id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000000000', '33333333-3333-4333-8333-333333333333', 'authenticated', 'authenticated', 'h5-user-c@test.invalid', '{}', '{}', now(), now());
 
 insert into weight_logs (id, client_id, log_date, weight_kg) values
   ('50000000-0000-4000-8000-00000000000a', 'c0000000-0000-4000-8000-00000000000a', '2030-01-07', 70),
@@ -103,12 +114,13 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
 select is((select count(*)::int from ingredients), 0, 'customer gets no rows from ingredients (prices hidden)');
 select is((select count(*)::int from recipes), 0, 'customer gets no rows from recipes (notes hidden)');
-select is((select count(*)::int from ingredient_price_history), 0, 'customer gets no price history');
+select is((select count(*)::int from ingredient_price_history), 0, 'customer gets no price history (a fixture row exists)');
 select throws_ok($$insert into ingredients (name, quantity_purchased, package_price) values ('x', 1, 1)$$, '42501', null, 'customer cannot insert ingredients');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"99999999-9999-4999-8999-999999999999","role":"authenticated"}';
 select is((select package_price from ingredients where id = 'd0000000-0000-4000-8000-000000000001'), 12.5::numeric, 'admin reads ingredient price');
 select is((select notes from recipes where id = 'e0000000-0000-4000-8000-000000000001'), 'H5 SECRET NOTES', 'admin reads recipe notes');
+select is((select count(*)::int from ingredient_price_history where id = '60000000-0000-4000-8000-000000000001'), 1, 'admin reads the price history row');
 set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 select is((select count(*)::int from ingredients), 0, 'anon sees no ingredients');
@@ -136,6 +148,44 @@ set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 select throws_ok($$select * from ingredients_public$$, '42501', null, 'anon cannot read ingredients_public');
 select throws_ok($$select * from recipes_public$$, '42501', null, 'anon cannot read recipes_public');
+
+-- ===== meal_plans / meal_plan_entries: customer reads own only, never writes =====
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+select is((select count(*)::int from meal_plans where id = 'f0000000-0000-4000-8000-00000000000a'), 1, 'A reads own meal plan');
+select is((select count(*)::int from meal_plans where id = 'f0000000-0000-4000-8000-00000000000b'), 0, 'A cannot read B''s meal plan');
+select is((select count(*)::int from meal_plan_entries where meal_plan_id = 'f0000000-0000-4000-8000-00000000000a'), 2, 'A reads own plan entries');
+select is((select count(*)::int from meal_plan_entries where meal_plan_id = 'f0000000-0000-4000-8000-00000000000b'), 0, 'A cannot read B''s plan entries');
+update meal_plans set name = 'hacked' where id = 'f0000000-0000-4000-8000-00000000000a';
+select throws_ok($$insert into meal_plans (name, client_id, week_start) values ('x', 'c0000000-0000-4000-8000-00000000000a', '2030-02-04')$$, '42501', null, 'customer cannot insert meal plans');
+reset role;
+select is((select name from meal_plans where id = 'f0000000-0000-4000-8000-00000000000a'), 'H5 Plan A', 'customer cannot update own meal plan');
+
+-- ===== food_favorites: own rows only =====
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+select is((select count(*)::int from food_favorites), 1, 'A sees only own favorites');
+select is((select count(*)::int from food_favorites where id = '70000000-0000-4000-8000-00000000000b'), 0, 'A cannot read B''s favorite');
+select throws_ok($$insert into food_favorites (client_id, recipe_id) values ('c0000000-0000-4000-8000-00000000000b', 'e0000000-0000-4000-8000-000000000001')$$, '42501', null, 'A cannot insert a favorite for B');
+select lives_ok($$insert into food_favorites (client_id, recipe_id) values ('c0000000-0000-4000-8000-00000000000a', 'e0000000-0000-4000-8000-000000000001')$$, 'A can insert own favorite');
+delete from food_favorites where id = '70000000-0000-4000-8000-00000000000b';
+reset role;
+select is((select count(*)::int from food_favorites where id = '70000000-0000-4000-8000-00000000000b'), 1, 'A could not delete B''s favorite');
+
+-- ===== profiles: no self-promotion, no insert, no reading others =====
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+select is((select count(*)::int from profiles), 1, 'A sees only own profile');
+select is((select count(*)::int from profiles where id = '22222222-2222-4222-8222-222222222222'), 0, 'A cannot read B''s profile');
+update profiles set role = 'admin' where id = '11111111-1111-4111-8111-111111111111';
+update profiles set client_id = 'c0000000-0000-4000-8000-00000000000b' where id = '11111111-1111-4111-8111-111111111111';
+update profiles set role = 'admin' where id = '22222222-2222-4222-8222-222222222222';
+select throws_ok($$insert into profiles (id, role) values ('33333333-3333-4333-8333-333333333333', 'admin')$$, '42501', null, 'customer cannot insert a profile');
+reset role;
+select is((select role from profiles where id = '11111111-1111-4111-8111-111111111111'), 'customer', 'A could not change own role');
+select is((select client_id from profiles where id = '11111111-1111-4111-8111-111111111111'), 'c0000000-0000-4000-8000-00000000000a'::uuid, 'A could not re-link own profile to B');
+select is((select role from profiles where id = '22222222-2222-4222-8222-222222222222'), 'customer', 'A could not change B''s role');
+select is((select count(*)::int from profiles where id = '33333333-3333-4333-8333-333333333333'), 0, 'no profile was created for the third user');
 
 -- ===== KNOWN HOLE: ownership of the target plan entry is not checked =====
 -- The policies only compare client_id, so A can attach a status/review to B's plan entry
