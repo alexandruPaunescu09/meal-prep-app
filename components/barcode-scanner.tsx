@@ -11,6 +11,7 @@ interface BarcodeScannerProps {
 
 const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e"] as const;
 const SCAN_INTERVAL_MS = 250;
+const MAX_DETECT_ERRORS = 8; // ~2 s of consecutive detect() failures
 
 interface DetectorLike {
   detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]>;
@@ -41,7 +42,9 @@ async function createDetector(): Promise<DetectorLike> {
   const { BarcodeDetector, prepareZXingModule } = await import(
     "barcode-detector/ponyfill"
   );
-  prepareZXingModule({
+  // Awaited so a wasm that cannot load rejects here (-> visible error) instead
+  // of failing every detect() call silently.
+  await prepareZXingModule({
     overrides: {
       locateFile: (path: string, prefix: string) =>
         path.endsWith(".wasm") ? `/zxing/${path}` : prefix + path,
@@ -129,7 +132,11 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
 
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         });
       } catch (err) {
         const name = err instanceof DOMException ? err.name : "";
@@ -160,6 +167,16 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
       trackRef.current = track ?? null;
       const caps = track?.getCapabilities?.() as { torch?: boolean } | undefined;
       if (caps?.torch) setTorchAvailable(true);
+      const modes = (caps as { focusMode?: string[] } | undefined)?.focusMode;
+      if (modes?.includes("continuous")) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
+          });
+        } catch {
+          // autofocus stays at the device default
+        }
+      }
       video.srcObject = stream;
       try {
         await video.play();
@@ -181,6 +198,7 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
       if (cancelled) return;
       setStarting(false);
 
+      let detectErrors = 0;
       const tick = async () => {
         if (cancelled) return;
         try {
@@ -194,8 +212,16 @@ export default function BarcodeScanner({ onDetected, onClose }: BarcodeScannerPr
               return;
             }
           }
+          detectErrors = 0;
         } catch {
-          // transient detect errors: keep scanning
+          // a few transient errors are fine; a run of them means the scanner is broken
+          if (++detectErrors >= MAX_DETECT_ERRORS) {
+            if (!cancelled) {
+              setError("Could not load the barcode scanner. Enter the barcode manually.");
+            }
+            stop();
+            return;
+          }
         }
         if (!cancelled) timer = setTimeout(tick, SCAN_INTERVAL_MS);
       };
