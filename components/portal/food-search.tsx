@@ -178,7 +178,7 @@ export default function FoodSearch({
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={nav.onKeyDown}
           placeholder="Search foods, ingredients, your meals"
-          className="w-full min-h-[44px] pl-9 pr-3 rounded-lg border border-gray-300 bg-white text-sm text-gray-900"
+          className="w-full min-h-[44px] pl-9 pr-3 rounded-lg border border-gray-300 bg-white text-base md:text-sm text-gray-900"
         />
       </div>
 
@@ -211,7 +211,7 @@ export default function FoodSearch({
           ref={listRef}
           role="listbox"
           aria-label="Search results"
-          className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white max-h-[45vh] overflow-y-auto"
+          className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white max-h-[45vh] overflow-y-auto overscroll-contain"
         >
           {shown.map((item, i) => (
             <FoodRow
@@ -262,7 +262,7 @@ export function PickList({
       aria-label={label}
       aria-activedescendant={nav.activeId}
       onKeyDown={nav.onKeyDown}
-      className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white max-h-[45vh] overflow-y-auto"
+      className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white max-h-[45vh] overflow-y-auto overscroll-contain"
     >
       {rows.map((r, i) => (
         <FoodRow

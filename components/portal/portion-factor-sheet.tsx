@@ -80,7 +80,7 @@ export default function PortionFactorSheet({
             onChange={(e) => setCustom(e.target.value)}
             placeholder="e.g. 0,6"
             aria-invalid={customInvalid}
-            className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 text-sm"
+            className="w-full min-h-[44px] px-3 rounded-lg border border-gray-300 text-base md:text-sm"
           />
           {customInvalid && <p className="text-xs text-red-600 mt-1">Enter a number between 0 and 5.</p>}
         </div>

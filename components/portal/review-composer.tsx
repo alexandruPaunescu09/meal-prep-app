@@ -289,7 +289,7 @@ export default function ReviewComposer({
           rows={3}
           maxLength={2000}
           placeholder="What stood out?"
-          className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none resize-none"
+          className="w-full px-3 py-2 border rounded-lg text-base md:text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none resize-none"
         />
       </div>
 
