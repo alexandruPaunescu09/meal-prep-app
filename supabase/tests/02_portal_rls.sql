@@ -198,6 +198,12 @@ set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","r
 select throws_ok($$insert into meal_entry_status (meal_plan_entry_id, client_id, status) values ('10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000a', 'eaten')$$, '42501', null, 'A cannot set status on B''s plan entry');
 select throws_ok($$insert into meal_reviews (meal_plan_entry_id, client_id, rating) values ('10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000a', 1)$$, '42501', null, 'A cannot review B''s plan entry');
 
+-- A's blocked attempts left nothing behind: B can still write its own status and review for that entry.
+set local request.jwt.claims = '{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}';
+select lives_ok($$insert into meal_entry_status (meal_plan_entry_id, client_id, status) values ('10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', 'eaten')$$, 'B can still set status on own entry after A''s blocked attempt');
+select lives_ok($$insert into meal_reviews (id, meal_plan_entry_id, client_id, rating) values ('20000000-0000-4000-8000-00000000000c', '10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', 4)$$, 'B can still review own entry after A''s blocked attempt');
+set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
+
 -- Update-repoint: A cannot move own status/review onto B's entry.
 select lives_ok($$insert into meal_reviews (id, meal_plan_entry_id, client_id, rating) values ('20000000-0000-4000-8000-0000000000a2', '10000000-0000-4000-8000-0000000000a2', 'c0000000-0000-4000-8000-00000000000a', 3)$$, 'A can review own plan entry');
 select throws_ok($$update meal_reviews set meal_plan_entry_id = '10000000-0000-4000-8000-00000000000b' where id = '20000000-0000-4000-8000-0000000000a2'$$, '42501', null, 'A cannot repoint own review to B''s entry');
@@ -206,7 +212,6 @@ select throws_ok($$update meal_entry_status set meal_plan_entry_id = '10000000-0
 -- meal_review_tags: only on own reviews.
 reset role;
 insert into review_tags (id, label, sentiment) values ('60000000-0000-4000-8000-000000000001', 'H6 tag', 'neutral');
-insert into meal_reviews (id, meal_plan_entry_id, client_id, rating) values ('20000000-0000-4000-8000-00000000000c', '10000000-0000-4000-8000-00000000000b', 'c0000000-0000-4000-8000-00000000000b', 4);
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}';
 select throws_ok($$insert into meal_review_tags (review_id, tag_id) values ('20000000-0000-4000-8000-00000000000c', '60000000-0000-4000-8000-000000000001')$$, '42501', null, 'A cannot tag B''s review');
