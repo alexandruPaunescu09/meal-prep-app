@@ -136,7 +136,7 @@ export async function searchUsdaUncached(query: string): Promise<SourceOutcome<N
   const base = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}`;
   const settled = await Promise.allSettled([
     fetchUsdaFoods(`${base}&pageSize=15`),
-    fetchUsdaFoods(`${base}&pageSize=100&dataType=Foundation,SR%20Legacy`),
+    fetchUsdaFoods(`${base}&pageSize=100&dataType=Foundation,SR%20Legacy`, BIG_PAGE_TIMEOUT_MS),
   ]);
   const failed = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
   if (failed.length === settled.length) throw failed[0].reason;
@@ -155,8 +155,11 @@ export async function searchUsdaUncached(query: string): Promise<SourceOutcome<N
   return { results: mapUsdaFoods(foods, query), complete: failed.length === 0 };
 }
 
-async function fetchUsdaFoods(url: string): Promise<USDAFood[]> {
-  const res = await fetchWithRetry(url);
+/** The pageSize-100 response is 1-3.5 MB (median ~0.9 s, max 1.8 s measured, one 4 s timeout seen): give it more room than the default 4 s. */
+const BIG_PAGE_TIMEOUT_MS = 8000;
+
+async function fetchUsdaFoods(url: string, timeoutMs?: number): Promise<USDAFood[]> {
+  const res = await fetchWithRetry(url, {}, timeoutMs);
   if (!res.ok) throw new SourceError(`USDA answered ${res.status}`);
   const data = await res.json();
   return data.foods ?? [];

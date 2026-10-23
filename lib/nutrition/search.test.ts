@@ -142,6 +142,26 @@ describe("fetchWithRetry", () => {
     await expect(fetchWithRetry("https://example.test/")).rejects.toThrow("fetch failed");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+  it("uses a 4 s per-attempt timeout by default and the given one when passed", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    fetchMock.mockResolvedValue(json({}));
+    await fetchWithRetry("https://example.test/");
+    await fetchWithRetry("https://example.test/", {}, 8000);
+    expect(spy.mock.calls.map((c) => c[0])).toEqual([4000, 8000]);
+  });
+  it("gives the large USDA request 8 s and the default one 4 s", async () => {
+    vi.stubEnv("USDA_API_KEY", "test-key");
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    fetchMock.mockImplementation(() => json({ foods: [] }));
+    await searchNutrition("rice");
+    const byUrl = fetchMock.mock.calls.map((c, i) => [String(c[0]), i] as const);
+    const timeoutOf = (pick: (u: string) => boolean) => {
+      const idx = byUrl.filter(([u]) => u.includes("nal.usda.gov") && pick(u)).map(([, i]) => i)[0];
+      return spy.mock.calls[idx]?.[0];
+    };
+    expect(timeoutOf((u) => u.includes("dataType"))).toBe(8000);
+    expect(timeoutOf((u) => !u.includes("dataType"))).toBe(4000);
+  });
   it("returns the final 5xx response after the retry", async () => {
     fetchMock.mockResolvedValue(json({}, 503));
     const res = await fetchWithRetry("https://example.test/");
