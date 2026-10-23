@@ -1,7 +1,7 @@
 import { NutritionSearchResult, NutritionData } from "@/lib/supabase/types";
 import { containsCookedKeyword, queryRequestsCooked } from "./classification";
 import { SourceError, fetchWithRetry } from "./http";
-import { createTtlCache, withSourceCache } from "./search-cache";
+import { SourceOutcome, createTtlCache, withSourceCache } from "./search-cache";
 
 const USDA_SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 
@@ -114,29 +114,55 @@ export function isUsdaEnabled(): boolean {
 
 export const usdaSearchCache = createTtlCache<NutritionSearchResult[]>();
 
-/** Cached USDA search. Throws SourceError on failure (never cached); callers check isUsdaEnabled() first. */
-export const searchUSDA = withSourceCache("usda", usdaSearchCache, async (query: string) => ({
-  results: await searchUsdaUncached(query),
-  complete: true,
-}));
+/**
+ * Cached USDA search. Throws SourceError when BOTH requests fail; when only one fails the other's results
+ * come back with `complete: false` (reported as an error by the caller, never cached).
+ * Callers check isUsdaEnabled() first.
+ */
+export const searchUSDA = withSourceCache("usda", usdaSearchCache, (query: string) => searchUsdaUncached(query));
 
-export async function searchUsdaUncached(
-  query: string
-): Promise<NutritionSearchResult[]> {
+export async function searchUsdaUncached(query: string): Promise<SourceOutcome<NutritionSearchResult>> {
   const apiKey = process.env.USDA_API_KEY;
   if (!apiKey) throw new SourceError("USDA key missing");
 
-  // No dataType filter on purpose: USDA's gateway answers a random ~60% of requests with an nginx
-  // 400 whenever `dataType` contains "Survey (FNDDS)" (measured 8/8 ok without it, ~3/8 with it, however
-  // the value is encoded). The default already covers Foundation, SR Legacy, Survey (FNDDS) and Branded.
-  const url = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=15`;
+  // Two requests in parallel, merged by fdcId.
+  // 1. The default request (no dataType filter, pageSize 15). A dataType filter containing "Survey (FNDDS)"
+  //    makes USDA's gateway answer a random ~60% of requests with an nginx 400 (measured 8/8 ok without it,
+  //    ~3/8 with it), so that type is only reached through this unfiltered request.
+  // 2. Foundation + SR Legacy only (`dataType=Foundation,SR%20Legacy`, no parentheses: measured 8/8 ok).
+  //    The unfiltered request is crowded by branded items ("RICE" x15) and dishes, so the generic raw entries
+  //    ("Rice, white, long-grain, raw") never reach the pool. USDA's relevance order for this request is poor
+  //    too (raw rice is ~55th of 141), hence the larger page; our own ranking picks the generic entries.
+  const base = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}`;
+  const settled = await Promise.allSettled([
+    fetchUsdaFoods(`${base}&pageSize=15`),
+    fetchUsdaFoods(`${base}&pageSize=100&dataType=Foundation,SR%20Legacy`),
+  ]);
+  const failed = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (failed.length === settled.length) throw failed[0].reason;
+  for (const f of failed) console.error("USDA request failed:", f.reason);
 
+  const seen = new Set<number>();
+  const foods: USDAFood[] = [];
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    for (const food of r.value) {
+      if (seen.has(food.fdcId)) continue;
+      seen.add(food.fdcId);
+      foods.push(food);
+    }
+  }
+  return { results: mapUsdaFoods(foods, query), complete: failed.length === 0 };
+}
+
+async function fetchUsdaFoods(url: string): Promise<USDAFood[]> {
   const res = await fetchWithRetry(url);
   if (!res.ok) throw new SourceError(`USDA answered ${res.status}`);
-
   const data = await res.json();
-  const foods: USDAFood[] = data.foods ?? [];
+  return data.foods ?? [];
+}
 
+function mapUsdaFoods(foods: USDAFood[], query: string): NutritionSearchResult[] {
   const wantsCooked = queryRequestsCooked(query);
 
   return foods

@@ -258,9 +258,10 @@ describe("searchNutrition source status", () => {
 });
 
 describe("searchNutrition Romanian -> English for USDA", () => {
+  let nextFdc = 1;
   const usdaFood = (description: string) => ({
     description,
-    fdcId: 7,
+    fdcId: nextFdc++,
     dataType: "Foundation",
     foodNutrients: [
       { nutrientId: 1008, value: 120 },
@@ -277,7 +278,7 @@ describe("searchNutrition Romanian -> English for USDA", () => {
       String(url).includes("nal.usda.gov") ? json({ foods: usdaFoods }) : json(offBody)
     );
   }
-  const usdaUrl = () => new URL(urls(fetchMock).find((u) => u.includes("nal.usda.gov"))!);
+  const usdaUrl = () => new URL(urls(fetchMock).find((u) => u.includes("nal.usda.gov") && !u.includes("dataType"))!);
   const offUrl = () => urls(fetchMock).find((u) => !u.includes("nal.usda.gov"))!;
 
   it("sends USDA the English query and OFF the original, and reports usdaQuery", async () => {
@@ -300,9 +301,9 @@ describe("searchNutrition Romanian -> English for USDA", () => {
     setup();
     await searchNutrition("piept de pui");
     const usdaCalls = () => urls(fetchMock).filter((u) => u.includes("nal.usda.gov")).length;
-    expect(usdaCalls()).toBe(1);
+    expect(usdaCalls()).toBe(2);
     await searchNutrition("chicken breast");
-    expect(usdaCalls()).toBe(1);
+    expect(usdaCalls()).toBe(2);
   });
 
   it("ranks USDA names against the English query and OFF names against the original", async () => {
@@ -337,6 +338,95 @@ describe("searchNutrition Romanian -> English for USDA", () => {
     info.mockClear();
     await searchNutrition("piept de pui");
     expect(info).not.toHaveBeenCalled();
+  });
+});
+
+describe("searchNutrition ranking and USDA request pool", () => {
+  let id = 1000;
+  const usdaFood = (description: string, dataType: string, brandOwner?: string) => ({
+    description,
+    fdcId: id++,
+    dataType,
+    ...(brandOwner ? { brandOwner } : {}),
+    foodNutrients: [
+      { nutrientId: 1008, value: 130 },
+      { nutrientId: 1003, value: 2.7 },
+      { nutrientId: 1005, value: 28 },
+      { nutrientId: 1004, value: 0.3 },
+    ],
+  });
+  const isFiltered = (u: unknown) => String(u).includes("dataType");
+  const usdaCalls = () => urls(fetchMock).filter((u) => u.includes("nal.usda.gov"));
+
+  function route(plain: () => Response, filtered: () => Response, off: unknown) {
+    vi.stubEnv("USDA_API_KEY", "test-key");
+    fetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (!u.includes("nal.usda.gov")) return json(off);
+      return isFiltered(u) ? filtered() : plain();
+    });
+  }
+
+  it("brand query: the OFF product of that brand outranks generic USDA (no USDA bonus, brand counts)", async () => {
+    const milk = usdaFood("Milk, whole, 3.25% milkfat", "Foundation");
+    const zuzu = hit("9", "Lapte 3.5% grasime 500ml", { brands: ["Zuzu"] });
+    const other = hit("8", "Lapte UHT", { brands: ["Helga"] });
+    route(() => json({ foods: [milk] }), () => json({ foods: [milk] }), { hits: [other, zuzu, hit("7", "Lapte Napolact", { brands: ["Napolact"] })] });
+    const out = await searchNutrition("lapte zuzu");
+    expect(out.results[0].source).toBe("openfoodfacts");
+    expect(out.results[0].brand).toBe("Zuzu");
+    expect(out.usdaQuery).toBe("milk");
+  });
+
+  it("no unknown words: generic USDA stays first, OFF keeps the original query", async () => {
+    const chicken = usdaFood("Chicken, breast, boneless, skinless, raw", "Foundation");
+    route(() => json({ foods: [chicken] }), () => json({ foods: [chicken] }), {
+      hits: [hit("1", "Piept de pui Fraged"), hit("2", "Piept de pui Gigi"), hit("3", "Piept de pui X")],
+    });
+    const out = await searchNutrition("piept de pui");
+    expect(out.results[0].source).toBe("usda");
+  });
+
+  it("plain query: a generic SR Legacy raw entry from the filtered request beats a dish and a branded item", async () => {
+    const dish = usdaFood("Adobo, with rice", "Survey (FNDDS)");
+    const branded = usdaFood("RICE", "Branded", "Acme Foods");
+    const rice = usdaFood("Rice, white, long-grain, regular, raw, enriched", "SR Legacy");
+    const crackers = usdaFood("Rice crackers", "SR Legacy");
+    route(() => json({ foods: [dish, branded] }), () => json({ foods: [crackers, rice] }), { hits: [] });
+    const out = await searchNutrition("rice");
+    expect(out.sources.usda).toBe("ok");
+    expect(out.results.map((r) => r.name)).toEqual(
+      expect.arrayContaining(["Adobo, with rice", "RICE", "Rice crackers"])
+    );
+    expect(out.results[0].name).toBe("Rice, white, long-grain, regular, raw, enriched");
+    // both USDA requests were made; the filtered one has no parentheses in its dataType
+    expect(usdaCalls()).toHaveLength(2);
+    expect(usdaCalls().find(isFiltered)).toContain("dataType=Foundation,SR%20Legacy");
+  });
+
+  it("merges the two USDA requests without duplicates (by fdcId)", async () => {
+    const rice = usdaFood("Rice, white, raw", "SR Legacy");
+    route(() => json({ foods: [rice] }), () => json({ foods: [rice] }), { hits: [] });
+    const out = await searchNutrition("rice");
+    expect(out.results.filter((r) => r.name === "Rice, white, raw")).toHaveLength(1);
+  });
+
+  it.each([
+    ["the unfiltered", false],
+    ["the Foundation/SR Legacy", true],
+  ])("when %s USDA request fails: shows the other results, reports usda error, never caches", async (_n, failFiltered) => {
+    const rice = usdaFood("Rice, white, raw", "SR Legacy");
+    const ok = () => json({ foods: [rice] });
+    const bad = () => json({}, 403);
+    route(failFiltered ? ok : bad, failFiltered ? bad : ok, { hits: [] });
+    const out = await searchNutrition("rice");
+    expect(out.sources.usda).toBe("error");
+    expect(out.results.map((r) => r.name)).toEqual(["Rice, white, raw"]);
+    expect(usdaSearchCache.size).toBe(0);
+    // a repeat retries (nothing cached) and now succeeds
+    route(ok, ok, { hits: [] });
+    expect((await searchNutrition("rice")).sources.usda).toBe("ok");
+    expect(usdaSearchCache.size).toBe(1);
   });
 });
 
