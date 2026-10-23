@@ -257,6 +257,89 @@ describe("searchNutrition source status", () => {
   });
 });
 
+describe("searchNutrition Romanian -> English for USDA", () => {
+  const usdaFood = (description: string) => ({
+    description,
+    fdcId: 7,
+    dataType: "Foundation",
+    foodNutrients: [
+      { nutrientId: 1008, value: 120 },
+      { nutrientId: 1003, value: 22 },
+      { nutrientId: 1005, value: 0 },
+      { nutrientId: 1004, value: 2.6 },
+    ],
+  });
+  const offBody = { hits: [hit("1", "Piept de pui Fraged"), hit("2", "Piept de pui Gigi"), hit("3", "Piept de pui X")] };
+
+  function setup(usdaFoods = [usdaFood("Chicken, breast, raw")]) {
+    vi.stubEnv("USDA_API_KEY", "test-key");
+    fetchMock.mockImplementation((url: string) =>
+      String(url).includes("nal.usda.gov") ? json({ foods: usdaFoods }) : json(offBody)
+    );
+  }
+  const usdaUrl = () => new URL(urls(fetchMock).find((u) => u.includes("nal.usda.gov"))!);
+  const offUrl = () => urls(fetchMock).find((u) => !u.includes("nal.usda.gov"))!;
+
+  it("sends USDA the English query and OFF the original, and reports usdaQuery", async () => {
+    setup();
+    const out = await searchNutrition("piept de pui");
+    expect(usdaUrl().searchParams.get("query")).toBe("chicken breast");
+    expect(decodeURIComponent(offUrl())).toContain("piept de pui");
+    expect(decodeURIComponent(offUrl())).not.toContain("chicken breast");
+    expect(out.usdaQuery).toBe("chicken breast");
+  });
+
+  it("returns usdaQuery null and sends the same query to both for English input", async () => {
+    setup();
+    const out = await searchNutrition("chicken breast");
+    expect(out.usdaQuery).toBeNull();
+    expect(usdaUrl().searchParams.get("query")).toBe("chicken breast");
+  });
+
+  it("shares the USDA cache entry between the Romanian and English spelling", async () => {
+    setup();
+    await searchNutrition("piept de pui");
+    const usdaCalls = () => urls(fetchMock).filter((u) => u.includes("nal.usda.gov")).length;
+    expect(usdaCalls()).toBe(1);
+    await searchNutrition("chicken breast");
+    expect(usdaCalls()).toBe(1);
+  });
+
+  it("ranks USDA names against the English query and OFF names against the original", async () => {
+    // Same confidence/source for both would tie; the English-named USDA result must get full name relevance
+    // for "chicken breast" and the Romanian OFF product full relevance for "piept de pui".
+    setup();
+    const out = await searchNutrition("piept de pui");
+    const usda = out.results.find((r) => r.source === "usda")!;
+    const off = out.results.find((r) => r.source === "openfoodfacts")!;
+    const { computeRank } = await import("./index");
+    expect(computeRank(usda, ["chicken", "breast"], "chicken breast")).toBeGreaterThan(
+      computeRank(usda, ["piept", "de", "pui"], "piept de pui")
+    );
+    expect(computeRank(off, ["piept", "de", "pui"], "piept de pui")).toBeGreaterThan(
+      computeRank(off, ["chicken", "breast"], "chicken breast")
+    );
+    expect(usda.name).toContain("Chicken");
+  });
+
+  it("the USDA cooked filter sees the English words (fiert -> boiled keeps cooked entries)", async () => {
+    setup([usdaFood("Egg, whole, boiled"), usdaFood("Egg, whole, raw")]);
+    const out = await searchNutrition("oua fierte");
+    expect(usdaUrl().searchParams.get("query")).toBe("egg boiled");
+    expect(out.results.some((r) => r.source === "usda" && r.name.includes("boiled"))).toBe(true);
+  });
+
+  it("logs only the unmapped words", async () => {
+    setup();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    await searchNutrition("lapte zuzu 1,5%");
+    expect(info).toHaveBeenCalledWith("nutrition search: unmapped RO words", ["zuzu"]);
+    info.mockClear();
+    await searchNutrition("piept de pui");
+    expect(info).not.toHaveBeenCalled();
+  });
+});
+
 describe("compareStable", () => {
   const r = (name: string, barcode: string | null): NutritionSearchResult =>
     ({ name, brand: null, source: "openfoodfacts", barcode } as NutritionSearchResult);

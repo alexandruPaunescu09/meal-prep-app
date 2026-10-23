@@ -1,5 +1,6 @@
 import { NutritionSearchResult } from "@/lib/supabase/types";
 import { searchOpenFoodFacts } from "./open-food-facts";
+import { toUsdaQuery } from "./ro-en-terms";
 import { isUsdaEnabled, searchUSDA } from "./usda";
 
 export interface NutritionSearchSources {
@@ -12,13 +13,20 @@ export interface NutritionSearchSources {
 export interface NutritionSearchResponse {
   results: NutritionSearchResult[];
   sources: NutritionSearchSources;
+  /** The English query USDA was asked (Romanian input translated by the built-in word list); null when the query was passed unchanged. */
+  usdaQuery: string | null;
 }
 
 export async function searchNutrition(query: string): Promise<NutritionSearchResponse> {
   const usdaEnabled = isUsdaEnabled();
+  // OFF keeps the original query (Romanian products); USDA only understands English.
+  const usda = toUsdaQuery(query);
+  if (usda.translated && usda.unmapped.length > 0) {
+    console.info("nutrition search: unmapped RO words", usda.unmapped);
+  }
   const [offResult, usdaResult] = await Promise.allSettled([
     searchOpenFoodFacts(query),
-    usdaEnabled ? searchUSDA(query) : Promise.resolve({ results: [], complete: true }),
+    usdaEnabled ? searchUSDA(usda.query) : Promise.resolve({ results: [], complete: true }),
   ]);
 
   const sources: NutritionSearchSources = {
@@ -28,19 +36,23 @@ export async function searchNutrition(query: string): Promise<NutritionSearchRes
   if (offResult.status === "rejected") console.error("OFF search failed:", offResult.reason);
   if (usdaResult.status === "rejected") console.error("USDA search failed:", usdaResult.reason);
 
-  const off = offResult.status === "fulfilled" ? offResult.value.results : [];
-  const usda = usdaResult.status === "fulfilled" ? usdaResult.value.results : [];
+  const offResults = offResult.status === "fulfilled" ? offResult.value.results : [];
+  const usdaResults = usdaResult.status === "fulfilled" ? usdaResult.value.results : [];
 
-  const queryLower = query.toLowerCase();
-  const queryWords = queryLower.split(/\s+/).filter((w) => w.length > 1);
-
-  const ranked = [...usda, ...off].map((r) => ({
-    r,
-    score: computeRank(r, queryWords, queryLower),
-  }));
+  const rankWith = (results: NutritionSearchResult[], q: string) => {
+    const lower = q.toLowerCase();
+    const words = lower.split(/\s+/).filter((w) => w.length > 1);
+    return results.map((r) => ({ r, score: computeRank(r, words, lower) }));
+  };
+  // Each source is ranked on name relevance against the query it was actually asked.
+  const ranked = [...rankWith(usdaResults, usda.query), ...rankWith(offResults, query)];
   ranked.sort((a, b) => b.score - a.score || compareStable(a.r, b.r));
 
-  return { results: ranked.slice(0, 15).map((x) => x.r), sources };
+  return {
+    results: ranked.slice(0, 15).map((x) => x.r),
+    sources,
+    usdaQuery: usda.translated ? usda.query : null,
+  };
 }
 
 /** Stable tie-break so equal scores never reorder between identical searches: name, brand, barcode, source. */

@@ -29,6 +29,7 @@ export default function NutritionSearch({
   const [searched, setSearched] = useState(false);
   const [failed, setFailed] = useState(false);
   const [sources, setSources] = useState<{ usda?: string; off?: string }>({});
+  const [usdaQuery, setUsdaQuery] = useState<string | null>(null);
   const autoRan = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -53,10 +54,12 @@ export default function NutritionSearch({
       if (controller.signal.aborted) return;
       setResults(data.results ?? []);
       setSources(data.sources ?? {});
+      setUsdaQuery(data.usdaQuery ?? null);
     } catch {
       if (controller.signal.aborted) return;
       setResults([]);
       setSources({});
+      setUsdaQuery(null);
       setFailed(true);
     } finally {
       if (controllerRef.current === controller) setLoading(false);
@@ -140,6 +143,9 @@ export default function NutritionSearch({
           )}
           {!loading && searched && !failed && sources.usda === "disabled" && (
             <p className="mb-3 text-xs text-gray-500">USDA disabled (no API key)</p>
+          )}
+          {!loading && searched && !failed && usdaQuery && sources.usda !== "disabled" && (
+            <p className="mb-3 text-xs text-gray-500">USDA searched for &quot;{usdaQuery}&quot;</p>
           )}
         </div>
 
