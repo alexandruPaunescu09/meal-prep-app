@@ -1,5 +1,7 @@
 import { NutritionSearchResult, NutritionData } from "@/lib/supabase/types";
 import { containsCookedKeyword, queryRequestsCooked } from "./classification";
+import { SourceError, fetchWithRetry } from "./http";
+import { createTtlCache, withSourceCache } from "./search-cache";
 
 const USDA_SEARCH_URL = "https://api.nal.usda.gov/fdc/v1/foods/search";
 
@@ -104,16 +106,33 @@ function completeness(nutrition: NutritionData): number {
   return filled;
 }
 
-export async function searchUSDA(
+/** False when the key is missing or still the .env.example placeholder: USDA is "disabled". */
+export function isUsdaEnabled(): boolean {
+  const apiKey = process.env.USDA_API_KEY;
+  return !!apiKey && apiKey !== "your-usda-key";
+}
+
+export const usdaSearchCache = createTtlCache<NutritionSearchResult[]>();
+
+/** Cached USDA search. Throws SourceError on failure (never cached); callers check isUsdaEnabled() first. */
+export const searchUSDA = withSourceCache("usda", usdaSearchCache, async (query: string) => ({
+  results: await searchUsdaUncached(query),
+  complete: true,
+}));
+
+export async function searchUsdaUncached(
   query: string
 ): Promise<NutritionSearchResult[]> {
   const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey || apiKey === "your-usda-key") return [];
+  if (!apiKey) throw new SourceError("USDA key missing");
 
-  const url = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=15&dataType=Foundation,SR%20Legacy,Survey%20(FNDDS),Branded`;
+  // No dataType filter on purpose: USDA's gateway answers a random ~60% of requests with an nginx
+  // 400 whenever `dataType` contains "Survey (FNDDS)" (measured 8/8 ok without it, ~3/8 with it, however
+  // the value is encoded). The default already covers Foundation, SR Legacy, Survey (FNDDS) and Branded.
+  const url = `${USDA_SEARCH_URL}?query=${encodeURIComponent(query)}&api_key=${apiKey}&pageSize=15`;
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-  if (!res.ok) return [];
+  const res = await fetchWithRetry(url);
+  if (!res.ok) throw new SourceError(`USDA answered ${res.status}`);
 
   const data = await res.json();
   const foods: USDAFood[] = data.foods ?? [];

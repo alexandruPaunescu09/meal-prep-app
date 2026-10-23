@@ -260,7 +260,7 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/nutrition/search?q=` | GET | Yes | Search USDA + OFF, returns ranked results |
+| `/api/nutrition/search?q=` | GET | Yes | Search USDA + OFF: `{ results, sources: { usda: "ok"\|"error"\|"disabled", off: "ok"\|"error" } }` (a failed source is reported, never silently `[]`; "disabled" = no/placeholder `USDA_API_KEY`) |
 | `/api/nutrition/barcode?code=` | GET | Yes | Barcode (8-14 digits): `{ existing: {id,name} }` if already saved, else `{ product: BarcodeLookup }` from OFF v2, or 404 `{ error: "not_found" }` |
 | `/api/invoices/parse` | POST | Admin | Stateless: multipart `files` (≤10, ≤4 MB, jpeg/png/webp/pdf) → Claude extraction + catalog matching; no writes |
 | `/api/invoices/apply` | POST | Admin | JSON `{invoice, lines}` → `apply_invoice_prices` RPC (atomic), revalidates ingredients cache |
@@ -362,12 +362,13 @@ Role-aware (since `20260609000001_rls_role_aware.sql`): admin tables use `is_adm
 - URL state in client components: `router.replace(url, { scroll: false })`, never `window.history.replaceState` (a later `router.refresh()` restores the router's own URL)
 
 ### Nutrition Search Pipeline
-1. Parallel search: USDA + OFF (Romania-first, global English fallback if < 3 results)
-2. USDA: filters cooked entries (unless query asks for cooked), assigns confidence by dataType
-3. OFF: rejects if not per-100g or >2 missing core nutrients, computes 5-component NCS
-4. NCS < 0.85 → hard reject from results
-5. Ranking: confidence×45 + nameRelevance×35 + USDA bonus(10) - composite penalty(15)
-6. Returns top 15
+1. Parallel search: USDA + OFF. `searchNutrition` returns `{ results, sources }`; each source is `ok` / `error` (and USDA `disabled` without a key). The modal shows an inline notice + Retry for `error` and a quiet note for `disabled`; it aborts superseded requests.
+2. USDA: filters cooked entries (unless query asks for cooked), assigns confidence by dataType. The request sends NO `dataType` filter on purpose: USDA's gateway returns a random nginx 400 for ~60% of requests that include "Survey (FNDDS)" in `dataType` (the default already covers all four types).
+3. OFF search uses Search-a-licious (`https://search.openfoodfacts.org/search`, `fields` honoured), NOT the legacy `cgi/search.pl` (answered ~80% with 503). Query = sanitized input (Lucene specials and AND/OR/NOT stripped, `sanitizeSearchQuery`) + `countries_tags:"en:romania"`; if that yields < 3 usable products, one more query without the country term is merged in (de-duplicated by barcode). The index does NOT return `nutrition_data_per`, `ingredients_text` or `image_nutrition_url`: the per-100g filter is skipped for search hits and the NCS verification component uses a neutral base (0.4, +0.25 with a brand) via `searchIndex`; kJ-only products get kcal derived (kJ/4.184). `lookupBarcode` still uses the v2 product API. Filters: rejects >2 missing core nutrients; NCS only affects ranking (there is no hard reject).
+4. Retry once (300 ms backoff) on network errors / timeouts / 5xx for both sources (`lib/nutrition/http.ts`), never on 4xx; 4 s per attempt.
+5. Cache (`lib/nutrition/search-cache.ts`): bounded in-memory LRU (200 entries), 24 h TTL, per source + normalised query (trim, lowercase, collapse spaces). Only complete successes are stored (errors, and OFF results whose global fallback failed, are never cached, so a repeat retries). Per-instance on Vercel (not shared); `unstable_cache` is deprecated in Next 16 and needs a request context.
+6. Ranking: confidence×45 + nameRelevance×35 + USDA bonus(10) - composite penalty(15); ties break by name, brand, barcode, source (`compareStable`) so repeat searches are identical
+7. Returns top 15
 
 ---
 
@@ -481,7 +482,7 @@ LABEL_PARSER_MODEL              # Optional; model for nutrition-label photos (de
 ```
 
 ### Local Development
-- `.env.development.local` overrides `.env.local` during `next dev`
+- `.env.development.local` overrides `.env.local` during `next dev`; set `USDA_API_KEY` there for local USDA results (without it the nutrition modal reports "USDA disabled (no API key)")
 - Local Supabase via Docker: `npm run db:start`
 - Scripts: `db:start`, `db:stop`, `db:reset`, `test` (vitest, `lib/**/*.test.ts`), `test:db` (pgTAP RLS/RPC tests in `supabase/tests/*.sql` via `supabase test db`; needs the local stack running, each file rolls back)
 - CI builds against a throwaway `supabase start` stack (see Migrations). Locally, `npm run build` reads `.env.local` (no Supabase keys locally; any `NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY`/`SERVICE_ROLE_KEY` values suffice because prerender only constructs the clients), so a local production build fails at prerender; load the dev env first: `set -a; . ./.env.development.local; set +a; npm run build`
@@ -604,3 +605,4 @@ LABEL_PARSER_MODEL              # Optional; model for nutrition-label photos (de
 | 2026-10-20 | Hardening H6: closed the plan-entry ownership RLS hole. `owns_plan_entry()` helper + recreated `meal_entry_status` "Customer manage own" and `meal_reviews` "Customer insert own" / "Customer update own" so a customer can no longer write (or repoint) a status/review on another client's plan entry; `/api/portal/status` and `/api/portal/reviews` both write with the customer RLS client and keep working on own entries; the two KNOWN HOLE `todo` tests are now real assertions plus repoint, tag, own-write and "victim B can still write its own row" cases (suite now 119 assertions, 0 todos); no cleanup of possibly stray rows written through the old hole (no evidence they exist, deleting is irreversible) | `supabase/migrations/20261020000200_plan_entry_ownership_rls.sql`, `supabase/tests/02_portal_rls.sql`, `CLAUDE.md` |
 | 2026-10-21 | Portal mobile/PWA fixes: black overscroll/pinch-zoom area (dark `prefers-color-scheme` block removed, `html` light background, `colorScheme: "only light"`), no bounce or scroll chaining (`overscroll-behavior: none`, `overscroll-contain` in sheets, `Modal` scroll lock sets only `html` overflow), iOS focus auto-zoom (portal/login/intake/set-password/scanner inputs `text-base md:text-sm`), safe areas (`viewportFit: "cover"`, top bar inset, toast offset), `min-h-dvh`, day strip clipped, `sw.js` cache `mp-portal-v4` | `app/globals.css`, `app/layout.tsx`, `app/(portal)/layout.tsx`, `app/{login,intake,auth,portal/set-password}/**`, `components/ui/{modal,toast}.tsx`, `components/portal/*`, `components/barcode-scanner.tsx`, `public/sw.js`, `CLAUDE.md` |
 | 2026-10-21 | Fix customer barcode scanning: `proxy.ts` redirected `/zxing/zxing_reader.wasm` (HTML) for signed-in customers (and to /login when signed out), so the zxing ponyfill used on iPhone/desktop never loaded and `detect()` failed silently; `.wasm` (and `.ico`) now excluded from the matcher. Scanner: ponyfill wasm load is awaited (failure shows the existing manual-entry error), 8 consecutive `detect()` errors stop with the same error, 1920x1080 ideal camera + continuous autofocus when supported. Verified locally: before = redirect to /portal text/html, after = 200 application/wasm + EAN-13 decoded by the ponyfill from a canvas; real-phone scan untested | `proxy.ts`, `components/barcode-scanner.tsx`, `CLAUDE.md` |
+| 2026-10-23 | Fix admin "Search nutrition data": OFF search moved from legacy `cgi/search.pl` (503 on ~80% of requests, silently `[]`) to Search-a-licious with Romania-first + global fallback (de-duplicated by barcode), query sanitising, one retry on network/5xx for both sources, 24 h in-memory cache of successful responses only, `{results, sources}` status (ok/error/disabled) with an inline notice + Retry and out-of-order guard in the modal, deterministic tie-break; USDA request no longer sends `dataType` (its gateway 400s randomly with "Survey (FNDDS)"); neutral NCS verification for search-index hits | `lib/nutrition/{index,open-food-facts,usda,confidence,http,search-cache,search.test}.ts`, `app/api/nutrition/search/route.ts`, `components/nutrition-search.tsx`, `CLAUDE.md` |
