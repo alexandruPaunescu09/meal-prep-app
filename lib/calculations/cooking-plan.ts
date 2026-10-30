@@ -26,6 +26,8 @@ export interface CookingPlanRecipe {
   totalFinalWeightG: number | null;
   ingredients: CookingPlanRecipeIngredient[];
   clientBreakdown: CookingPlanClientRow[];
+  /** Recipe steps, once per recipe (not per plan). Empty when none. */
+  steps: string[];
 }
 
 export interface CookingPlanDirectIngredient {
@@ -53,7 +55,13 @@ interface RecipeAccumulator {
   finalWeight: number | null;
   totalPortions: number;
   recipeIngredients: (RecipeIngredient & { ingredient: Ingredient })[];
+  steps: string[];
   clientPortions: Map<string, number>;
+}
+
+/** Trimmed, non-empty steps; tolerates null/undefined (older rows). */
+export function cleanSteps(instructions: string[] | null | undefined): string[] {
+  return (instructions ?? []).map((s) => s.trim()).filter(Boolean);
 }
 
 export function generateCookingPlan(entries: FullEntry[]): {
@@ -78,6 +86,7 @@ export function generateCookingPlan(entries: FullEntry[]): {
           finalWeight: recipe.final_weight ?? null,
           totalPortions: 0,
           recipeIngredients: recipe.recipe_ingredients,
+          steps: cleanSteps(recipe.instructions),
           clientPortions: new Map(),
         };
         recipeMap.set(recipe.id, acc);
@@ -144,6 +153,7 @@ export function generateCookingPlan(entries: FullEntry[]): {
         totalFinalWeightG,
         ingredients,
         clientBreakdown,
+        steps: acc.steps,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

@@ -18,6 +18,7 @@ import { formatLei, formatNumber, humanizeSlug } from "@/lib/format";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
+import { RecipeSteps } from "@/components/recipe-steps";
 import {
   Plus,
   Pencil,
@@ -447,9 +448,8 @@ export default function RecipesClient({
                           {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                         </span>
                       )}
-                      {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                      {recipe.source_url && (
                       <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
-                        {recipe.source_url && (
                           <a
                             href={recipe.source_url}
                             target="_blank"
@@ -458,12 +458,9 @@ export default function RecipesClient({
                           >
                             Source <ExternalLink size={12} />
                           </a>
-                        )}
-                        {(recipe.instructions?.length ?? 0) > 0 && (
-                          <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
-                        )}
                       </p>
                       )}
+                      <RecipeSteps steps={recipe.instructions} className="mt-1" />
                       {recipe.notes && (
                         <p className="mt-2 text-xs text-gray-500 italic">
                           {recipe.notes}
@@ -616,9 +613,8 @@ export default function RecipesClient({
                                     {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                                   </span>
                                 )}
-                                {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                                {recipe.source_url && (
                                 <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
-                                  {recipe.source_url && (
                                     <a
                                       href={recipe.source_url}
                                       target="_blank"
@@ -627,12 +623,9 @@ export default function RecipesClient({
                                     >
                                       Source <ExternalLink size={12} />
                                     </a>
-                                  )}
-                                  {(recipe.instructions?.length ?? 0) > 0 && (
-                                    <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
-                                  )}
                                 </p>
                                 )}
+                                <RecipeSteps steps={recipe.instructions} className="mt-1" />
                                 {recipe.notes && (
                                   <p className="text-xs text-gray-500 italic">
                                     {recipe.notes}
