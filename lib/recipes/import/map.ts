@@ -1,10 +1,10 @@
 // Server-only module: imported exclusively from route handlers.
 import type Anthropic from "@anthropic-ai/sdk";
-import { callStructured, type ClaudeErrorMessages } from "@/lib/ai/claude";
+import { ClaudeError, callStructured, type ClaudeErrorMessages } from "@/lib/ai/claude";
 import type { ExtractedRecipe } from "./json-ld";
 import { postProcessRecipeLines, type CatalogAlias } from "./postprocess";
 import { RecipeModelSchema, toModelLine } from "./schema";
-import type { RecipeImportLine, RecipeImportRecipe } from "./types";
+import { RECIPE_ALIAS_STORE, type RecipeImportLine, type RecipeImportRecipe } from "./types";
 
 export interface RecipeImageFile {
   name: string;
@@ -80,6 +80,7 @@ function catalogText(ingredients: MapCatalogIngredient[], aliases: CatalogAlias[
   const clean = (s: string) => s.replace(/\s*\|\s*/g, " ").trim();
   const byIng = new Map<string, Set<string>>();
   for (const a of aliases) {
+    if (a.store.trim().toLowerCase() !== RECIPE_ALIAS_STORE) continue;
     const set = byIng.get(a.ingredient_id) ?? new Set<string>();
     set.add(clean(a.alias));
     byIng.set(a.ingredient_id, set);
@@ -169,6 +170,11 @@ export async function mapRecipe(args: {
     schema: RecipeModelSchema,
     messages: RECIPE_ERRORS,
   });
+
+  // Preserve the model's explicit no-recipe result before applying source-title fallbacks.
+  if (parsed.lines.length === 0 && !parsed.name.trim()) {
+    throw new ClaudeError("No recipe was found in that input.", 422);
+  }
 
   const extracted = input.kind === "json-ld" ? input.recipe : null;
   const headerTexts = extracted ? extracted.ingredients.filter((l) => l.isSectionHeader).map((l) => l.text) : [];
