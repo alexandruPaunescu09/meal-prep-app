@@ -28,6 +28,7 @@ import {
   Star,
   Search,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
@@ -162,6 +163,8 @@ export default function RecipesClient({
       notes: recipe.notes,
       customer_description: recipe.customer_description,
       container_type_id: recipe.container_type_id,
+      source_url: recipe.source_url,
+      instructions: recipe.instructions ?? [],
     };
     const p_ingredients: SaveRecipeIngredientInput[] = recipe.recipe_ingredients.map((ri) => ({
       ingredient_id: ri.ingredient_id,
@@ -444,6 +447,23 @@ export default function RecipesClient({
                           {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                         </span>
                       )}
+                      {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                      <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
+                        {recipe.source_url && (
+                          <a
+                            href={recipe.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+                          >
+                            Source <ExternalLink size={12} />
+                          </a>
+                        )}
+                        {(recipe.instructions?.length ?? 0) > 0 && (
+                          <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
+                        )}
+                      </p>
+                      )}
                       {recipe.notes && (
                         <p className="mt-2 text-xs text-gray-500 italic">
                           {recipe.notes}
@@ -595,6 +615,23 @@ export default function RecipesClient({
                                   <span className="text-xs text-gray-500">
                                     {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                                   </span>
+                                )}
+                                {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                                <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
+                                  {recipe.source_url && (
+                                    <a
+                                      href={recipe.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+                                    >
+                                      Source <ExternalLink size={12} />
+                                    </a>
+                                  )}
+                                  {(recipe.instructions?.length ?? 0) > 0 && (
+                                    <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
+                                  )}
+                                </p>
                                 )}
                                 {recipe.notes && (
                                   <p className="text-xs text-gray-500 italic">

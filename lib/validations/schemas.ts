@@ -24,7 +24,27 @@ export const ingredientSchema = z.object({
 
 export type IngredientFormData = z.infer<typeof ingredientSchema>;
 
+export const RECIPE_STEP_MAX_LENGTH = 500;
+export const RECIPE_STEP_MAX_COUNT = 40;
+
+export const recipeSourceUrlSchema = z
+  .string()
+  .trim()
+  .max(2000, "Link is too long.")
+  .refine((v) => /^https?:\/\/\S+$/i.test(v), "Enter a link starting with http:// or https://.");
+
+export const recipeStepSchema = z
+  .string()
+  .min(1)
+  .max(RECIPE_STEP_MAX_LENGTH, `A step can be at most ${RECIPE_STEP_MAX_LENGTH} characters.`);
+
+export const recipeStepsSchema = z
+  .array(recipeStepSchema)
+  .max(RECIPE_STEP_MAX_COUNT, `A recipe can have at most ${RECIPE_STEP_MAX_COUNT} steps.`);
+
 export const recipeSchema = z.object({
+  source_url: recipeSourceUrlSchema.nullable().optional(),
+  instructions: recipeStepsSchema.optional(),
   name: z.string().min(1, "Name is required"),
   portions: z.number().int().positive("Must be >= 1"),
   notes: z.string().nullable().optional(),

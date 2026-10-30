@@ -52,6 +52,10 @@ export interface Recipe {
   notes: string | null;
   customer_description: string | null;
   container_type_id: string | null;
+  /** Where the recipe came from (http/https). Admin-only; not in recipes_public. */
+  source_url: string | null;
+  /** Ordered plain-text cooking steps. Admin-only; not in recipes_public. */
+  instructions: string[];
   container_type?: ContainerType;
   created_at: string;
   updated_at: string;
@@ -337,6 +341,8 @@ export interface SaveRecipeInput {
   notes: string | null;
   customer_description: string | null;
   container_type_id: string | null;
+  source_url: string | null;
+  instructions: string[];
 }
 
 export interface SaveRecipeIngredientInput {
