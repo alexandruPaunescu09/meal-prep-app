@@ -26,7 +26,7 @@ Update this table as stories land, with the branch or PR and the date.
 | RI-1 | Recipe extraction library (fetch, JSON-LD, page text) | M | — | In review, PR #29 |
 | RI-2 | Claude mapping + parse route | M | RI-1 | In review, PR #31 |
 | RI-3 | Review + save UI | M–L | RI-0a, RI-0b, RI-0c, RI-2 | In review, PR #34 |
-| RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | Not started |
+| RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | In review, PR #PRNUM |
 | RI-5 | Share from the phone | S | RI-3 | Not started |
 | RI-6 | Scale to a target | M | RI-3 | Not started |
 | RI-7 | Steps in the cooking plan | S | RI-0b | Not started |

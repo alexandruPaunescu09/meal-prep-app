@@ -5,7 +5,8 @@ import { extractRecipeFromUrl } from "@/lib/recipes/import";
 import { mapRecipe, type RecipeImageFile, type RecipeMapInput } from "@/lib/recipes/import/map";
 import { findDuplicateRecipe } from "@/lib/recipes/import/postprocess";
 import { fetchFailureResponse, validateJsonBody, validateUploads } from "@/lib/recipes/import/request";
-import type { RecipeImportResponse, RecipeImportSource } from "@/lib/recipes/import/types";
+import { detectVideo, noWrittenRecipeMessage, resolveVideo } from "@/lib/recipes/import/video";
+import type { NoWrittenRecipeBody, RecipeImportResponse, RecipeImportSource } from "@/lib/recipes/import/types";
 
 export const maxDuration = 120;
 
@@ -55,6 +56,28 @@ export async function POST(req: NextRequest) {
     if (parsedBody.kind === "text") {
       input = { kind: "text", text: parsedBody.text };
       source = { kind: "text" };
+    } else if (detectVideo(parsedBody.url)) {
+      const video = await resolveVideo(detectVideo(parsedBody.url)!);
+      if (!video.ok) {
+        const body: NoWrittenRecipeBody = {
+          error: noWrittenRecipeMessage(video.platform),
+          reason: video.reason,
+          platform: video.platform,
+        };
+        return NextResponse.json(body, { status: 422 });
+      }
+      if (video.kind === "linked-page") {
+        input = { kind: "json-ld", recipe: video.recipe };
+        source = {
+          kind: "url",
+          url: video.pageUrl,
+          siteName: video.recipe.siteName,
+          via: { kind: video.platform === "tiktok" ? "tiktok" : "youtube", videoUrl: video.videoUrl },
+        };
+      } else {
+        input = { kind: "text", text: `${video.title}\n\n${video.text}` };
+        source = { kind: "url", url: video.videoUrl };
+      }
     } else {
       const page = await extractRecipeFromUrl(parsedBody.url);
       if (!page.ok) {

@@ -51,6 +51,11 @@ export interface FetchPageDeps {
   timeoutMs?: number;
   maxBytes?: number;
   maxRedirects?: number;
+  /**
+   * Extra request headers. Only `Cookie` is honoured (e.g. consent cookies), and only on hops to the
+   * ORIGINAL hostname, so it never leaks to a redirect target. Every other guard is unaffected.
+   */
+  extraHeaders?: Record<string, string>;
 }
 
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -215,6 +220,7 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
   const maxBytes = deps.maxBytes ?? MAX_BODY_BYTES;
   const maxRedirects = deps.maxRedirects ?? MAX_REDIRECTS;
   const lookup = createGuardedLookup(resolver);
+  const cookie = Object.entries(deps.extraHeaders ?? {}).find(([k]) => k.toLowerCase() === "cookie")?.[1];
 
   let current: URL;
   try {
@@ -222,6 +228,7 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
   } catch {
     return { ok: false, reason: "invalid_url" };
   }
+  const originalHost = current.hostname.toLowerCase();
 
   const controller = new AbortController();
   let timedOut = false;
@@ -250,6 +257,7 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
           "Accept-Language": "ro,en;q=0.8",
           Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
           "Accept-Encoding": "gzip, deflate, br",
+          ...(cookie && current.hostname.toLowerCase() === originalHost ? { Cookie: cookie } : {}),
         },
       });
       openResponse = res;
