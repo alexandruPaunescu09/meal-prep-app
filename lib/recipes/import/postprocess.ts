@@ -1,5 +1,6 @@
 import type { RecipeImportLine, RecipeMatchConfidence, RecipeUnit } from "./types";
 import { RECIPE_ALIAS_STORE } from "./types";
+import { normalizeSourceKey } from "./url";
 
 /** What the model returns per line, after sentinel mapping (see map.ts). */
 export interface ModelLine {
@@ -37,7 +38,7 @@ const TO_TASTE_RE = /\b(?:dup[aă]\s+gust|la\s+gust|to\s+taste|as\s+needed)\b/i;
 const norm = (s: string) => s.trim().toLowerCase();
 const addNote = (note: string | null, extra: string) => (note ? `${note}; ${extra}` : extra);
 
-/** Case-insensitive recipe-name duplicate lookup (RI-3 adds the source-link check). */
+/** Case-insensitive recipe-name duplicate lookup. */
 export function findDuplicateByName<T extends { id: string; name: string }>(
   name: string,
   recipes: T[],
@@ -127,4 +128,21 @@ export function postProcessRecipeLines(
       note,
     };
   });
+}
+
+/**
+ * Duplicate lookup: an existing recipe with the same (normalised) source link wins over a
+ * same-name match.
+ */
+export function findDuplicateRecipe<T extends { id: string; name: string; source_url?: string | null }>(
+  name: string,
+  sourceUrl: string | null | undefined,
+  recipes: T[],
+): { id: string; name: string } | null {
+  const key = normalizeSourceKey(sourceUrl);
+  if (key) {
+    const hit = recipes.find((r) => normalizeSourceKey(r.source_url) === key);
+    if (hit) return { id: hit.id, name: hit.name };
+  }
+  return findDuplicateByName(name, recipes);
 }
