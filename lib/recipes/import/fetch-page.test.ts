@@ -282,6 +282,56 @@ describe("fetchPage responses", () => {
   });
 });
 
+describe("fetchPage extraHeaders", () => {
+  it("sends the Cookie header to the original host only, never to a redirect target", async () => {
+    const seen: Record<string, string | undefined> = {};
+    const record = (req: TransportRequest) => {
+      seen[req.url.hostname] = req.headers.Cookie;
+      return {};
+    };
+    const { transport } = fake({
+      "https://a.test/": { status: 302, headers: { location: "https://b.test/x" } },
+      "https://b.test/x": (req) => ({ ...record(req), body: html("ok") }),
+    });
+    const r = await fetchPage("https://a.test/", {
+      transport,
+      resolver: publicResolver,
+      extraHeaders: { Cookie: "CONSENT=YES+1; SOCS=CAI" },
+    });
+    expect(r.ok).toBe(true);
+    expect(seen["b.test"]).toBeUndefined();
+  });
+
+  it("sends the Cookie on the first hop and ignores every other extra header", async () => {
+    let headers: Record<string, string> = {};
+    const { transport } = fake({
+      "https://a.test/": (req) => {
+        headers = req.headers;
+        return { body: html("ok") };
+      },
+    });
+    await fetchPage("https://a.test/", {
+      transport,
+      resolver: publicResolver,
+      extraHeaders: { Cookie: "a=b", Host: "169.254.169.254", Authorization: "x" },
+    });
+    expect(headers.Cookie).toBe("a=b");
+    expect(headers.Host).toBeUndefined();
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("still blocks private addresses when extra headers are set", async () => {
+    const { transport, calls } = fake({});
+    const r = await fetchPage("http://169.254.169.254/", {
+      transport,
+      resolver: publicResolver,
+      extraHeaders: { Cookie: "a=b" },
+    });
+    expect(r).toMatchObject({ ok: false, reason: "blocked_address" });
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("extractRecipeFromUrl", () => {
   it("returns the failure reason and status for a blocked site", async () => {
     const { transport } = fake({ "https://a.test/": { status: 403 } });

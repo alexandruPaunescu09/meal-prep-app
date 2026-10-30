@@ -46,6 +46,15 @@ export interface RecipeImportSource {
   kind: "url" | "text" | "images";
   url?: string;
   siteName?: string | null;
+  /** Set when a video link led to this page (YouTube description link). */
+  via?: { kind: "youtube" | "tiktok"; videoUrl: string };
+}
+
+/** Body of the 422 returned when a video link has no written recipe behind it. */
+export interface NoWrittenRecipeBody {
+  error: string;
+  reason: "no_written_recipe";
+  platform: "youtube" | "tiktok" | "instagram";
 }
 
 export interface RecipeImportDraft {
