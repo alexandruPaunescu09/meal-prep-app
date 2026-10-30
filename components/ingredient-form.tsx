@@ -40,7 +40,8 @@ export interface IngredientFormState {
   category: string;
   quantity_purchased: number;
   unit: string;
-  package_price: number;
+  /** null = price pending (RI-0c). */
+  package_price: number | null;
   piece_weight_g: number | null;
   calories: number | null;
   protein: number | null;
@@ -98,6 +99,10 @@ interface Values {
   qty: string;
   unit: string;
   price: string;
+  /** Price pending: saves package_price = NULL (the next receipt sets it). */
+  pricePending: boolean;
+  /** Package qty was filled by the pending-price default, not typed by the admin. */
+  qtyAutofilled: boolean;
   pieceWeight: string;
   nut: Record<NutKey, string>;
   micronutrients: Record<string, number>;
@@ -146,6 +151,8 @@ function buildInitial(
     qty: numToStr(src.quantity_purchased),
     unit: src.unit ?? "g",
     price: numToStr(src.package_price),
+    pricePending: ingredient ? ingredient.package_price == null : src.package_price === null,
+    qtyAutofilled: false,
     pieceWeight: numToStr(src.piece_weight_g),
     nut: {
       calories: nutToStr(src.calories),
@@ -352,6 +359,21 @@ export default function IngredientForm({
       ? formatPricePerUnit(priceNum / qtyNum, v.unit)
       : null;
 
+  const defaultQty = (unit: string) => (unit === "buc" ? "1" : "1000");
+
+  function setPricePending(on: boolean) {
+    setV((prev) => {
+      if (!on) return { ...prev, pricePending: false, qtyAutofilled: false };
+      const blank = prev.qty.trim() === "";
+      return {
+        ...prev,
+        pricePending: true,
+        price: "",
+        ...(blank ? { qty: defaultQty(prev.unit), qtyAutofilled: true } : {}),
+      };
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
@@ -360,7 +382,10 @@ export default function IngredientForm({
     const name = v.name.trim();
     if (!name) return setError("Name is required.");
     if (qtyNum === null || qtyNum <= 0) return setError("Package quantity must be greater than 0.");
-    if (priceNum === null || priceNum <= 0) return setError("Price must be greater than 0.");
+    if (!v.pricePending && (priceNum === null || priceNum <= 0)) {
+      return setError("Price must be greater than 0, or tick Price pending.");
+    }
+    const newPrice = v.pricePending ? null : priceNum;
     let pieceWeight: number | null = null;
     if (v.unit === "buc" && v.pieceWeight.trim() !== "") {
       pieceWeight = parseDecimal(v.pieceWeight);
@@ -388,7 +413,7 @@ export default function IngredientForm({
       category: v.category,
       quantity_purchased: qtyNum,
       unit: v.unit,
-      package_price: priceNum,
+      package_price: newPrice,
       piece_weight_g: pieceWeight,
       ...nutPayload,
       micronutrients: v.micronutrients,
@@ -398,12 +423,16 @@ export default function IngredientForm({
 
     let result;
     if (ingredient) {
-      const oldPPU = ingredient.quantity_purchased > 0
-        ? ingredient.package_price / ingredient.quantity_purchased
-        : 0;
-      const newPPU = priceNum / qtyNum;
+      // No history row when the old price was NULL (price pending: nothing to
+      // log) or the new one is (switching to pending), only on a real change.
+      const oldPPU =
+        ingredient.package_price != null && ingredient.quantity_purchased > 0
+          ? ingredient.package_price / ingredient.quantity_purchased
+          : null;
+      const newPPU = newPrice != null ? newPrice / qtyNum : null;
 
-      const priceChanged = Math.abs(oldPPU - newPPU) > 1e-12;
+      const priceChanged =
+        oldPPU != null && newPPU != null && Math.abs(oldPPU - newPPU) > 1e-12;
 
       const updatePromise = supabase
         .from("ingredients")
@@ -420,7 +449,7 @@ export default function IngredientForm({
             package_price: ingredient.package_price,
             quantity_purchased: ingredient.quantity_purchased,
             unit: ingredient.unit,
-            price_per_unit: oldPPU,
+            price_per_unit: oldPPU as number,
           }),
         ]);
         result = updateResult;
@@ -557,7 +586,7 @@ export default function IngredientForm({
                   type="text"
                   inputMode="decimal"
                   value={v.qty}
-                  onChange={(e) => setV({ ...v, qty: e.target.value })}
+                  onChange={(e) => setV({ ...v, qty: e.target.value, qtyAutofilled: false })}
                   className={INPUT}
                   required
                 />
@@ -569,7 +598,13 @@ export default function IngredientForm({
                 <select
                   id="ing-unit"
                   value={v.unit}
-                  onChange={(e) => setV({ ...v, unit: e.target.value })}
+                  onChange={(e) =>
+                    setV({
+                      ...v,
+                      unit: e.target.value,
+                      ...(v.qtyAutofilled ? { qty: defaultQty(e.target.value) } : {}),
+                    })
+                  }
                   className={INPUT}
                   title="g = grams, ml = millilitres, buc = pieces"
                 >
@@ -580,16 +615,18 @@ export default function IngredientForm({
               </div>
               <div>
                 <label htmlFor="ing-price" className="block text-sm font-medium text-gray-700 mb-1">
-                  Price (lei) *
+                  Price (lei){v.pricePending ? "" : " *"}
                 </label>
                 <input
                   id="ing-price"
                   type="text"
                   inputMode="decimal"
-                  value={v.price}
+                  value={v.pricePending ? "" : v.price}
                   onChange={(e) => setV({ ...v, price: e.target.value })}
-                  className={INPUT}
-                  required
+                  className={`${INPUT} disabled:bg-gray-100 disabled:text-gray-400`}
+                  disabled={v.pricePending}
+                  placeholder={v.pricePending ? "Price pending" : undefined}
+                  required={!v.pricePending}
                 />
               </div>
             </div>
@@ -612,8 +649,25 @@ export default function IngredientForm({
                 </p>
               </div>
             )}
+            <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={v.pricePending}
+                onChange={(e) => setPricePending(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              Price pending
+              <span className="text-xs text-gray-500">(the next receipt import sets it)</span>
+            </label>
+            {v.pricePending && v.qtyAutofilled && (
+              <p className="mt-1 text-xs text-amber-700">
+                Package size set to {v.qty} {v.unit} as a placeholder; the next receipt sets the real size.
+              </p>
+            )}
             <p className="mt-1.5 text-xs text-gray-500 min-h-4">
-              {ppuPreview ? (
+              {v.pricePending ? (
+                "Cost calculations will show this ingredient as having no price."
+              ) : ppuPreview ? (
                 <>
                   = <span className="font-medium text-emerald-700">{ppuPreview}</span>
                 </>

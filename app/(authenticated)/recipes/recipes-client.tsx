@@ -14,7 +14,7 @@ import {
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, humanizeSlug } from "@/lib/format";
+import { formatCost, formatNumber, humanizeSlug } from "@/lib/format";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
@@ -362,7 +362,7 @@ export default function RecipesClient({
                     <div>
                       <span className="text-gray-500">Cost per portion</span>
                       <p className="font-medium text-emerald-700">
-                        {formatLei(calc.costPerPortion)}
+                        {formatCost(calc.costPerPortion, calc.unpricedCount)}
                       </p>
                     </div>
                     <div>
@@ -408,7 +408,7 @@ export default function RecipesClient({
                         <div>
                           <span className="text-gray-500">Total Cost</span>
                           <p className="font-medium text-gray-900">
-                            {formatLei(calc.totalCost)}
+                            {formatCost(calc.totalCost, calc.unpricedCount)}
                           </p>
                         </div>
                         <div>
@@ -526,7 +526,7 @@ export default function RecipesClient({
                             {recipe.portions}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-emerald-700">
-                            {formatLei(calc.costPerPortion)}
+                            {formatCost(calc.costPerPortion, calc.unpricedCount)}
                           </td>
                           <td className="px-4 py-3 text-right text-gray-600">
                             {Math.round(calc.perPortion.calories)} kcal
@@ -571,7 +571,7 @@ export default function RecipesClient({
                                   <div>
                                     <span className="text-gray-500">Total Cost</span>
                                     <p className="font-medium text-gray-900">
-                                      {formatLei(calc.totalCost)}
+                                      {formatCost(calc.totalCost, calc.unpricedCount)}
                                     </p>
                                   </div>
                                   <div>

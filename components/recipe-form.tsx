@@ -15,7 +15,7 @@ import {
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
 import { nutritionGrams, missingPieceWeight } from "@/lib/calculations/piece-weight";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
+import { formatCost, formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -455,7 +455,10 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="space-y-2">
                 {entries.map((entry) => {
                   const q = qtyToNumber(entry.qty);
-                  const rowCost = q * entry.ingredient.price_per_unit;
+                  const rowCost =
+                    entry.ingredient.price_per_unit == null
+                      ? null
+                      : q * entry.ingredient.price_per_unit;
                   const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
                   return (
                     <div
@@ -467,7 +470,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                           {entry.ingredient.name}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {formatLei(rowCost)} · {Math.round(rowKcal)} kcal
+                          {rowCost == null ? "Price pending" : formatLei(rowCost)} · {Math.round(rowKcal)} kcal
                         </p>
                         {missingPieceWeight(entry.ingredient) && (
                           <p className="text-xs text-amber-700">
@@ -515,8 +518,12 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="grid grid-cols-5 gap-2">
                 <div className="bg-emerald-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Cost</p>
-                  <p className="text-sm font-bold text-emerald-700">
-                    {formatLei(calc.costPerPortion)}
+                  <p
+                    className={`font-bold text-emerald-700 ${
+                      calc.unpricedCount > 0 ? "text-xs leading-tight" : "text-sm"
+                    }`}
+                  >
+                    {formatCost(calc.costPerPortion, calc.unpricedCount)}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
@@ -545,7 +552,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-1.5">
-                Total cost: {formatLei(calc.totalCost)} for {portionsValid ? portions : 1} portion
+                Total cost: {formatCost(calc.totalCost, calc.unpricedCount)} for {portionsValid ? portions : 1} portion
                 {(portionsValid ? portions : 1) > 1 ? "s" : ""}
               </p>
             </div>
@@ -748,7 +755,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                         )}
                         <span className="block text-xs text-gray-500">
                           {humanizeSlug(ing.category)} ·{" "}
-                          {formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                          {ing.price_per_unit == null ? "Price pending" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                         </span>
                       </span>
                       {added && (
