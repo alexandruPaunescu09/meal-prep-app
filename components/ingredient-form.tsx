@@ -41,6 +41,7 @@ export interface IngredientFormState {
   quantity_purchased: number;
   unit: string;
   package_price: number;
+  piece_weight_g: number | null;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
@@ -97,6 +98,7 @@ interface Values {
   qty: string;
   unit: string;
   price: string;
+  pieceWeight: string;
   nut: Record<NutKey, string>;
   micronutrients: Record<string, number>;
   api_source: string | null;
@@ -123,6 +125,7 @@ function buildInitial(
         quantity_purchased: ingredient.quantity_purchased,
         unit: ingredient.unit,
         package_price: ingredient.package_price,
+        piece_weight_g: ingredient.piece_weight_g,
         calories: ingredient.calories,
         protein: ingredient.protein,
         carbs: ingredient.carbs,
@@ -143,6 +146,7 @@ function buildInitial(
     qty: numToStr(src.quantity_purchased),
     unit: src.unit ?? "g",
     price: numToStr(src.package_price),
+    pieceWeight: numToStr(src.piece_weight_g),
     nut: {
       calories: nutToStr(src.calories),
       protein: nutToStr(src.protein),
@@ -357,6 +361,13 @@ export default function IngredientForm({
     if (!name) return setError("Name is required.");
     if (qtyNum === null || qtyNum <= 0) return setError("Package quantity must be greater than 0.");
     if (priceNum === null || priceNum <= 0) return setError("Price must be greater than 0.");
+    let pieceWeight: number | null = null;
+    if (v.unit === "buc" && v.pieceWeight.trim() !== "") {
+      pieceWeight = parseDecimal(v.pieceWeight);
+      if (pieceWeight === null || pieceWeight <= 0) {
+        return setError("Weight per piece must be greater than 0.");
+      }
+    }
 
     const nutPayload = {} as Record<NutKey, number | null>;
     for (const { key, label } of NUTRITION_FIELDS) {
@@ -378,6 +389,7 @@ export default function IngredientForm({
       quantity_purchased: qtyNum,
       unit: v.unit,
       package_price: priceNum,
+      piece_weight_g: pieceWeight,
       ...nutPayload,
       micronutrients: v.micronutrients,
       api_source: v.api_source,
@@ -581,6 +593,25 @@ export default function IngredientForm({
                 />
               </div>
             </div>
+            {v.unit === "buc" && (
+              <div className="mt-3 max-w-xs">
+                <label htmlFor="ing-piece-weight" className="block text-sm font-medium text-gray-700 mb-1">
+                  Weight per piece (g)
+                </label>
+                <input
+                  id="ing-piece-weight"
+                  type="text"
+                  inputMode="decimal"
+                  value={v.pieceWeight}
+                  onChange={(e) => setV({ ...v, pieceWeight: e.target.value })}
+                  className={`${INPUT} text-base md:text-sm`}
+                  placeholder="e.g. 55"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Optional. Lets recipes count pieces in grams for nutrition. Assumes the values below are per 100 g.
+                </p>
+              </div>
+            )}
             <p className="mt-1.5 text-xs text-gray-500 min-h-4">
               {ppuPreview ? (
                 <>
