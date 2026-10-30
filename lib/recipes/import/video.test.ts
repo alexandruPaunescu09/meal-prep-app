@@ -205,3 +205,22 @@ describe("resolveVideo - Instagram", () => {
     expect(extract).not.toHaveBeenCalled();
   });
 });
+
+describe("Romanian video recipe units", () => {
+  it.each(["lingură", "linguriță", "lingurițe", "linguriţă", "bucăți"])("recognises accented unit %s", (unit) => {
+    expect(looksLikeRecipe(`200 g făină\n250 ml lapte\n2 ${unit} zahăr`)).toBe(true);
+  });
+
+  it("imports a TikTok caption whose third quantity uses Romanian diacritics", async () => {
+    const caption = "200 g făină\n250 ml lapte\n2 lingurițe zahăr";
+    const result = await resolveVideo(
+      { platform: "tiktok", url: "https://www.tiktok.com/@cook/video/123" },
+      { fetchPage: async () => ok(tiktokPage(caption), "https://www.tiktok.com/@cook/video/123") },
+    );
+    expect(result).toMatchObject({ ok: true, kind: "text", text: caption });
+  });
+
+  it("still rejects Romanian prose without ingredient quantities", () => {
+    expect(looksLikeRecipe("Folosește lingurițe și bucăți mici. Gătește cu grijă." )).toBe(false);
+  });
+});

@@ -101,7 +101,7 @@ export function extractRecipeLinks(description: string, max = MAX_LINKS_TRIED): 
 }
 
 const QUANTITY_UNIT =
-  /(?<![\p{L}\d])\d+(?:[.,/]\d+)?\s*(?:g|gr|grame?|kg|ml|l|dl|cl|oz|lbs?|cups?|c[aă]ni?|tbsp|tsp|tablespoons?|teaspoons?|lingur\w*|buc\w*|felii|cloves?|c[aă]tei)(?![\p{L}])/giu;
+  /(?<![\p{L}\d])\d+(?:[.,/]\d+)?\s*(?:g|gr|grame?|kg|ml|l|dl|cl|oz|lbs?|cups?|c[aă]ni?|tbsp|tsp|tablespoons?|teaspoons?|lingur[\p{L}\p{M}]*|buc[\p{L}\p{M}]*|felii|cloves?|c[aă]tei)(?![\p{L}])/giu;
 
 /** True when the text has several quantity+unit mentions, i.e. it reads like an ingredient list. */
 export function looksLikeRecipe(text: string): boolean {
