@@ -36,6 +36,7 @@ app/
 │   │   ├── foods/          # Customer food moderation (FD-12): verify / edit / hide / merge / promote
 │   │   └── import/         # Receipt/invoice price import (upload → review → approve)
 │   ├── recipes/            # Recipes CRUD
+│   │   └── import/         # Recipe import (URL / video / text / screenshots → review → save_imported_recipe; scale to a target; phone share target)
 │   │   └── import/         # Recipe import (RI-3): input tabs → parse → review → atomic save
 │   ├── meal-plans/         # Meal plans list + [id] grid editor
 │   ├── prep/               # Prep schedule (weekly view + rules config)
@@ -45,6 +46,7 @@ app/
 ├── api/
 │   ├── nutrition/search/   # Nutrition API search (USDA + OFF)
 │   ├── nutrition/barcode/  # Barcode lookup (existing ingredient or OFF v2)
+│   ├── recipes/import/parse/ # Recipe import parse (stateless, admin; Claude mapping, video links)
 │   ├── invoices/parse|apply/ # Receipt/invoice import (stateless parse, atomic apply)
 │   ├── portal/foods/search/ # Customer catalog search (price-free foods + ingredients + own-plan recipes)
 │   ├── portal/foods/barcode/ # Customer barcode lookup (foods → ingredients → Open Food Facts, inserts new OFF foods)
@@ -651,3 +653,4 @@ LABEL_PARSER_MODEL              # Optional; model for nutrition-label photos (de
 | 2026-10-30 | Integrated scaling with reviewed import validation: catalog-aware blocking and approval, safe unit rematches, and exclusion of invalid quantities or stale units from scale inputs. | `app/(authenticated)/recipes/import/import-client.tsx`, `CLAUDE.md` |
 | 2026-10-30 | Recipe Import RI-5: share from the phone. Manifest `share_target` (GET `/recipes/import` with `title`/`text`/`url`); import page takes the first http(s) URL from `url`, `text`, `title` (`lib/recipes/import/share.ts`) or opens Paste text prefilled (no model call); proxy keeps `?next=` on the login redirect and the login page returns there via `safeReturnPath` (open-redirect guard, tested); customers sharing in land on `/portal/recipe-import` (friendly page); iOS Shortcut steps in `docs/recipe-import-share.md` + a help disclosure on the import page; YouTube/TikTok page fetches use a 4 MB cap (watch pages are ~1.5 MB; general cap stays 2 MB); `sw.js` cache `mp-portal-v5` (the manifest is in the shell cache). Android share needs the installed PWA and was not testable locally | `app/manifest.ts`, `proxy.ts`, `app/login/page.tsx`, `lib/auth/return-path{,.test}.ts`, `lib/recipes/import/{share,share.test,video,video.test}.ts`, `app/(authenticated)/recipes/import/*`, `app/(portal)/portal/recipe-import/page.tsx`, `docs/recipe-import-share.md`, `public/sw.js`, `CLAUDE.md` |
 | 2026-10-30 | Integrated shared recipe input with owner-scoped draft recovery: URL parsing and text prefilling wait for session restoration, so a recovered review is retained. | `app/(authenticated)/recipes/import/import-client.tsx`, `CLAUDE.md` |
+| 2026-10-31 | Recipe Import epic complete: admins can create a recipe from a website, YouTube/TikTok link, pasted text or screenshots (Instagram asks for pasted text or screenshots), review it against the priced catalog, create missing ingredients with the price pending, remember store/recipe aliases, use piece weights for `buc` ingredients, keep the source link and cooking steps (shown in the cooking plan), scale the recipe to a calorie target, and start an import from the phone share sheet (`/login?next=` keeps the shared input); drafts survive reloads. Shipped as PRs #27-#37 (RI-0a piece weights, RI-0b source/steps, RI-0c price pending, RI-1 extraction, RI-2 Claude mapping + parse route, RI-3 review UI, RI-4 video, RI-5 share, RI-6 scale, RI-7 steps in cooking plan, #27 spec) plus Codex follow-ups #38 (alias scope, empty extraction) and #39 (unit validation, save retries, draft recovery); the four migrations are applied in production. Follow-up: before entering piece weights in production, run the read-only query from PR #28 | `docs/superpowers/specs/2026-10-30-recipe-import-epic.md`, `CLAUDE.md` |

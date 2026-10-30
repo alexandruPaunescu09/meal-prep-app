@@ -1,7 +1,7 @@
 # EPIC: Recipe import — create recipes from a website, video, pasted text or screenshots
 
 **Date:** 2026-10-30
-**Status:** Proposed (2026-10-30). Not started.
+**Status:** Complete (2026-10-31). All ten stories (RI-0a…RI-7) are merged to main through PRs #27–#37, with Codex follow-ups #38 and #39; the four migrations are applied in production. Follow-up: before entering piece weights in production, the admin runs the read-only query from PR #28.
 
 ## Problem
 
@@ -20,16 +20,16 @@ Update this table as stories land, with the branch or PR and the date.
 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
-| RI-0a | Piece weights | M | — | In review, PR #28 |
-| RI-0b | Source link and steps | S | — | In review, PR #30 |
-| RI-0c | Price pending | M–L | — | In review, PR #33 |
-| RI-1 | Recipe extraction library (fetch, JSON-LD, page text) | M | — | In review, PR #29 |
-| RI-2 | Claude mapping + parse route | M | RI-1 | In review, PR #31 |
-| RI-3 | Review + save UI | M–L | RI-0a, RI-0b, RI-0c, RI-2 | In review, PR #34 |
-| RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | In review, PR #36 |
-| RI-5 | Share from the phone | S | RI-3 | In review, PR #37 |
-| RI-6 | Scale to a target | M | RI-3 | In review, PR #35 |
-| RI-7 | Steps in the cooking plan | S | RI-0b | In review, PR #32 |
+| RI-0a | Piece weights | M | — | Done, merged with PR #28 (aff7c82) |
+| RI-0b | Source link and steps | S | — | Done, merged with PR #30 (1af9037) |
+| RI-0c | Price pending | M–L | — | Done, merged with PR #33 (07843e9) |
+| RI-1 | Recipe extraction library (fetch, JSON-LD, page text) | M | — | Done, merged with PR #29 (e1e3bf0) |
+| RI-2 | Claude mapping + parse route | M | RI-1 | Done, merged with PR #31 (598debe) |
+| RI-3 | Review + save UI | M–L | RI-0a, RI-0b, RI-0c, RI-2 | Done, merged with PR #34 (827b1c9) |
+| RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | Done, merged with PR #36 (bca3722) |
+| RI-5 | Share from the phone | S | RI-3 | Done, merged with PR #37 (5926b40) |
+| RI-6 | Scale to a target | M | RI-3 | Done, merged with PR #35 (0151171) |
+| RI-7 | Steps in the cooking plan | S | RI-0b | Done, merged with PR #32 (ed8df21) |
 
 ## Product decisions
 
