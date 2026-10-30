@@ -89,6 +89,17 @@ select is((select count(*)::int from foods where id = '30000000-0000-4000-8000-0
 select is((select count(*)::int from foods where id = '30000000-0000-4000-8000-000000000001'), 1, 'merge target survives');
 select lives_ok($$select save_recipe(null, '{"name":"H5 admin recipe"}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":5}]'::jsonb)$$, 'admin can save_recipe');
 
+-- RI-0b: source link + steps survive save_recipe round trips
+select lives_ok($$select save_recipe('e0000000-0000-4000-8000-000000000001', '{"name":"H5 Bread","portions":2,"source_url":"https://example.com/bread","instructions":["Mix","Bake"]}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":200}]'::jsonb)$$, 'admin save_recipe with source_url + instructions');
+select is((select source_url from recipes where id = 'e0000000-0000-4000-8000-000000000001'), 'https://example.com/bread', 'save_recipe stored source_url');
+select is((select instructions from recipes where id = 'e0000000-0000-4000-8000-000000000001'), '["Mix","Bake"]'::jsonb, 'save_recipe stored instructions');
+select lives_ok($$select save_recipe('e0000000-0000-4000-8000-000000000001', '{"name":"H5 Bread renamed","portions":2,"source_url":"https://example.com/bread","instructions":["Mix","Bake"]}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":200}]'::jsonb)$$, 'second save_recipe sending both keys');
+select is((select source_url || '|' || instructions::text from recipes where id = 'e0000000-0000-4000-8000-000000000001'), 'https://example.com/bread|["Mix", "Bake"]', 'second save keeps source_url and instructions');
+select throws_ok($$select save_recipe('e0000000-0000-4000-8000-000000000001', '{"name":"x","instructions":"not an array"}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":1}]'::jsonb)$$, null, 'instructions must be a JSON array', 'non-array instructions rejected');
+select throws_ok($$select save_recipe('e0000000-0000-4000-8000-000000000001', '{"name":"x","instructions":[""]}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":1}]'::jsonb)$$, '23514', null, 'empty step rejected by CHECK');
+select throws_ok($$select save_recipe('e0000000-0000-4000-8000-000000000001', '{"name":"x","source_url":"ftp://example.com"}'::jsonb, '[{"ingredient_id":"d0000000-0000-4000-8000-000000000001","quantity":1}]'::jsonb)$$, '23514', null, 'non-http source_url rejected by CHECK');
+select is((select count(*)::int from information_schema.columns where table_name = 'recipes_public' and column_name in ('instructions', 'source_url')), 0, 'recipes_public exposes neither instructions nor source_url');
+
 -- duplicate_meal_plan: copies the plan and its entries (Plan A has 2 entries)
 reset role;
 create temp table h5_ids (k text, v uuid);
