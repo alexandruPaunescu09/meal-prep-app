@@ -3,6 +3,7 @@ import { createServer } from "@/lib/supabase/server";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { MealPlanDocument, MealPlanPDFData } from "@/lib/pdf/meal-plan";
 import { calculateRecipe } from "@/lib/calculations/recipe";
+import { nutritionGrams } from "@/lib/calculations/piece-weight";
 import { calculateDay } from "@/lib/calculations/meal-plan";
 import { Resend } from "resend";
 import React from "react";
@@ -74,7 +75,7 @@ async function buildPDFData(planId: string): Promise<MealPlanPDFData | null> {
           } else {
             const ing = entry.ingredient;
             const qty = (entry.quantity ?? 0) * entry.portions;
-            const factor = qty / 100;
+            const factor = nutritionGrams(ing ?? {}, qty) / 100;
             return {
               recipeName: `${ing?.name ?? "Unknown"} (${qty}g)`,
               portions: entry.portions,

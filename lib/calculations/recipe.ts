@@ -1,4 +1,5 @@
 import { Ingredient } from "@/lib/supabase/types";
+import { nutritionGrams } from "./piece-weight";
 
 export interface RecipeCalculation {
   totalCost: number;
@@ -45,7 +46,8 @@ export function calculateRecipe(
   for (const { ingredient, quantity } of ingredients) {
     totalCost += quantity * ingredient.price_per_unit;
 
-    const factor = quantity / 100;
+    // buc with a piece weight counts as grams; cost above stays per piece.
+    const factor = nutritionGrams(ingredient, quantity) / 100;
     calories += (ingredient.calories ?? 0) * factor;
     protein += (ingredient.protein ?? 0) * factor;
     carbs += (ingredient.carbs ?? 0) * factor;
