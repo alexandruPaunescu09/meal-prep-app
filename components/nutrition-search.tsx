@@ -28,25 +28,41 @@ export default function NutritionSearch({
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [sources, setSources] = useState<{ usda?: string; off?: string }>({});
+  const [usdaQuery, setUsdaQuery] = useState<string | null>(null);
   const autoRan = useRef(false);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => controllerRef.current?.abort(), []);
 
   async function runSearch(q: string) {
     if (q.trim().length < 2) return;
+    // A newer search supersedes the older one: abort it so its response can never overwrite ours.
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setLoading(true);
     setSearched(true);
     setFailed(false);
     try {
       const res = await fetch(
-        `/api/nutrition/search?q=${encodeURIComponent(q.trim())}`
+        `/api/nutrition/search?q=${encodeURIComponent(q.trim())}`,
+        { signal: controller.signal }
       );
       if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = await res.json();
+      if (controller.signal.aborted) return;
       setResults(data.results ?? []);
+      setSources(data.sources ?? {});
+      setUsdaQuery(data.usdaQuery ?? null);
     } catch {
+      if (controller.signal.aborted) return;
       setResults([]);
+      setSources({});
+      setUsdaQuery(null);
       setFailed(true);
     } finally {
-      setLoading(false);
+      if (controllerRef.current === controller) setLoading(false);
     }
   }
 
@@ -92,6 +108,47 @@ export default function NutritionSearch({
       </form>
 
       <div className="pt-3 min-h-[8rem]">
+        <div aria-live="polite">
+          {!loading && searched && !failed && sources.off === "error" && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Open Food Facts didn&apos;t respond. Results may be incomplete.
+              </span>
+              <button
+                type="button"
+                onClick={() => void runSearch(query)}
+                className="px-2.5 py-1 text-xs font-medium border border-amber-300 rounded-md bg-white hover:bg-amber-100"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!loading && searched && !failed && sources.usda === "error" && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                USDA didn&apos;t respond. Results may be incomplete.
+              </span>
+              {sources.off !== "error" && (
+                <button
+                  type="button"
+                  onClick={() => void runSearch(query)}
+                  className="px-2.5 py-1 text-xs font-medium border border-amber-300 rounded-md bg-white hover:bg-amber-100"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+          {!loading && searched && !failed && sources.usda === "disabled" && (
+            <p className="mb-3 text-xs text-gray-500">USDA disabled (no API key)</p>
+          )}
+          {!loading && searched && !failed && usdaQuery && sources.usda !== "disabled" && (
+            <p className="mb-3 text-xs text-gray-500">USDA searched for &quot;{usdaQuery}&quot;</p>
+          )}
+        </div>
+
         {loading && (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />

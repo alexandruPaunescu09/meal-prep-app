@@ -1,8 +1,9 @@
 import { NutritionSearchResult, NutritionData } from "@/lib/supabase/types";
 import { computeNCS, OFFProductFull } from "./confidence";
 import { classifyByCategories } from "./classification";
+import { SourceError, fetchWithRetry } from "./http";
+import { SourceOutcome, createTtlCache, withSourceCache } from "./search-cache";
 
-const OFF_SEARCH_URL = "https://world.openfoodfacts.org/cgi/search.pl";
 const OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product";
 const OFF_USER_AGENT = "MealPrepApp/1.0 (meal-prep admin app)";
 
@@ -155,30 +156,131 @@ function mapProduct(p: OFFProductFull, nameFallback?: string): NutritionSearchRe
   };
 }
 
-export async function searchOpenFoodFacts(
-  query: string
-): Promise<NutritionSearchResult[]> {
-  const url =
-    `${OFF_SEARCH_URL}?search_terms=${encodeURIComponent(query)}` +
-    `&json=1&page_size=15` +
-    `&tagtype_0=countries&tag_contains_0=contains&tag_0=romania` +
-    `&fields=${OFF_FIELDS}`;
+// ---- Search (Search-a-licious) -------------------------------------------------------------------
+// The legacy cgi/search.pl endpoint answered ~80% of requests with a fast 503, so search uses OFF's
+// Search-a-licious API. It does NOT return nutrition_data_per, ingredients_text or image_nutrition_url
+// (asking for them via `fields` is ignored); categories_tags and the *_100g nutriments are returned.
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-  if (!res.ok) return [];
+const OFF_SEARCH_URL = "https://search.openfoodfacts.org/search";
+const ROMANIA_TERM = 'countries_tags:"en:romania"';
+const MIN_RO_RESULTS = 3;
+const SEARCH_PAGE_SIZE = 15;
 
-  const data = await res.json();
-  const products: OFFProductFull[] = data.products ?? [];
+const OFF_SEARCH_FIELDS = [
+  "code",
+  "product_name",
+  "product_name_ro",
+  "product_name_en",
+  "generic_name",
+  "brands",
+  "nutriments",
+  "lang",
+  "countries_tags",
+  "completeness",
+  "last_modified_t",
+  "categories_tags",
+].join(",");
 
-  return products
-    .filter((p) => {
-      if (!p.product_name || !p.nutriments) return false;
-      if (p.nutrition_data_per && p.nutrition_data_per !== "100g") return false;
-      if (countMissingCore(p.nutriments) > 2) return false;
-      return true;
-    })
-    .map((p) => mapProduct(p));
+/**
+ * Makes user input safe inside a Lucene-style query: every operator/special character becomes a
+ * space and the bare boolean words are dropped, so input cannot add clauses, fields or phrases.
+ */
+export function sanitizeSearchQuery(input: string): string {
+  return input
+    .replace(/[+\-&|!(){}[\]^"~*?:\\/<>=]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !/^(AND|OR|NOT|TO)$/.test(w))
+    .join(" ");
 }
+
+interface SearchHit {
+  code?: string;
+  product_name?: string;
+  product_name_ro?: string;
+  product_name_en?: string;
+  generic_name?: string;
+  brands?: string[] | string;
+  nutriments?: Record<string, number>;
+  lang?: string;
+  countries_tags?: string[];
+  completeness?: number;
+  last_modified_t?: number;
+  categories_tags?: string[];
+}
+
+/** Hit -> the OFFProductFull shape mapProduct / computeNCS already understand. */
+export function hitToProduct(h: SearchHit): OFFProductWithQuantity {
+  const nutriments: Record<string, number> = { ...(h.nutriments ?? {}) };
+  // Some products only carry kJ; derive kcal so they are not rejected as missing a core nutrient.
+  if (nutriments["energy-kcal_100g"] === undefined && Number.isFinite(nutriments["energy-kj_100g"])) {
+    nutriments["energy-kcal_100g"] = Math.round((nutriments["energy-kj_100g"] / 4.184) * 10) / 10;
+  }
+  const brands = Array.isArray(h.brands) ? h.brands.join(", ") : h.brands;
+  return {
+    product_name: h.product_name,
+    product_name_ro: h.product_name_ro,
+    product_name_en: h.product_name_en,
+    generic_name: h.generic_name,
+    brands: brands || undefined,
+    code: h.code,
+    lang: h.lang,
+    nutriments,
+    countries_tags: h.countries_tags,
+    completeness: h.completeness,
+    last_modified_t: h.last_modified_t,
+    categories_tags: h.categories_tags,
+    searchIndex: true,
+  };
+}
+
+function keepProduct(p: OFFProductFull): boolean {
+  if (!productName(p) || !p.nutriments) return false;
+  if (p.nutrition_data_per && p.nutrition_data_per !== "100g") return false;
+  if (countMissingCore(p.nutriments) > 2) return false;
+  return true;
+}
+
+async function fetchHits(q: string): Promise<NutritionSearchResult[]> {
+  const url =
+    `${OFF_SEARCH_URL}?q=${encodeURIComponent(q)}` +
+    `&page_size=${SEARCH_PAGE_SIZE}&fields=${OFF_SEARCH_FIELDS}`;
+  const res = await fetchWithRetry(url, { headers: { "User-Agent": OFF_USER_AGENT } });
+  if (!res.ok) throw new SourceError(`Open Food Facts search answered ${res.status}`);
+  const data = await res.json();
+  const hits: SearchHit[] = Array.isArray(data?.hits) ? data.hits : [];
+  return hits.map(hitToProduct).filter(keepProduct).map((p) => mapProduct(p));
+}
+
+function mergeByBarcode(
+  first: NutritionSearchResult[],
+  second: NutritionSearchResult[]
+): NutritionSearchResult[] {
+  const seen = new Set(first.map((r) => r.barcode).filter(Boolean));
+  return [...first, ...second.filter((r) => !r.barcode || !seen.has(r.barcode))];
+}
+
+/**
+ * Romania first; when that yields fewer than 3 usable products, one more query without the country
+ * term is merged in (de-duplicated by barcode). Throws SourceError when the Romania query fails. A
+ * failing fallback returns the Romania results flagged `complete: false` (shown, never cached).
+ */
+export async function searchOffUncached(query: string): Promise<SourceOutcome<NutritionSearchResult>> {
+  const clean = sanitizeSearchQuery(query);
+  if (!clean) return { results: [], complete: true };
+
+  const ro = await fetchHits(`${clean} ${ROMANIA_TERM}`);
+  if (ro.length >= MIN_RO_RESULTS) return { results: ro, complete: true };
+
+  try {
+    const global = await fetchHits(clean);
+    return { results: mergeByBarcode(ro, global), complete: true };
+  } catch {
+    return { results: ro, complete: false };
+  }
+}
+
+export const offSearchCache = createTtlCache<NutritionSearchResult[]>();
+export const searchOpenFoodFacts = withSourceCache("off", offSearchCache, searchOffUncached);
 
 function toBaseUnit(
   value: number,
