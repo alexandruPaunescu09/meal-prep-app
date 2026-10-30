@@ -20,7 +20,7 @@ Update this table as stories land, with the branch or PR and the date.
 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
-| RI-0a | Piece weights | M | — | Not started |
+| RI-0a | Piece weights | M | — | In review, PR #28 |
 | RI-0b | Source link and steps | S | — | Not started |
 | RI-0c | Price pending | M–L | — | Not started |
 | RI-1 | Recipe extraction library (fetch, JSON-LD, page text) | M | — | Not started |
