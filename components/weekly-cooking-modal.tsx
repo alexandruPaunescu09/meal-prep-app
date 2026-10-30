@@ -16,6 +16,7 @@ import { useCookingChecks } from "@/lib/hooks/use-cooking-checks";
 import { escapeHtml, printHtml } from "@/lib/browser";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
+import { RecipeSteps } from "@/components/recipe-steps";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { addDays, currentWeekStart, formatWeekRange, nextWeekStart } from "@/lib/format";
@@ -201,6 +202,13 @@ export default function WeeklyCookingModal({
                 )
                 .join("")}</table>`
             : ""
+        }
+        ${
+          r.steps.length
+            ? `<p class="h">Steps</p><ol>${r.steps
+                .map((s) => `<li>${escapeHtml(s)}</li>`)
+                .join("")}</ol>`
+            : ""
         }`
       )
       .join("");
@@ -217,6 +225,7 @@ export default function WeeklyCookingModal({
       h1{font-size:18px;margin:0 0 4px} p{margin:0 0 8px;font-size:12px;color:#555}
       h2{font-size:14px;margin:18px 0 4px;border-bottom:1px solid #999;padding-bottom:2px} h2 span{font-weight:normal;color:#555;font-size:12px}
       .h{text-transform:uppercase;letter-spacing:.05em;font-size:10px;margin:6px 0 2px}
+      ol{margin:2px 0 0;padding-left:20px;font-size:13px} li{margin-bottom:3px}
       table{width:100%;border-collapse:collapse;font-size:13px} td{padding:2px 6px;border-bottom:1px solid #eee} .r{text-align:right;white-space:nowrap}
     </style></head><body><h1>Cooking plan · ${escapeHtml(formatWeekRange(selectedWeek))}</h1>
     <p>${escapeHtml(plans.map((p) => p.client?.name ?? p.name).join(", "))}</p>
@@ -479,6 +488,8 @@ function RecipeRow({
               </div>
             </div>
           )}
+
+          <RecipeSteps steps={recipe.steps} />
         </div>
       )}
     </div>
