@@ -7,6 +7,8 @@ import {
   lineProblem,
   mergeNote,
   siteCalories,
+  selectLineIngredient,
+  lineHasUnitMismatch,
   type DraftIngredient,
   type DraftRecipeFields,
 } from "./draft";
@@ -108,7 +110,13 @@ describe("buildSavePayload", () => {
     });
   });
 
-  it("adds an alias only when the raw name differs from the ingredient name", () => {
+  it("persists canonical names too so an existing incorrect alias is corrected", () => {
+    const ls = initReviewLines([line({ ingredient_id: "b", quantity: 1, raw_name: " FAINA " })]);
+    ls[0] = selectLineIngredient(ls[0], ings[0]);
+    expect(buildSavePayload(fields, ls, ings).aliases).toEqual([{ alias: "FAINA", ingredient_id: "a" }]);
+  });
+
+  it("does not add redundant canonical aliases when the match was unchanged", () => {
     const ls = initReviewLines([line({ ingredient_id: "a", quantity: 1, raw_name: " FAINA " })]);
     expect(buildSavePayload(fields, ls, ings).aliases).toEqual([]);
   });
@@ -167,5 +175,45 @@ describe("siteCalories", () => {
     expect(siteCalories({ calories: "320,5 kcal" })).toBe(320.5);
     expect(siteCalories(null)).toBeNull();
     expect(siteCalories({ fat: "3 g" })).toBeNull();
+  });
+});
+
+describe("unit correction across selection flows", () => {
+  const pieces = { id: "pieces", name: "Eggs", unit: "buc" };
+  const grams = { id: "grams", name: "Eggs by weight", unit: "g" };
+  it("clears grams when repicking a piece ingredient, requiring a corrected quantity", () => {
+    const original = initReviewLines([line({ ingredient_id: "grams", quantity: 100 })])[0];
+    const picked = selectLineIngredient(original, pieces);
+    expect(picked.qty).toBe("");
+    expect(picked.qtyUnit).toBe("buc");
+    expect(canApprove([picked], "R")).toBe(false);
+    expect(canApprove([{ ...picked, qty: "2" }], "R", [pieces])).toBe(true);
+    expect(original.qty).toBe("100");
+  });
+  it("also clears quantities when creating an ingredient in a different unit", () => {
+    const unmatched = initReviewLines([line({ quantity: 100 })])[0];
+    expect(selectLineIngredient(unmatched, pieces).qty).toBe("");
+    expect(selectLineIngredient(unmatched, grams).qty).toBe("100");
+  });
+  it("cannot bypass correction by clearing and reselecting or selecting back", () => {
+    const original = initReviewLines([line({ ingredient_id: "grams", quantity: 100 })])[0];
+    const changed = selectLineIngredient(original, pieces);
+    const cleared = selectLineIngredient(changed, null);
+    expect(selectLineIngredient(cleared, grams).qty).toBe("");
+  });
+  it("blocks mismatches in validation, scaling callers without a catalog, and save payloads", () => {
+    const original = initReviewLines([line({ ingredient_id: "grams", quantity: 100 })])[0];
+    const mismatch = { ...original, ingredient_id: "pieces", matchedUnit: "buc" };
+    expect(lineHasUnitMismatch(mismatch, pieces)).toBe(true);
+    expect(canApprove([mismatch], "R")).toBe(false);
+    expect(blockingCount([mismatch], [pieces])).toBe(1);
+    expect(() => buildSavePayload(fields, [mismatch], [pieces])).toThrow(/Correct/);
+    // Catalog validation also protects restored rows from stale or missing unit metadata.
+    expect(canApprove([{ ...mismatch, matchedUnit: undefined }], "R", [pieces])).toBe(false);
+  });
+  it("rejects missing catalog ingredients and amounts rounded to zero", () => {
+    const original = initReviewLines([line({ ingredient_id: "grams", quantity: 100 })])[0];
+    expect(canApprove([original], "R", [])).toBe(false);
+    expect(canApprove([{ ...original, qty: "0,0001" }], "R", [grams])).toBe(false);
   });
 });
