@@ -18,7 +18,10 @@ const line = z.object({
 });
 const snapshotSchema = z.object({
   draft: z.object({
-    source: z.object({ kind: z.enum(["url", "text", "images"]), url: text.optional(), siteName: text.nullable().optional() }),
+    source: z.object({
+      kind: z.enum(["url", "text", "images"]), url: text.optional(), siteName: text.nullable().optional(),
+      via: z.object({ kind: z.enum(["youtube", "tiktok"]), videoUrl: text }).optional(),
+    }),
     recipe: z.object({
       name: text, portions: nullableNumber, steps: z.array(text).max(40),
       nutrition: z.record(z.string().max(100), text).nullable().refine((n) => !n || Object.keys(n).length <= 100),
@@ -36,6 +39,7 @@ const snapshotSchema = z.object({
   name: text, portionsStr: z.string().max(100), containerTypeId: z.string().uuid().nullable(),
   sourceUrl: text, steps: z.array(z.object({ id: z.string().max(100), text })).max(40),
   description: z.string().max(20_000),
+  notes: z.string().max(20_000).default(""),
 });
 export type ReviewSnapshot = Omit<z.infer<typeof snapshotSchema>, "lines"> & { lines: ReviewLine[] };
 const envelopeSchema = z.object({

@@ -24,10 +24,27 @@ function fixture(): ReviewSnapshot {
     },
     model: "test", lines: initReviewLines([base]), name: "Edited bread", portionsStr: "3",
     containerTypeId: null, sourceUrl: "", steps: [{ id: "step", text: "Edited step" }],
-    description: "Customer description",
+    description: "Customer description", notes: "",
   };
 }
 describe("review session", () => {
+  it("preserves video provenance and edited admin notes across restoration", () => {
+    const snapshot = fixture();
+    snapshot.draft.source = {
+      kind: "url", url: "https://example.com/recipe", siteName: "Recipe site",
+      via: { kind: "youtube", videoUrl: "https://youtube.com/watch?v=recipe123" },
+    };
+    snapshot.notes = "Video: https://youtube.com/watch?v=recipe123\nAdmin edit";
+    expect(restoreReview(serializeReview(owner, snapshot, 1000), owner, 1100)).toEqual(snapshot);
+    const old = JSON.parse(serializeReview(owner, fixture(), 1000)!);
+    delete old.snapshot.notes;
+    expect(restoreReview(JSON.stringify(old), owner, 1100)?.notes).toBe("");
+    const invalid = JSON.parse(serializeReview(owner, snapshot, 1000)!);
+    invalid.snapshot.draft.source.via.kind = "unknown";
+    expect(restoreReview(JSON.stringify(invalid), owner, 1100)).toBeNull();
+    snapshot.notes = "x".repeat(20_001);
+    expect(serializeReview(owner, snapshot)).toBeNull();
+  });
   it("round trips review edits, skipped lines, invalid partial amounts and selected units", () => {
     const snapshot = fixture();
     snapshot.lines[0] = { ...snapshot.lines[0], include: false, qty: "2,", qtyUnit: "buc", matchedUnit: "buc" };
