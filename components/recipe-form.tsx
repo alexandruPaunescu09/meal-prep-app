@@ -28,6 +28,9 @@ import {
   validateSteps,
 } from "@/lib/recipes/steps";
 import RecipeStepsEditor, { type StepEntry } from "@/components/recipe-steps-editor";
+import ScaleRecipeModal from "@/components/scale-recipe-modal";
+import { canScale, type ScaleLineInput } from "@/lib/recipes/scale";
+import { qtyToText } from "@/lib/recipes/import/draft";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -200,6 +203,21 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   }, [entries, portions, portionsValid]);
 
   const finalWeight = parseDecimal(finalWeightStr);
+
+  const [showScale, setShowScale] = useState(false);
+  const scaleLines = useMemo<ScaleLineInput[]>(
+    () =>
+      entries
+        .filter((e) => qtyToNumber(e.qty) > 0)
+        .map((e) => ({ key: e.id, ingredient: e.ingredient, quantity: qtyToNumber(e.qty) })),
+    [entries]
+  );
+  const scalable = canScale(scaleLines);
+  function applyScale(quantities: Map<string, number>) {
+    setEntries((prev) =>
+      prev.map((e) => (quantities.has(e.id) ? { ...e, qty: qtyToText(quantities.get(e.id)!) } : e))
+    );
+  }
 
   function addIngredient(ingredient: Ingredient) {
     if (usedIds.has(ingredient.id)) return;
@@ -432,6 +450,15 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 )}
                 <button
                   type="button"
+                  onClick={() => setShowScale(true)}
+                  disabled={!scalable}
+                  title={scalable ? "Scale quantities to a calorie target" : "Needs ingredients with nutrition"}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Scale
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowPicker(true)}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
                 >
@@ -625,6 +652,14 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
           )}
         </form>
       </Modal>
+
+      <ScaleRecipeModal
+        open={showScale}
+        onClose={() => setShowScale(false)}
+        lines={scaleLines}
+        portions={portionsValid ? portions : 1}
+        onApply={applyScale}
+      />
 
       {/* Ingredient picker (multi-add) */}
       <Modal

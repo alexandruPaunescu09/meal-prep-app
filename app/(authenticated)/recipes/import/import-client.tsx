@@ -20,6 +20,8 @@ import {
 import IngredientForm from "@/components/ingredient-form";
 import IngredientPicker from "@/components/ingredient-picker";
 import RecipeStepsEditor, { type StepEntry } from "@/components/recipe-steps-editor";
+import ScaleRecipeModal from "@/components/scale-recipe-modal";
+import { canScale, type ScaleLineInput } from "@/lib/recipes/scale";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -37,7 +39,9 @@ import {
   initReviewLines,
   lineProblem,
   lineQuantity,
+  lineHasUnitMismatch,
   mergeNote,
+  qtyToText,
   siteCalories,
   selectLineIngredient,
   type SavePayload,
@@ -326,6 +330,30 @@ export default function RecipeImportClient({
       });
     return { calc: calculateRecipe(entries, portions), used: entries.map((e) => e.ingredient) };
   }, [lines, byId, portions]);
+  const [scaleOpen, setScaleOpen] = useState(false);
+  const scaleLines = useMemo<ScaleLineInput[]>(
+    () =>
+      lines.flatMap((l) => {
+        const ingredient = l.ingredient_id ? byId.get(l.ingredient_id) : undefined;
+        const quantity = lineQuantity(l);
+        if (l.base.is_section_header || !ingredient || quantity == null || Math.round(quantity * 1000) <= 0 || lineHasUnitMismatch(l, ingredient)) return [];
+        return [{ key: String(l.uid), ingredient, quantity, counts: l.include }];
+      }),
+    [lines, byId],
+  );
+  // Never calculate a factor from only the valid subset of an unresolved draft.
+  const scalable = blocking === 0 && portionsValid && canScale(scaleLines);
+  const scaleHint = !portionsValid
+    ? "Enter a valid portion count before scaling"
+    : blocking > 0
+      ? "Match every included ingredient and enter its amount, or skip it, before scaling"
+      : scalable
+        ? "Scale quantities to a calorie target"
+        : "Needs matched ingredients with nutrition";
+  function applyScale(quantities: Map<string, number>) {
+    if (!scalable) return;
+    setLines((ls) => ls.map((l) => (quantities.has(String(l.uid)) ? { ...l, qty: qtyToText(quantities.get(String(l.uid))!) } : l)));
+  }
   const missingPieces = useMemo(() => {
     const seen = new Map<string, string>();
     for (const i of calc.used) if (missingPieceWeight(i)) seen.set(i.id, i.name);
@@ -847,16 +875,27 @@ export default function RecipeImportClient({
               {unmatchedIncluded > 0 && ` · ${unmatchedIncluded} unmatched`}
             </span>
           </h2>
-          <button
-            type="button"
-            disabled={unmatchedCount === 0}
-            onClick={() =>
-              setLines((ls) => ls.map((l) => (!l.base.is_section_header && !l.ingredient_id ? { ...l, include: false } : l)))
-            }
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
-          >
-            Skip all unmatched
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!scalable}
+              title={scaleHint}
+              onClick={() => setScaleOpen(true)}
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
+            >
+              Scale
+            </button>
+            <button
+              type="button"
+              disabled={unmatchedCount === 0}
+              onClick={() =>
+                setLines((ls) => ls.map((l) => (!l.base.is_section_header && !l.ingredient_id ? { ...l, include: false } : l)))
+              }
+              className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
+            >
+              Skip all unmatched
+            </button>
+          </div>
         </div>
 
         {merged && (
@@ -925,6 +964,14 @@ export default function RecipeImportClient({
           )}
         </ul>
       </section>
+
+      <ScaleRecipeModal
+        open={scaleOpen && scalable}
+        onClose={() => setScaleOpen(false)}
+        lines={scaleLines}
+        portions={portions}
+        onApply={applyScale}
+      />
 
       {/* Totals */}
       <section className="bg-white border rounded-xl p-4 mb-5">
