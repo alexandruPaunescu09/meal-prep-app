@@ -12,8 +12,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const results = await searchNutrition(query.trim());
-    return NextResponse.json({ results });
+    const { results, sources, usdaQuery } = await searchNutrition(query.trim());
+    return NextResponse.json({ results, sources, usdaQuery });
   } catch (error) {
     console.error("Nutrition search error:", error);
     return NextResponse.json(

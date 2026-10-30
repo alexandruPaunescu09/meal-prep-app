@@ -13,6 +13,8 @@ export interface OFFProductFull {
   image_nutrition_url?: string;
   ingredients_text?: string;
   categories_tags?: string[];
+  /** Came from the search index, which lacks image_nutrition_url / ingredients_text. */
+  searchIndex?: boolean;
 }
 
 const CORE_NUTRIENTS = [
@@ -91,6 +93,9 @@ function ncsCompleteness(product: OFFProductFull): number {
 }
 
 function ncsVerification(product: OFFProductFull): number {
+  // The search index omits the verification signals, so absence is not evidence: use a neutral base
+  // (0.4) instead of 0, otherwise every search hit would rank below USDA for missing fields alone.
+  if (product.searchIndex) return Math.min(1, 0.4 + (product.brands ? 0.25 : 0));
   let score = 0;
   if (product.image_nutrition_url) score += 0.4;
   if (product.ingredients_text) score += 0.35;

@@ -105,8 +105,11 @@ export async function proxy(request: NextRequest) {
   return supabaseResponse;
 }
 
+// Static files skip the auth proxy. Keep `.wasm` excluded: the barcode scanner
+// fetches /zxing/zxing_reader.wasm, and a redirect to /portal or /login (HTML)
+// makes scanning silently fail for customers.
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|wasm)$).*)",
   ],
 };
