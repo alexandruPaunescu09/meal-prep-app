@@ -90,7 +90,7 @@ function catalogText(ingredients: Ingredient[], aliases: IngredientAlias[]): str
         clean(i.brand ?? ""),
         i.unit,
         i.quantity_purchased,
-        i.package_price,
+        i.package_price ?? "price pending",
         (byIng.get(i.id) ?? []).map(clean).join("; "),
       ].join(" | "),
     )

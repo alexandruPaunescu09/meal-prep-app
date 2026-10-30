@@ -49,7 +49,7 @@ import { Modal } from "@/components/ui/modal";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
-import { formatLei, formatWeekRange, addDays, retitleForWeek, toLocalISODate, humanizeSlug, WEEKDAYS_SHORT } from "@/lib/format";
+import { formatCost, formatWeekRange, addDays, retitleForWeek, toLocalISODate, humanizeSlug, WEEKDAYS_SHORT } from "@/lib/format";
 import type { MealPlanSiblings } from "@/lib/data/meal-plan-siblings";
 import {
   DndContext,
@@ -651,7 +651,7 @@ export default function MealPlanGrid({
                 </span>
                 {hasEntries && (
                   <span className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-gray-500">
-                    {Math.round(dayTotals.calories)} kcal • {formatLei(dayTotals.cost)}
+                    {Math.round(dayTotals.calories)} kcal • {formatCost(dayTotals.cost, dayTotals.unpricedNames.length)}
                     {badge && (
                       <span title={badge.title} className={`rounded px-1.5 py-0.5 ${badge.cls}`}>
                         {badge.text}
@@ -870,7 +870,7 @@ export default function MealPlanGrid({
                             P:{dayTotals.protein.toFixed(0)} C:{dayTotals.carbs.toFixed(0)} F:{dayTotals.fat.toFixed(0)} Fi:{dayTotals.fiber.toFixed(0)}
                           </p>
                           <p className="text-emerald-700 font-medium">
-                            {formatLei(dayTotals.cost)}
+                            {formatCost(dayTotals.cost, dayTotals.unpricedNames.length)}
                           </p>
                         </div>
                       ) : (
@@ -967,16 +967,22 @@ export default function MealPlanGrid({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <div>
             <p className="text-xs text-gray-500">Ingredient Cost</p>
-            <p className="text-lg font-bold text-gray-900">
-              {formatLei(weekTotals.totalCost)}
+            <p
+              className={`font-bold text-gray-900 ${weekTotals.unpricedCount > 0 ? "text-sm" : "text-lg"}`}
+              title={weekTotals.unpricedCount > 0 ? `No price yet: ${weekTotals.unpricedNames.join(", ")}` : undefined}
+            >
+              {formatCost(weekTotals.totalCost, weekTotals.unpricedCount)}
             </p>
           </div>
           <div>
             <p className="text-xs text-gray-500">
               Selling Price ({plan.markup_multiplier}×)
             </p>
-            <p className="text-lg font-bold text-emerald-700">
-              {formatLei(weekTotals.sellingPrice)}
+            <p
+              className={`font-bold text-emerald-700 ${weekTotals.unpricedCount > 0 ? "text-sm" : "text-lg"}`}
+              title={weekTotals.unpricedCount > 0 ? `No price yet: ${weekTotals.unpricedNames.join(", ")}` : undefined}
+            >
+              {formatCost(weekTotals.sellingPrice, weekTotals.unpricedCount)}
             </p>
           </div>
           <TargetCell

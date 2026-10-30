@@ -9,6 +9,7 @@ import type {
   NutritionTotals,
 } from "@/lib/supabase/types";
 import { calculateRecipe } from "./recipe";
+import { nutritionGrams, type PieceWeighted } from "./piece-weight";
 
 /** Per-100 nutrition fields; satisfied by Ingredient, Food and FD-0's price-free PublicIngredient. */
 export interface NutritionSource {
@@ -136,9 +137,9 @@ export interface PlanEntryLike {
   quantity: number | null;
   recipe?: {
     portions: number;
-    recipe_ingredients: { quantity: number; ingredient?: NutritionSource | null }[];
+    recipe_ingredients: { quantity: number; ingredient?: (NutritionSource & PieceWeighted) | null }[];
   } | null;
-  ingredient?: NutritionSource | null;
+  ingredient?: (NutritionSource & PieceWeighted) | null;
 }
 
 /** Full nutrition of a plan entry (cost is never computed or returned). */
@@ -168,7 +169,10 @@ export function planEntryNutrition(entry: PlanEntryLike): NutritionTotals {
     );
   }
   if (entry.ingredient && entry.quantity) {
-    return nutritionForAmount(entry.ingredient, entry.quantity * entry.portions);
+    return nutritionForAmount(
+      entry.ingredient,
+      nutritionGrams(entry.ingredient, entry.quantity * entry.portions)
+    );
   }
   return emptyTotals();
 }

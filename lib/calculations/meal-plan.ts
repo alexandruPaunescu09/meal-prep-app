@@ -1,8 +1,12 @@
 import { RecipeIngredient, Ingredient, Recipe, MealPlanEntry, MealType, MealPlan, Client } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "./recipe";
+import { nutritionGrams } from "./piece-weight";
 
 export interface DayTotals {
+  /** Known cost only; see unpricedNames. */
   cost: number;
+  /** Distinct ingredients without a price (price pending); cost is a lower bound when non-empty. */
+  unpricedNames: string[];
   calories: number;
   protein: number;
   carbs: number;
@@ -17,6 +21,8 @@ export interface DayTotals {
 export interface WeekTotals {
   totalCost: number;
   sellingPrice: number;
+  unpricedCount: number;
+  unpricedNames: string[];
   days: Record<number, DayTotals>;
   weekly: DayTotals;
   averageDaily: DayTotals;
@@ -32,6 +38,7 @@ type FullEntry = MealPlanEntry & {
 function emptyDayTotals(): DayTotals {
   return {
     cost: 0,
+    unpricedNames: [],
     calories: 0,
     protein: 0,
     carbs: 0,
@@ -42,6 +49,10 @@ function emptyDayTotals(): DayTotals {
     salt: 0,
     micronutrients: {},
   };
+}
+
+function addNames(target: string[], source: string[]) {
+  for (const n of source) if (!target.includes(n)) target.push(n);
 }
 
 function addMicros(target: Record<string, number>, source: Record<string, number>, multiplier: number) {
@@ -65,6 +76,7 @@ export function calculateDay(entries: FullEntry[]): DayTotals {
 
       const mult = entry.portions;
       totals.cost += calc.costPerPortion * mult;
+      addNames(totals.unpricedNames, calc.unpricedNames);
       totals.calories += calc.perPortion.calories * mult;
       totals.protein += calc.perPortion.protein * mult;
       totals.carbs += calc.perPortion.carbs * mult;
@@ -77,8 +89,9 @@ export function calculateDay(entries: FullEntry[]): DayTotals {
     } else if (entry.ingredient && entry.quantity) {
       const ing = entry.ingredient;
       const qty = entry.quantity * entry.portions;
-      const factor = qty / 100;
-      totals.cost += qty * ing.price_per_unit;
+      const factor = nutritionGrams(ing, qty) / 100;
+      if (ing.price_per_unit == null) addNames(totals.unpricedNames, [ing.name]);
+      else totals.cost += qty * ing.price_per_unit;
       totals.calories += (ing.calories ?? 0) * factor;
       totals.protein += (ing.protein ?? 0) * factor;
       totals.carbs += (ing.carbs ?? 0) * factor;
@@ -110,6 +123,7 @@ export function calculateWeek(
     if (dayEntries.length > 0) daysWithEntries++;
 
     weekly.cost += dayTotals.cost;
+    addNames(weekly.unpricedNames, dayTotals.unpricedNames);
     weekly.calories += dayTotals.calories;
     weekly.protein += dayTotals.protein;
     weekly.carbs += dayTotals.carbs;
@@ -124,6 +138,7 @@ export function calculateWeek(
   const div = Math.max(daysWithEntries, 1);
   const averageDaily: DayTotals = {
     cost: weekly.cost / div,
+    unpricedNames: weekly.unpricedNames,
     calories: weekly.calories / div,
     protein: weekly.protein / div,
     carbs: weekly.carbs / div,
@@ -140,6 +155,8 @@ export function calculateWeek(
   return {
     totalCost: weekly.cost,
     sellingPrice: weekly.cost * markupMultiplier,
+    unpricedCount: weekly.unpricedNames.length,
+    unpricedNames: weekly.unpricedNames,
     days,
     weekly,
     averageDaily,

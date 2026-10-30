@@ -17,8 +17,11 @@ export interface Ingredient {
   category: IngredientCategory;
   quantity_purchased: number;
   unit: string;
-  package_price: number;
-  price_per_unit: number;
+  /** NULL = price pending (RI-0c); price_per_unit is then NULL too. */
+  package_price: number | null;
+  price_per_unit: number | null;
+  /** Grams per 1 buc (RI-0a); only meaningful when unit = 'buc'. Nutrition is per 100 g. */
+  piece_weight_g: number | null;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
@@ -50,6 +53,10 @@ export interface Recipe {
   notes: string | null;
   customer_description: string | null;
   container_type_id: string | null;
+  /** Where the recipe came from (http/https). Admin-only; not in recipes_public. */
+  source_url: string | null;
+  /** Ordered plain-text cooking steps. Admin-only; not in recipes_public. */
+  instructions: string[];
   container_type?: ContainerType;
   created_at: string;
   updated_at: string;
@@ -335,6 +342,8 @@ export interface SaveRecipeInput {
   notes: string | null;
   customer_description: string | null;
   container_type_id: string | null;
+  source_url: string | null;
+  instructions: string[];
 }
 
 export interface SaveRecipeIngredientInput {

@@ -25,6 +25,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { formatLei, formatPricePerUnit, humanizeSlug } from "@/lib/format";
+import { missingPieceWeight } from "@/lib/calculations/piece-weight";
 
 type SortKey = "name" | "ppu" | "calories";
 type QuickFilter = "all" | "noprice" | "nonutrition";
@@ -47,7 +48,16 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 function hasNoPrice(i: Ingredient) {
-  return !(i.package_price > 0) || !(i.price_per_unit > 0);
+  // NULL = price pending (RI-0c); 0 is a legacy "no price" value.
+  return i.package_price == null || i.price_per_unit == null || !(i.package_price > 0) || !(i.price_per_unit > 0);
+}
+
+function PricePendingBadge() {
+  return (
+    <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+      Price pending
+    </span>
+  );
 }
 
 function hasNoNutrition(i: Ingredient) {
@@ -431,7 +441,7 @@ export default function IngredientsClient({
           <span className="mx-1 h-5 w-px bg-gray-200 shrink-0" aria-hidden="true" />
           {(
             [
-              { id: "noprice", label: "No price", count: noPriceCount },
+              { id: "noprice", label: "Price pending", count: noPriceCount },
               { id: "nonutrition", label: "No nutrition", count: noNutritionCount },
             ] as const
           ).map((f) => (
@@ -511,6 +521,11 @@ export default function IngredientsClient({
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                       {categoryLabels[ing.category] ?? ing.category}
                     </span>
+                    {missingPieceWeight(ing) && (
+                      <span className="inline-block mt-1 ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
+                        No piece weight
+                      </span>
+                    )}
                   </button>
                   <div className="flex items-center ml-2">
                     <IconButton label={`Edit ${ing.name}`} onClick={() => openEdit(ing)}>
@@ -530,7 +545,7 @@ export default function IngredientsClient({
                   <div>
                     <span className="text-gray-500">Price/unit</span>
                     <p className="font-medium text-emerald-700">
-                      {hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                      {ing.package_price == null ? <PricePendingBadge /> : hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                     </p>
                   </div>
                   <div>
@@ -666,6 +681,11 @@ export default function IngredientsClient({
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                             {categoryLabels[ing.category] ?? ing.category}
                           </span>
+                          {missingPieceWeight(ing) && (
+                            <span className="ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
+                              No piece weight
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-600">
                           {ing.quantity_purchased} {ing.unit}
@@ -674,7 +694,7 @@ export default function IngredientsClient({
                           {formatLei(ing.package_price)}
                         </td>
                         <td className="px-4 py-3 text-right font-medium text-emerald-700">
-                          {hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                          {ing.package_price == null ? <PricePendingBadge /> : hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-600">
                           {ing.calories ?? "—"}

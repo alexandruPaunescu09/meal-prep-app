@@ -36,7 +36,7 @@ export default async function DashboardPage() {
   const attention = [
     { label: "unread reviews", n: d.attention.unreadReviews, href: "/reviews", icon: Star },
     { label: "customer foods to review", n: d.attention.pendingFoods, href: "/ingredients/foods", icon: ScanBarcode },
-    { label: "ingredients without a price", n: d.attention.ingredientsNoPrice, href: "/ingredients", icon: Carrot },
+    { label: "ingredients need a price", n: d.attention.ingredientsNoPrice, href: "/ingredients?f=noprice", icon: Carrot },
     { label: "ingredients without nutrition data", n: d.attention.ingredientsNoNutrition, href: "/ingredients", icon: Carrot },
     { label: "recipes without a container type", n: d.attention.recipesNoContainer, href: "/recipes", icon: Package },
   ].filter((a) => a.n > 0);

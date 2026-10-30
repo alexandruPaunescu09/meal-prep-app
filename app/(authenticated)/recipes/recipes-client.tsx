@@ -14,7 +14,7 @@ import {
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, humanizeSlug } from "@/lib/format";
+import { formatCost, formatNumber, humanizeSlug } from "@/lib/format";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
@@ -28,6 +28,7 @@ import {
   Star,
   Search,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 
 type RecipeWithIngredients = Recipe & {
@@ -162,6 +163,8 @@ export default function RecipesClient({
       notes: recipe.notes,
       customer_description: recipe.customer_description,
       container_type_id: recipe.container_type_id,
+      source_url: recipe.source_url,
+      instructions: recipe.instructions ?? [],
     };
     const p_ingredients: SaveRecipeIngredientInput[] = recipe.recipe_ingredients.map((ri) => ({
       ingredient_id: ri.ingredient_id,
@@ -359,7 +362,7 @@ export default function RecipesClient({
                     <div>
                       <span className="text-gray-500">Cost per portion</span>
                       <p className="font-medium text-emerald-700">
-                        {formatLei(calc.costPerPortion)}
+                        {formatCost(calc.costPerPortion, calc.unpricedCount)}
                       </p>
                     </div>
                     <div>
@@ -405,7 +408,7 @@ export default function RecipesClient({
                         <div>
                           <span className="text-gray-500">Total Cost</span>
                           <p className="font-medium text-gray-900">
-                            {formatLei(calc.totalCost)}
+                            {formatCost(calc.totalCost, calc.unpricedCount)}
                           </p>
                         </div>
                         <div>
@@ -443,6 +446,23 @@ export default function RecipesClient({
                         <span className="text-xs text-gray-500">
                           {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                         </span>
+                      )}
+                      {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                      <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
+                        {recipe.source_url && (
+                          <a
+                            href={recipe.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+                          >
+                            Source <ExternalLink size={12} />
+                          </a>
+                        )}
+                        {(recipe.instructions?.length ?? 0) > 0 && (
+                          <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
+                        )}
+                      </p>
                       )}
                       {recipe.notes && (
                         <p className="mt-2 text-xs text-gray-500 italic">
@@ -506,7 +526,7 @@ export default function RecipesClient({
                             {recipe.portions}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-emerald-700">
-                            {formatLei(calc.costPerPortion)}
+                            {formatCost(calc.costPerPortion, calc.unpricedCount)}
                           </td>
                           <td className="px-4 py-3 text-right text-gray-600">
                             {Math.round(calc.perPortion.calories)} kcal
@@ -551,7 +571,7 @@ export default function RecipesClient({
                                   <div>
                                     <span className="text-gray-500">Total Cost</span>
                                     <p className="font-medium text-gray-900">
-                                      {formatLei(calc.totalCost)}
+                                      {formatCost(calc.totalCost, calc.unpricedCount)}
                                     </p>
                                   </div>
                                   <div>
@@ -595,6 +615,23 @@ export default function RecipesClient({
                                   <span className="text-xs text-gray-500">
                                     {recipe.final_weight}g total ({Math.round(recipe.final_weight / recipe.portions)}g/portion)
                                   </span>
+                                )}
+                                {(recipe.source_url || (recipe.instructions?.length ?? 0) > 0) && (
+                                <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs text-gray-500">
+                                  {recipe.source_url && (
+                                    <a
+                                      href={recipe.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+                                    >
+                                      Source <ExternalLink size={12} />
+                                    </a>
+                                  )}
+                                  {(recipe.instructions?.length ?? 0) > 0 && (
+                                    <span>{recipe.instructions.length} {recipe.instructions.length === 1 ? "step" : "steps"}</span>
+                                  )}
+                                </p>
                                 )}
                                 {recipe.notes && (
                                   <p className="text-xs text-gray-500 italic">
