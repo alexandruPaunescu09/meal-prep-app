@@ -290,8 +290,17 @@ export default function RecipeImportClient({
       }),
     [lines, byId],
   );
-  const scalable = canScale(scaleLines);
+  // Never calculate a factor from only the valid subset of an unresolved draft.
+  const scalable = blocking === 0 && portionsValid && canScale(scaleLines);
+  const scaleHint = !portionsValid
+    ? "Enter a valid portion count before scaling"
+    : blocking > 0
+      ? "Match every included ingredient and enter its amount, or skip it, before scaling"
+      : scalable
+        ? "Scale quantities to a calorie target"
+        : "Needs matched ingredients with nutrition";
   function applyScale(quantities: Map<string, number>) {
+    if (!scalable) return;
     setLines((ls) => ls.map((l) => (quantities.has(String(l.uid)) ? { ...l, qty: qtyToText(quantities.get(String(l.uid))!) } : l)));
   }
   const missingPieces = useMemo(() => {
@@ -761,7 +770,7 @@ export default function RecipeImportClient({
             <button
               type="button"
               disabled={!scalable}
-              title={scalable ? "Scale quantities to a calorie target" : "Needs matched ingredients with nutrition"}
+              title={scaleHint}
               onClick={() => setScaleOpen(true)}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
             >
@@ -848,7 +857,7 @@ export default function RecipeImportClient({
       </section>
 
       <ScaleRecipeModal
-        open={scaleOpen}
+        open={scaleOpen && scalable}
         onClose={() => setScaleOpen(false)}
         lines={scaleLines}
         portions={portions}
