@@ -163,7 +163,7 @@ function decodeBody(buf: Buffer, contentType: string): string {
   return decoder.decode(buf);
 }
 
-async function readBody(res: TransportResponse, maxBytes: number): Promise<Buffer> {
+async function readBody(res: TransportResponse, maxBytes: number, onTooLarge: () => void): Promise<Buffer> {
   const encoding = headerValue(res.headers["content-encoding"]).trim().toLowerCase();
   const stages: NodeJS.ReadWriteStream[] = [];
   if (encoding === "gzip" || encoding === "x-gzip") stages.push(zlib.createGunzip());
@@ -175,7 +175,10 @@ async function readBody(res: TransportResponse, maxBytes: number): Promise<Buffe
   async function* limitedRaw() {
     for await (const chunk of res.body) {
       rawBytes += chunk.byteLength;
-      if (rawBytes > maxBytes) throw new TooLargeError();
+      if (rawBytes > maxBytes) {
+        onTooLarge();
+        throw new TooLargeError();
+      }
       yield chunk;
     }
   }
@@ -191,7 +194,10 @@ async function readBody(res: TransportResponse, maxBytes: number): Promise<Buffe
         const b = Buffer.from(chunk);
         total += b.length;
         // Checked on the DECOMPRESSED size so a small gzip bomb aborts immediately.
-        if (total > maxBytes) throw new TooLargeError();
+        if (total > maxBytes) {
+          onTooLarge();
+          throw new TooLargeError();
+        }
         chunks.push(b);
       }
     },
@@ -199,9 +205,11 @@ async function readBody(res: TransportResponse, maxBytes: number): Promise<Buffe
   return Buffer.concat(chunks);
 }
 
-function mapError(e: unknown, timedOut: boolean): FetchPageResult {
+function mapError(e: unknown, timedOut: boolean, tooLarge: boolean): FetchPageResult {
+  // The size cap tears the stream down, which can surface as an AbortError before the TooLargeError
+  // is seen, so the recorded cause wins over whatever error the teardown produced.
+  if (tooLarge || e instanceof TooLargeError) return { ok: false, reason: "too_large" };
   if (timedOut) return { ok: false, reason: "timeout" };
-  if (e instanceof TooLargeError) return { ok: false, reason: "too_large" };
   const err = e as NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException };
   if (err?.code === BLOCKED_CODE || err?.cause?.code === BLOCKED_CODE) return { ok: false, reason: "blocked_address" };
   if (err?.name === "AbortError" || err?.code === "ABORT_ERR") return { ok: false, reason: "timeout" };
@@ -232,6 +240,7 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
 
   const controller = new AbortController();
   let timedOut = false;
+  let tooLarge = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -301,7 +310,9 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
         return { ok: false, reason: "too_large", status };
       }
 
-      const buf = await readBody(res, maxBytes);
+      const buf = await readBody(res, maxBytes, () => {
+        tooLarge = true;
+      });
       return { ok: true, finalUrl: current.toString(), html: decodeBody(buf, contentType) };
     }
     return { ok: false, reason: "network", detail: "too many redirects" };
@@ -310,7 +321,7 @@ export async function fetchPage(rawUrl: string, deps: FetchPageDeps = {}): Promi
   try {
     return await Promise.race([work, timeout]);
   } catch (e) {
-    return mapError(e, timedOut);
+    return mapError(e, timedOut, tooLarge);
   } finally {
     clearTimeout(timer);
     work.catch(() => {});
