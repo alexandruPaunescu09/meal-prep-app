@@ -47,7 +47,7 @@ These are decided defaults. The user can still change any of them.
 | Model | Env `RECIPE_PARSER_MODEL`, default `claude-haiku-5-5` (same pattern as `INVOICE_PARSER_MODEL`; `claude-sonnet-5-5` is the stronger option). Estimated cost per import: about $0.002 on Haiku 5.5 ($0.10 / $0.50 per M tokens), about $0.05 on Sonnet 5.5 ($2 / $10). |
 | Aliases | Raw ingredient names from imports are remembered in `ingredient_aliases` with the fixed store value `recipe`, so the next import matches them deterministically (an alias overrides the model, as on receipts). |
 
-## Current state (as of `main` at `71c76ac`)
+## Current state (as of `main` at `bf02107`)
 
 These findings drive the design.
 
@@ -69,6 +69,7 @@ These findings drive the design.
   - Extract the shared Claude call and error mapping into a small helper rather than copy-pasting it.
 - **Admin guard.** `requireAdmin()` in `lib/auth/require-admin.ts`.
 - **Nutrition search.** `searchNutrition()` in `lib/nutrition/index.ts`, exposed at `/api/nutrition/search`.
+- **Romanian queries.** Since PR #26, `searchNutrition()` translates Romanian queries to English for USDA with a built-in word list (`lib/nutrition/ro-en-terms.ts`). In RI-2/RI-3, Claude's English `search_term` is therefore a fallback that improves matches, not the only route.
 - **Customer view.** `ingredients_public` (`supabase/migrations/20261019000010_hide_prices_from_customers.sql:23`) lists price-free columns. `piece_weight_g` is not a price column and goes into it.
 - **Manifest.** `app/manifest.ts` is shared with the customer portal.
 - **Claude API (2026-10).** No video or audio input (text, images, PDFs only). A server-side `web_fetch_20260209` tool exists (Sonnet/Opus-class models). V1 does its own fetch and JSON-LD parsing instead, because that is deterministic and nearly free. `web_fetch` is only worth one test later, against the sites that block us.
