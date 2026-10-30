@@ -48,7 +48,16 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 function hasNoPrice(i: Ingredient) {
-  return !(i.package_price > 0) || !(i.price_per_unit > 0);
+  // NULL = price pending (RI-0c); 0 is a legacy "no price" value.
+  return i.package_price == null || i.price_per_unit == null || !(i.package_price > 0) || !(i.price_per_unit > 0);
+}
+
+function PricePendingBadge() {
+  return (
+    <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+      Price pending
+    </span>
+  );
 }
 
 function hasNoNutrition(i: Ingredient) {
@@ -432,7 +441,7 @@ export default function IngredientsClient({
           <span className="mx-1 h-5 w-px bg-gray-200 shrink-0" aria-hidden="true" />
           {(
             [
-              { id: "noprice", label: "No price", count: noPriceCount },
+              { id: "noprice", label: "Price pending", count: noPriceCount },
               { id: "nonutrition", label: "No nutrition", count: noNutritionCount },
             ] as const
           ).map((f) => (
@@ -536,7 +545,7 @@ export default function IngredientsClient({
                   <div>
                     <span className="text-gray-500">Price/unit</span>
                     <p className="font-medium text-emerald-700">
-                      {hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                      {ing.package_price == null ? <PricePendingBadge /> : hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                     </p>
                   </div>
                   <div>
@@ -685,7 +694,7 @@ export default function IngredientsClient({
                           {formatLei(ing.package_price)}
                         </td>
                         <td className="px-4 py-3 text-right font-medium text-emerald-700">
-                          {hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                          {ing.package_price == null ? <PricePendingBadge /> : hasNoPrice(ing) ? "—" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-600">
                           {ing.calories ?? "—"}

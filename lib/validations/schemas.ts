@@ -7,7 +7,7 @@ export const ingredientSchema = z.object({
   category: z.string().min(1, "Category is required"),
   quantity_purchased: z.number().positive("Must be > 0"),
   unit: z.enum(["g", "ml", "buc"]),
-  package_price: z.number().nonnegative("Must be >= 0"),
+  package_price: z.number().nonnegative("Must be >= 0").nullable(), // null = price pending
   piece_weight_g: z.number().positive("Must be > 0").nullable().optional(),
   calories: z.number().nonnegative().nullable().optional(),
   protein: z.number().nonnegative().nullable().optional(),
