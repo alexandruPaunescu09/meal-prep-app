@@ -29,7 +29,7 @@ Update this table as stories land, with the branch or PR and the date.
 | RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | In review, PR #36 |
 | RI-5 | Share from the phone | S | RI-3 | In review, PR #37 |
 | RI-6 | Scale to a target | M | RI-3 | Not started |
-| RI-7 | Steps in the cooking plan | S | RI-0b | Not started |
+| RI-7 | Steps in the cooking plan | S | RI-0b | In review, PR #32 |
 
 ## Product decisions
 
