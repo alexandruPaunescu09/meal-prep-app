@@ -159,6 +159,10 @@ export default function RecipeImportClient({
   async function parse(body: { url: string } | { text: string } | { files: Prepared[] }) {
     setParsing(true);
     setError(null);
+    // A stale ?url= must not reload into a different input kind.
+    if (!("url" in body) && new URLSearchParams(window.location.search).has("url")) {
+      router.replace("/recipes/import", { scroll: false });
+    }
     try {
       let res: Response;
       if ("files" in body) {
