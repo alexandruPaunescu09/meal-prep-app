@@ -24,7 +24,7 @@ Update this table as stories land, with the branch or PR and the date.
 | RI-0b | Source link and steps | S | — | Not started |
 | RI-0c | Price pending | M–L | — | Not started |
 | RI-1 | Recipe extraction library (fetch, JSON-LD, page text) | M | — | In review, PR #29 |
-| RI-2 | Claude mapping + parse route | M | RI-1 | Not started |
+| RI-2 | Claude mapping + parse route | M | RI-1 | In review, PR #31 |
 | RI-3 | Review + save UI | M–L | RI-0a, RI-0b, RI-0c, RI-2 | Not started |
 | RI-4 | Video links (YouTube, TikTok, Instagram) | M | RI-3 | Not started |
 | RI-5 | Share from the phone | S | RI-3 | Not started |
