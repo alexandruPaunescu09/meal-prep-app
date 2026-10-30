@@ -84,12 +84,15 @@ export default function RecipeImportClient({
   categories,
   containerTypes,
   initialUrl,
+  initialText,
   ownerId,
 }: {
   ingredients: Ingredient[];
   categories: Category[];
   containerTypes: ContainerType[];
   initialUrl: string | null;
+  /** Shared text with no link in it: opens the Paste text tab prefilled (no automatic parse). */
+  initialText?: string | null;
   ownerId: string;
 }) {
   const router = useRouter();
@@ -166,6 +169,16 @@ export default function RecipeImportClient({
         setDescription(saved.description);
         setNotes(saved.notes);
       }
+      // Shared input starts only after restoration (a recovered review wins). Running it
+      // here, after the awaited session check, keeps the state changes out of an effect body.
+      if (!saved && !startedRef.current && (initialUrl || initialText)) {
+        startedRef.current = true;
+        if (initialUrl) void parseRef.current({ url: initialUrl });
+        else {
+          setTab("text");
+          setTextInput((initialText ?? "").slice(0, MAX_TEXT));
+        }
+      }
       setSessionReady(true);
     })();
     const { data: { subscription } } = createClient().auth.onAuthStateChange((event, session) => {
@@ -179,7 +192,7 @@ export default function RecipeImportClient({
       }
     });
     return () => { cancelled = true; subscription.unsubscribe(); };
-  }, [ownerId, router]);
+  }, [ownerId, router, initialUrl, initialText]);
 
   // Persist each committed edit before the user can navigate Back.
   useLayoutEffect(() => {
@@ -207,6 +220,13 @@ export default function RecipeImportClient({
   }, [reviewing]);
 
   // ------------------------------------------------------------ parsing
+  const parseRef = useRef<(body: { url: string } | { text: string } | { files: Prepared[] }) => Promise<void>>(
+    async () => {},
+  );
+  useEffect(() => {
+    parseRef.current = parse;
+  });
+
   async function parse(body: { url: string } | { text: string } | { files: Prepared[] }) {
     setParsing(true);
     setError(null);
@@ -260,14 +280,6 @@ export default function RecipeImportClient({
     router.replace(`/recipes/import?url=${encodeURIComponent(url)}`, { scroll: false });
     void parse({ url });
   }
-
-  // Deep link: ?url= fills the field and starts parsing once.
-  useEffect(() => {
-    if (!sessionReady || !initialUrl || startedRef.current) return;
-    startedRef.current = true;
-    void parse({ url: initialUrl });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionReady]);
 
   async function addFiles(list: FileList | File[]) {
     const incoming = Array.from(list).filter((f) => f.type.startsWith("image/") || f.type === "application/pdf");
@@ -555,6 +567,14 @@ export default function RecipeImportClient({
         <p className="text-sm text-gray-500 mb-5">
           Read a recipe from a web page, pasted text or screenshots. You review everything before anything is saved.
         </p>
+        <details className="text-xs text-gray-500 mb-5 -mt-3">
+          <summary className="cursor-pointer text-emerald-700 hover:underline w-fit">Share from your phone</summary>
+          <p className="mt-1.5 max-w-prose">
+            Android: install the app, then share a recipe link to Meal Prep. iPhone: add a small Shortcut to the share
+            sheet that opens <span className="font-mono">/recipes/import?url=…</span>. Step-by-step instructions are in{" "}
+            <span className="font-mono">docs/recipe-import-share.md</span>.
+          </p>
+        </details>
 
         <div role="tablist" aria-label="Recipe source" className="flex gap-1 border-b mb-4">
           {tabs.map((t) => (
