@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { findDuplicateByName, postProcessRecipeLines, type ModelLine } from "./postprocess";
 import { ModelLineSchema, toModelLine } from "./schema";
 import { fetchFailureResponse, validateJsonBody, validateUploads } from "./request";
@@ -227,5 +227,54 @@ describe("shared Claude error mapping", () => {
     const { refusalFallbackParams } = await import("@/lib/ai/claude");
     expect(refusalFallbackParams("claude-haiku-5-5")).toEqual({});
     expect(refusalFallbackParams("claude-sonnet-5-5")).toMatchObject({ fallbacks: "default" });
+  });
+});
+
+describe("mapRecipe review regressions", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const empty = { name: "", portions: 0, steps: [], lines: [] };
+  const pageInput = { kind: "page-text" as const, title: "About our company", text: "Our company history and contact details." };
+
+  it("sends only recipe aliases to Claude", async () => {
+    const claude = await import("@/lib/ai/claude");
+    const call = vi.spyOn(claude, "callStructured").mockResolvedValue({ ...empty, name: "Pancakes" });
+    const { mapRecipe } = await import("./map");
+    await mapRecipe({
+      input: { kind: "text", text: "Ingredients for pancakes" }, ingredients: ING, categories: [],
+      aliases: [
+        { ingredient_id: "flour", store: " Recipe ", alias: "recipe-flour-alias" },
+        { ingredient_id: "oil", store: "Lidl", alias: "receipt-oil-alias" },
+      ],
+    });
+    const content = JSON.stringify(call.mock.calls[0][0].content);
+    expect(content).toContain("recipe-flour-alias");
+    expect(content).not.toContain("receipt-oil-alias");
+  });
+
+  it.each(["page-text", "json-ld"] as const)("rejects an empty %s extraction before its title fallback", async (kind) => {
+    const claude = await import("@/lib/ai/claude");
+    vi.spyOn(claude, "callStructured").mockResolvedValue({ ...empty, name: "   " });
+    const { mapRecipe } = await import("./map");
+    const input = kind === "page-text" ? pageInput : {
+      kind, recipe: {
+        name: "About our company", description: null, ingredients: [], instructions: [],
+        yield: null, totalTimeMinutes: null, nutrition: null, siteName: null,
+      },
+    };
+    await expect(mapRecipe({ input, ingredients: ING, aliases: [], categories: [] }))
+      .rejects.toMatchObject({ status: 422, message: "No recipe was found in that input." });
+  });
+
+  it("retains the source-title fallback when ingredients were extracted", async () => {
+    const claude = await import("@/lib/ai/claude");
+    vi.spyOn(claude, "callStructured").mockResolvedValue({
+      ...empty,
+      lines: [{ ...line(), suggested_category: "", conversion_note: "" }],
+    });
+    const { mapRecipe } = await import("./map");
+    const result = await mapRecipe({ input: { ...pageInput, title: "Pancakes" }, ingredients: ING, aliases: [], categories: [] });
+    expect(result.recipe.name).toBe("Pancakes");
+    expect(result.lines[0]).toMatchObject({ ingredient_id: "flour", quantity: 200 });
   });
 });
