@@ -1,8 +1,13 @@
 import { Ingredient } from "@/lib/supabase/types";
+import { nutritionGrams } from "./piece-weight";
 
 export interface RecipeCalculation {
+  /** Known cost only: ingredients without a price (price pending) add nothing. */
   totalCost: number;
   costPerPortion: number;
+  /** Distinct ingredients without a price; when > 0 the cost is a lower bound. */
+  unpricedCount: number;
+  unpricedNames: string[];
   perPortion: {
     calories: number;
     protein: number;
@@ -32,6 +37,7 @@ export function calculateRecipe(
   portions: number
 ): RecipeCalculation {
   let totalCost = 0;
+  const unpriced = new Map<string, string>();
   let calories = 0;
   let protein = 0;
   let carbs = 0;
@@ -43,9 +49,14 @@ export function calculateRecipe(
   const micronutrients: Record<string, number> = {};
 
   for (const { ingredient, quantity } of ingredients) {
-    totalCost += quantity * ingredient.price_per_unit;
+    if (ingredient.price_per_unit == null) {
+      unpriced.set(ingredient.id, ingredient.name);
+    } else {
+      totalCost += quantity * ingredient.price_per_unit;
+    }
 
-    const factor = quantity / 100;
+    // buc with a piece weight counts as grams; cost above stays per piece.
+    const factor = nutritionGrams(ingredient, quantity) / 100;
     calories += (ingredient.calories ?? 0) * factor;
     protein += (ingredient.protein ?? 0) * factor;
     carbs += (ingredient.carbs ?? 0) * factor;
@@ -67,6 +78,8 @@ export function calculateRecipe(
   return {
     totalCost,
     costPerPortion: totalCost / p,
+    unpricedCount: unpriced.size,
+    unpricedNames: Array.from(unpriced.values()),
     totals: { calories, protein, carbs, fat, fiber, sugar, sat_fat, salt, micronutrients },
     perPortion: {
       calories: calories / p,

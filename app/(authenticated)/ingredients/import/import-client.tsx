@@ -456,7 +456,7 @@ export default function ImportClient({
     const price = Math.round(parseFloat(l.package_price.replace(",", ".")) * 100) / 100;
     const valid = !!ing && qty > 0 && price > 0;
     const newPpu = valid ? price / qty : null;
-    const oldPpu = ing && ing.price_per_unit > 0 ? ing.price_per_unit : null;
+    const oldPpu = ing?.price_per_unit != null && ing.price_per_unit > 0 ? ing.price_per_unit : null;
     const pct = newPpu != null && oldPpu != null ? ((newPpu - oldPpu) / oldPpu) * 100 : null;
     return { ing, qty, price, valid, newPpu, oldPpu, pct };
   }
@@ -622,7 +622,7 @@ export default function ImportClient({
                     >
                       <span className="font-medium text-gray-900 min-w-0 flex-1 basis-40 truncate">{c.name}</span>
                       <span className="text-xs text-gray-600">
-                        {c.oldPpu != null ? formatPricePerUnit(c.oldPpu, c.unit) : "new"} →{" "}
+                        {c.oldPpu != null ? formatPricePerUnit(c.oldPpu, c.unit) : "No price yet"} →{" "}
                         <span className="font-medium text-gray-900">{formatPricePerUnit(c.newPpu, c.unit)}</span>
                       </span>
                       {pctBadge(c.pct)}
@@ -777,7 +777,7 @@ export default function ImportClient({
       <div className="text-xs text-gray-600">
         {d.ing ? (
           <>
-            {d.oldPpu != null ? formatPricePerUnit(d.oldPpu, unit) : "-"} →{" "}
+            {d.oldPpu != null ? formatPricePerUnit(d.oldPpu, unit) : d.ing.price_per_unit == null ? "No price yet" : "-"} →{" "}
             <span className="font-medium text-gray-900">
               {d.newPpu != null ? formatPricePerUnit(d.newPpu, unit) : "-"}
             </span>{" "}

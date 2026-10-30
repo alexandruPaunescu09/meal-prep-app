@@ -13,13 +13,22 @@ import {
   SaveRecipeIngredientInput,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
+import { nutritionGrams, missingPieceWeight } from "@/lib/calculations/piece-weight";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
+import { formatCost, formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { Plus, Trash2, Search, Check } from "lucide-react";
+import { Plus, Trash2, Search, Check, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
+import {
+  moveItem,
+  normalizeSourceUrl,
+  normalizeSteps,
+  validateSourceUrl,
+  validateSteps,
+} from "@/lib/recipes/steps";
+import { RECIPE_STEP_MAX_COUNT, RECIPE_STEP_MAX_LENGTH } from "@/lib/validations/schemas";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -35,6 +44,11 @@ interface IngredientEntry {
   ingredient: Ingredient;
   /** Raw text so partial input ("0.", "") is preserved while typing. */
   qty: string;
+}
+
+interface StepEntry {
+  id: string;
+  text: string;
 }
 
 const PICKER_LIMIT = 100;
@@ -81,6 +95,13 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     recipe?.container_type_id ?? null
   );
 
+  const [sourceUrl, setSourceUrl] = useState(recipe?.source_url ?? "");
+  const [sourceUrlError, setSourceUrlError] = useState("");
+  const [steps, setSteps] = useState<StepEntry[]>(
+    (recipe?.instructions ?? []).map((text) => ({ id: crypto.randomUUID(), text }))
+  );
+  const [stepsError, setStepsError] = useState("");
+
   const [entries, setEntries] = useState<IngredientEntry[]>(
     recipe?.recipe_ingredients.map((ri) => ({
       id: ri.id,
@@ -104,7 +125,9 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     cd: string,
     fw: string,
     ct: string | null,
-    es: IngredientEntry[]
+    es: IngredientEntry[],
+    su: string,
+    st: StepEntry[]
   ) =>
     JSON.stringify([
       n,
@@ -114,12 +137,14 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       fw,
       ct,
       es.map((e) => [e.ingredient.id, e.qty]),
+      su,
+      st.map((x) => x.text),
     ]);
   const [initialSnapshot] = useState(() =>
-    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries)
+    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries, sourceUrl, steps)
   );
   const isDirty =
-    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries) !==
+    snapshot(name, portionsStr, notes, customerDescription, finalWeightStr, containerTypeId, entries, sourceUrl, steps) !==
     initialSnapshot;
 
   useEffect(() => {
@@ -240,6 +265,12 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       setError("Final weight must be a number.");
       invalid = true;
     }
+    const urlErr = validateSourceUrl(sourceUrl);
+    setSourceUrlError(urlErr ?? "");
+    if (urlErr) invalid = true;
+    const stepsErr = validateSteps(steps.map((x) => x.text));
+    setStepsError(stepsErr ?? "");
+    if (stepsErr) invalid = true;
     if (invalid) return;
 
     setSaving(true);
@@ -251,6 +282,8 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       notes: notes.trim() || null,
       customer_description: customerDescription.trim() || null,
       container_type_id: containerTypeId,
+      source_url: normalizeSourceUrl(sourceUrl),
+      instructions: normalizeSteps(steps.map((x) => x.text)),
     };
     const p_ingredients: SaveRecipeIngredientInput[] = entries.map((en) => ({
       ingredient_id: en.ingredient.id,
@@ -422,8 +455,11 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="space-y-2">
                 {entries.map((entry) => {
                   const q = qtyToNumber(entry.qty);
-                  const rowCost = q * entry.ingredient.price_per_unit;
-                  const rowKcal = ((entry.ingredient.calories ?? 0) * q) / 100;
+                  const rowCost =
+                    entry.ingredient.price_per_unit == null
+                      ? null
+                      : q * entry.ingredient.price_per_unit;
+                  const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
                   return (
                     <div
                       key={entry.id}
@@ -434,8 +470,13 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                           {entry.ingredient.name}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {formatLei(rowCost)} · {Math.round(rowKcal)} kcal
+                          {rowCost == null ? "Price pending" : formatLei(rowCost)} · {Math.round(rowKcal)} kcal
                         </p>
+                        {missingPieceWeight(entry.ingredient) && (
+                          <p className="text-xs text-amber-700">
+                            Counts as grams until you set a weight per piece
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         <input
@@ -477,8 +518,12 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="grid grid-cols-5 gap-2">
                 <div className="bg-emerald-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Cost</p>
-                  <p className="text-sm font-bold text-emerald-700">
-                    {formatLei(calc.costPerPortion)}
+                  <p
+                    className={`font-bold text-emerald-700 ${
+                      calc.unpricedCount > 0 ? "text-xs leading-tight" : "text-sm"
+                    }`}
+                  >
+                    {formatCost(calc.costPerPortion, calc.unpricedCount)}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
@@ -507,7 +552,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-1.5">
-                Total cost: {formatLei(calc.totalCost)} for {portionsValid ? portions : 1} portion
+                Total cost: {formatCost(calc.totalCost, calc.unpricedCount)} for {portionsValid ? portions : 1} portion
                 {(portionsValid ? portions : 1) > 1 ? "s" : ""}
               </p>
             </div>
@@ -543,6 +588,100 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               rows={2}
               className={`${inputCls} resize-none`}
             />
+          </div>
+
+          {/* Source link */}
+          <div>
+            <label htmlFor="recipe-source-url" className="block text-sm font-medium text-gray-700 mb-1">
+              Source link
+            </label>
+            <input
+              id="recipe-source-url"
+              type="url"
+              inputMode="url"
+              value={sourceUrl}
+              onChange={(e) => {
+                setSourceUrl(e.target.value);
+                setSourceUrlError("");
+              }}
+              placeholder="https://..."
+              aria-invalid={sourceUrlError ? true : undefined}
+              className={inputCls}
+            />
+            {sourceUrlError && <p className="text-xs text-red-600 mt-1">{sourceUrlError}</p>}
+            {!sourceUrlError && validateSourceUrl(sourceUrl) === null && normalizeSourceUrl(sourceUrl) && (
+              <a
+                href={normalizeSourceUrl(sourceUrl)!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-emerald-700 hover:underline"
+              >
+                <ExternalLink size={12} /> Open source
+              </a>
+            )}
+          </div>
+
+          {/* Steps */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="block text-sm font-medium text-gray-700">Steps</span>
+              <button
+                type="button"
+                onClick={() => setSteps((prev) => [...prev, { id: crypto.randomUUID(), text: "" }])}
+                disabled={steps.length >= RECIPE_STEP_MAX_COUNT}
+                className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline disabled:opacity-40"
+              >
+                <Plus size={14} /> Add step
+              </button>
+            </div>
+            {steps.length === 0 ? (
+              <p className="text-xs text-gray-500">No steps yet.</p>
+            ) : (
+              <ol className="space-y-2">
+                {steps.map((step, i) => (
+                  <li key={step.id} className="flex items-start gap-2">
+                    <span className="mt-2 w-5 shrink-0 text-right text-sm text-gray-500">{i + 1}.</span>
+                    <textarea
+                      aria-label={`Step ${i + 1}`}
+                      value={step.text}
+                      maxLength={RECIPE_STEP_MAX_LENGTH}
+                      onChange={(e) =>
+                        setSteps((prev) =>
+                          prev.map((x) => (x.id === step.id ? { ...x, text: e.target.value } : x))
+                        )
+                      }
+                      rows={2}
+                      className={`${inputCls} resize-none`}
+                    />
+                    <div className="flex shrink-0">
+                      <IconButton
+                        label={`Move step ${i + 1} up`}
+                        disabled={i === 0}
+                        onClick={() => setSteps((prev) => moveItem(prev, i, -1))}
+                      >
+                        <ArrowUp size={16} />
+                      </IconButton>
+                      <IconButton
+                        label={`Move step ${i + 1} down`}
+                        disabled={i === steps.length - 1}
+                        onClick={() => setSteps((prev) => moveItem(prev, i, 1))}
+                      >
+                        <ArrowDown size={16} />
+                      </IconButton>
+                      <IconButton
+                        label={`Remove step ${i + 1}`}
+                        tone="danger"
+                        onClick={() => setSteps((prev) => prev.filter((x) => x.id !== step.id))}
+                      >
+                        <Trash2 size={16} />
+                      </IconButton>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {stepsError && <p className="text-xs text-red-600 mt-1">{stepsError}</p>}
+            <p className="text-xs text-gray-500 mt-1">Internal for now. Empty steps are dropped on save.</p>
           </div>
 
           {error && (
@@ -616,7 +755,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                         )}
                         <span className="block text-xs text-gray-500">
                           {humanizeSlug(ing.category)} ·{" "}
-                          {formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                          {ing.price_per_unit == null ? "Price pending" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                         </span>
                       </span>
                       {added && (

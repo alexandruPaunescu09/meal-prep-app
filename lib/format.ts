@@ -65,6 +65,18 @@ export function formatLei(
   return `${s} lei`;
 }
 
+/**
+ * A cost that may be incomplete (RI-0c). `total` is the known cost, `unpricedCount`
+ * how many ingredients have no price yet.
+ * 0 unpriced -> "23,40 lei"; some -> "≥ 23,40 lei · 2 without a price";
+ * nothing priced at all (total 0) -> "Price pending". Never a number that looks complete.
+ */
+export function formatCost(total: number | null | undefined, unpricedCount = 0): string {
+  if (unpricedCount <= 0) return formatLei(total);
+  if (!total || total <= 0) return "Price pending";
+  return `≥ ${formatLei(total)} · ${unpricedCount} without a price`;
+}
+
 /** g -> "8,40 lei/kg", ml -> "lei/l", buc -> "lei/buc" (pricePerUnit is per 1 g/ml/buc). */
 export function formatPricePerUnit(
   pricePerUnit: number | null | undefined,
