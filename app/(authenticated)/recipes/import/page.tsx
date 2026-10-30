@@ -2,12 +2,17 @@ import { getIngredients, getIngredientCategories } from "@/lib/data/ingredients"
 import { getContainerTypes } from "@/lib/data/containers";
 import { resolveSharedInput } from "@/lib/recipes/import/share";
 import RecipeImportClient from "./import-client";
+import { createServer } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 export default async function ImportRecipePage({
   searchParams,
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  const supabase = await createServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   // `url` is the contract; Android share sends `title`/`text` too, and often hides the link in `text`.
@@ -21,6 +26,8 @@ export default async function ImportRecipePage({
 
   return (
     <RecipeImportClient
+      key={user.id}
+      ownerId={user.id}
       ingredients={ingredients}
       categories={categories}
       containerTypes={containerTypes}
