@@ -105,6 +105,8 @@ export interface DraftRecipeFields {
   sourceUrl: string;
   steps: string[];
   customerDescription: string;
+  /** Free notes (e.g. "Video: <url>" when a video led to the recipe). */
+  notes?: string;
 }
 
 export interface SavePayload {
@@ -153,7 +155,7 @@ export function buildSavePayload(
       name: fields.name.trim(),
       portions: Math.max(1, Math.round(fields.portions) || 1),
       final_weight: null,
-      notes: null,
+      notes: fields.notes?.trim() ? fields.notes.trim() : null,
       customer_description: description === "" ? null : description,
       container_type_id: fields.containerTypeId,
       source_url: normalizeSourceUrl(fields.sourceUrl),

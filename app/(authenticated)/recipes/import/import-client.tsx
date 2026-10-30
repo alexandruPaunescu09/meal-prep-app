@@ -57,6 +57,14 @@ const INPUT =
 const MIN_TEXT = 20;
 const MAX_TEXT = 30_000;
 
+function hostOf(url: string | undefined): string {
+  try {
+    return new URL(url ?? "").hostname.replace(/^www\./, "");
+  } catch {
+    return "the linked page";
+  }
+}
+
 function capitalize(s: string) {
   const t = s.trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
@@ -102,7 +110,7 @@ export default function RecipeImportClient({
   const [preparing, setPreparing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState<{ message: string; canPaste: boolean } | null>(null);
+  const [error, setError] = useState<{ message: string; canPaste: boolean; noRecipe?: boolean } | null>(null);
 
   // ---- review stage
   const [draft, setDraft] = useState<RecipeImportDraft | null>(null);
@@ -114,6 +122,7 @@ export default function RecipeImportClient({
   const [sourceUrl, setSourceUrl] = useState("");
   const [steps, setSteps] = useState<StepEntry[]>([]);
   const [description, setDescription] = useState("");
+  const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [createFor, setCreateFor] = useState<number | null>(null);
 
@@ -151,6 +160,7 @@ export default function RecipeImportClient({
         setSourceUrl(saved.sourceUrl);
         setSteps(saved.steps);
         setDescription(saved.description);
+        setNotes(saved.notes);
       }
       setSessionReady(true);
     })();
@@ -176,12 +186,12 @@ export default function RecipeImportClient({
         return;
       }
       const raw = serializeReview(ownerId, {
-        draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description,
+        draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description, notes,
       });
       if (raw) sessionStorage.setItem(reviewSessionKey(ownerId), raw);
       else sessionStorage.removeItem(reviewSessionKey(ownerId));
     } catch { /* beforeunload still protects reloads when storage is unavailable. */ }
-  }, [sessionReady, ownerId, draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description]);
+  }, [sessionReady, ownerId, draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description, notes]);
 
   useEffect(() => {
     if (!reviewing) return;
@@ -216,7 +226,8 @@ export default function RecipeImportClient({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const message = (data as { error?: string }).error ?? `Request failed (${res.status})`;
-        setError({ message, canPaste: "url" in body && /paste the recipe/i.test(message) });
+        const noRecipe = (data as { reason?: string }).reason === "no_written_recipe";
+        setError({ message, canPaste: "url" in body && /paste the recipe/i.test(message), noRecipe });
         return;
       }
       const r = data as RecipeImportResponse;
@@ -230,6 +241,7 @@ export default function RecipeImportClient({
       setSourceUrl(d.source.kind === "url" ? (d.source.url ?? "") : "");
       setSteps(d.recipe.steps.map((text) => ({ id: crypto.randomUUID(), text })));
       setDescription("");
+      setNotes(d.source.via ? `Video: ${d.source.via.videoUrl}` : "");
       setCreatedCount(0);
     } catch (e) {
       setError({ message: e instanceof Error ? e.message : "Failed to read the recipe", canPaste: false });
@@ -323,11 +335,11 @@ export default function RecipeImportClient({
   const payload = useMemo(
     () =>
       canApprove(lines, name, ingredients) ? buildSavePayload(
-        { name, portions, containerTypeId, sourceUrl, steps: steps.map((s) => s.text), customerDescription: description },
+        { name, portions, containerTypeId, sourceUrl, steps: steps.map((s) => s.text), customerDescription: description, notes },
         lines,
         ingredients,
       ) : null,
-    [name, portions, containerTypeId, sourceUrl, steps, description, lines, ingredients],
+    [name, portions, containerTypeId, sourceUrl, steps, description, notes, lines, ingredients],
   );
   const merged = mergeNote(payload?.mergedIngredientIds ?? [], ingredients);
   const siteKcal = siteCalories(draft?.recipe.nutrition);
@@ -664,6 +676,30 @@ export default function RecipeImportClient({
                 <FileText className="w-4 h-4" /> Switch to Paste text
               </button>
             )}
+            {error.noRecipe && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab("text");
+                    setError(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-white border border-red-200 rounded-lg hover:bg-red-100"
+                >
+                  <FileText className="w-4 h-4" /> Paste text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab("images");
+                    setError(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium bg-white border border-red-200 rounded-lg hover:bg-red-100"
+                >
+                  <ImageIcon className="w-4 h-4" /> Upload screenshots
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -708,6 +744,13 @@ export default function RecipeImportClient({
         Check the matches and amounts, then approve. Nothing is saved until you do.
         {model && <span className="text-gray-400"> Read with {model}.</span>}
       </p>
+
+      {draft.source.via && (
+        <p role="status" className="mb-4 text-sm text-gray-600">
+          Found the recipe on {draft.source.siteName || hostOf(draft.source.url)}, linked from the{" "}
+          {draft.source.via.kind === "tiktok" ? "TikTok" : "YouTube"} video.
+        </p>
+      )}
 
       {dup && (
         <div role="status" className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -936,6 +979,18 @@ export default function RecipeImportClient({
             id="ri-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            className={`${INPUT} resize-y`}
+          />
+        </div>
+        <div>
+          <label htmlFor="ri-notes" className="block text-sm font-medium text-gray-700 mb-1">
+            Notes <span className="text-gray-400 font-normal">(optional, admin only)</span>
+          </label>
+          <textarea
+            id="ri-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
             rows={2}
             className={`${INPUT} resize-y`}
           />
