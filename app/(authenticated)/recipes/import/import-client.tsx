@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -39,11 +39,16 @@ import {
   lineQuantity,
   mergeNote,
   siteCalories,
+  selectLineIngredient,
+  type SavePayload,
   type ReviewLine,
 } from "@/lib/recipes/import/draft";
 import type { RecipeImportDraft, RecipeImportResponse } from "@/lib/recipes/import/types";
 import { validateSourceUrl, validateSteps } from "@/lib/recipes/steps";
 import type { Category, ContainerType, Ingredient } from "@/lib/supabase/types";
+
+import { restoreReview, reviewSessionKey, serializeReview } from "@/lib/recipes/import/session";
+import { createSaveAttempt } from "@/lib/recipes/import/save-attempt";
 
 type Tab = "url" | "text" | "images";
 
@@ -67,21 +72,23 @@ export default function RecipeImportClient({
   categories,
   containerTypes,
   initialUrl,
+  ownerId,
 }: {
   ingredients: Ingredient[];
   categories: Category[];
   containerTypes: ContainerType[];
   initialUrl: string | null;
+  ownerId: string;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
-  const confirmRef = useRef(confirm);
-  useEffect(() => {
-    confirmRef.current = confirm;
-  }, [confirm]);
   const skipGuard = useRef(false);
   const startedRef = useRef(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [saveAttempt] = useState(() => createSaveAttempt<SavePayload>());
+  const latestSave = useRef<(() => Promise<void>) | null>(null);
+  const ownerActive = useRef(true);
 
   const [ingredients, setIngredients] = useState(initialIngredients);
   const [createdCount, setCreatedCount] = useState(0);
@@ -116,44 +123,74 @@ export default function RecipeImportClient({
   const tooManyParts = parts.length > MAX_PARTS;
   const reviewing = draft !== null;
 
-  // ------------------------------------------------------------ navigation guard (unsaved draft)
+  function clearStoredReview() {
+    try { sessionStorage.removeItem(reviewSessionKey(ownerId)); } catch { /* Storage may be disabled. */ }
+  }
+
+  // Restore before deep-link parsing and before any persistence effect may write.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data: { user } } = await createClient().auth.getUser();
+      if (cancelled) return;
+      if (!user || user.id !== ownerId) {
+        ownerActive.current = false;
+        router.replace("/login");
+        return;
+      }
+      let saved = null;
+      try { saved = restoreReview(sessionStorage.getItem(reviewSessionKey(ownerId)), ownerId); } catch {}
+      if (saved) {
+        startedRef.current = true;
+        setDraft(saved.draft);
+        setModel(saved.model);
+        setLines(saved.lines);
+        setName(saved.name);
+        setPortionsStr(saved.portionsStr);
+        setContainerTypeId(saved.containerTypeId);
+        setSourceUrl(saved.sourceUrl);
+        setSteps(saved.steps);
+        setDescription(saved.description);
+      }
+      setSessionReady(true);
+    })();
+    const { data: { subscription } } = createClient().auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || (session && session.user.id !== ownerId)) {
+        ownerActive.current = false;
+        skipGuard.current = true;
+        try { sessionStorage.removeItem(reviewSessionKey(ownerId)); } catch {}
+        setDraft(null);
+        setLines([]);
+        router.replace("/login");
+      }
+    });
+    return () => { cancelled = true; subscription.unsubscribe(); };
+  }, [ownerId, router]);
+
+  // Persist each committed edit before the user can navigate Back.
+  useLayoutEffect(() => {
+    if (!sessionReady || skipGuard.current || !ownerActive.current) return;
+    try {
+      if (!draft) {
+        sessionStorage.removeItem(reviewSessionKey(ownerId));
+        return;
+      }
+      const raw = serializeReview(ownerId, {
+        draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description,
+      });
+      if (raw) sessionStorage.setItem(reviewSessionKey(ownerId), raw);
+      else sessionStorage.removeItem(reviewSessionKey(ownerId));
+    } catch { /* beforeunload still protects reloads when storage is unavailable. */ }
+  }, [sessionReady, ownerId, draft, model, lines, name, portionsStr, containerTypeId, sourceUrl, steps, description]);
+
   useEffect(() => {
     if (!reviewing) return;
     const h = (e: BeforeUnloadEvent) => {
-      if (skipGuard.current) return;
-      e.preventDefault();
+      if (!skipGuard.current) e.preventDefault();
     };
     window.addEventListener("beforeunload", h);
-    const onClick = (e: MouseEvent) => {
-      if (skipGuard.current || e.defaultPrevented || e.button !== 0) return;
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
-      if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
-      const url = new URL(a.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
-      e.preventDefault();
-      e.stopPropagation();
-      void confirmRef
-        .current({
-          title: "Leave this page?",
-          message: "The imported recipe hasn't been saved. If you leave, you'll have to read it again.",
-          confirmLabel: "Leave",
-          cancelLabel: "Stay",
-          tone: "danger",
-        })
-        .then((ok) => {
-          if (!ok) return;
-          skipGuard.current = true;
-          router.push(url.pathname + url.search + url.hash);
-        });
-    };
-    document.addEventListener("click", onClick, true);
-    return () => {
-      window.removeEventListener("beforeunload", h);
-      document.removeEventListener("click", onClick, true);
-    };
-  }, [reviewing, router]);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [reviewing]);
 
   // ------------------------------------------------------------ parsing
   async function parse(body: { url: string } | { text: string } | { files: Prepared[] }) {
@@ -210,11 +247,11 @@ export default function RecipeImportClient({
 
   // Deep link: ?url= fills the field and starts parsing once.
   useEffect(() => {
-    if (!initialUrl || startedRef.current) return;
+    if (!sessionReady || !initialUrl || startedRef.current) return;
     startedRef.current = true;
     void parse({ url: initialUrl });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionReady]);
 
   async function addFiles(list: FileList | File[]) {
     const incoming = Array.from(list).filter((f) => f.type.startsWith("image/") || f.type === "application/pdf");
@@ -233,6 +270,7 @@ export default function RecipeImportClient({
   }
 
   function backToInput() {
+    clearStoredReview();
     setDraft(null);
     setLines([]);
     setError(null);
@@ -242,7 +280,7 @@ export default function RecipeImportClient({
   async function discard() {
     const ok = await confirm({
       title: "Discard this import?",
-      message: "The recipe hasn't been saved. Nothing has been written.",
+      message: "The recipe hasn't been saved. Any ingredients you created will remain in the catalog.",
       confirmLabel: "Discard",
       cancelLabel: "Keep editing",
       tone: "danger",
@@ -258,13 +296,13 @@ export default function RecipeImportClient({
   const portions = Math.max(1, parseInt(portionsStr, 10) || 1);
   const portionsValid = /^\d+$/.test(portionsStr) && parseInt(portionsStr, 10) >= 1;
   const inc = includedLines(lines);
-  const blocking = blockingCount(lines);
+  const blocking = blockingCount(lines, ingredients);
   const unmatchedCount = lines.filter((l) => !l.base.is_section_header && !l.ingredient_id).length;
   const unmatchedIncluded = inc.filter((l) => !l.ingredient_id).length;
   const sourceUrlError = validateSourceUrl(sourceUrl);
   const stepsError = validateSteps(steps.map((s) => s.text));
   const approvable =
-    canApprove(lines, name) && portionsValid && !sourceUrlError && !stepsError && !saving;
+    canApprove(lines, name, ingredients) && portionsValid && !sourceUrlError && !stepsError && !saving;
 
   const calc = useMemo(() => {
     const entries = lines
@@ -272,7 +310,7 @@ export default function RecipeImportClient({
       .flatMap((l) => {
         const ingredient = byId.get(l.ingredient_id!);
         const quantity = lineQuantity(l);
-        return ingredient && quantity != null ? [{ ingredient, quantity }] : [];
+        return ingredient && !lineProblem(l, ingredient) && quantity != null ? [{ ingredient, quantity }] : [];
       });
     return { calc: calculateRecipe(entries, portions), used: entries.map((e) => e.ingredient) };
   }, [lines, byId, portions]);
@@ -284,18 +322,18 @@ export default function RecipeImportClient({
 
   const payload = useMemo(
     () =>
-      buildSavePayload(
+      canApprove(lines, name, ingredients) ? buildSavePayload(
         { name, portions, containerTypeId, sourceUrl, steps: steps.map((s) => s.text), customerDescription: description },
         lines,
         ingredients,
-      ),
+      ) : null,
     [name, portions, containerTypeId, sourceUrl, steps, description, lines, ingredients],
   );
-  const merged = mergeNote(payload.mergedIngredientIds, ingredients);
+  const merged = mergeNote(payload?.mergedIngredientIds ?? [], ingredients);
   const siteKcal = siteCalories(draft?.recipe.nutrition);
 
   async function approve() {
-    if (!approvable) return;
+    if (!approvable || !payload) return;
     const estimates = inc.filter((l) => l.base.is_estimate).length;
     const ok = await confirm({
       title: "Save this recipe?",
@@ -310,30 +348,55 @@ export default function RecipeImportClient({
       cancelLabel: "Keep editing",
     });
     if (!ok) return;
-    await save();
+    await latestSave.current?.();
   }
 
-  async function save() {
-    setSaving(true);
-    const supabase = createClient();
-    const { data, error: rpcErr } = await supabase.rpc("save_imported_recipe", {
-      p_recipe: payload.recipe,
-      p_ingredients: payload.ingredients,
-      p_aliases: payload.aliases,
-    });
-    if (rpcErr || !data) {
-      setSaving(false);
-      toast.error(`Could not save recipe: ${rpcErr?.message ?? "no id returned"}`, {
-        action: { label: "Retry", onClick: () => void save() },
-      });
-      return;
-    }
-    await invalidateRecipes();
-    if (createdCount > 0) await invalidateIngredients();
-    skipGuard.current = true;
-    toast.success("Recipe imported");
-    router.push(`/recipes?edit=${data as string}`);
-  }
+  useLayoutEffect(() => {
+    // Stale toast callbacks always invoke the latest validated render.
+    latestSave.current = async () => {
+      try {
+        await saveAttempt.run(
+          () => approvable && payload && draft && ownerActive.current && !skipGuard.current ? payload : null,
+          async (currentPayload) => {
+            setSaving(true);
+            try {
+              const supabase = createClient();
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user || user.id !== ownerId || !ownerActive.current) throw new Error("Your session changed. Sign in again.");
+              const { data, error: rpcErr } = await supabase.rpc("save_imported_recipe", {
+                p_recipe: currentPayload.recipe,
+                p_ingredients: currentPayload.ingredients,
+                p_aliases: currentPayload.aliases,
+              });
+              if (rpcErr || !data) throw new Error(rpcErr?.message ?? "No id returned");
+              // RPC committed: clear before cache work/navigation; no second save is offered.
+              skipGuard.current = true;
+              clearStoredReview();
+              setDraft(null);
+              setLines([]);
+              try {
+                await invalidateRecipes();
+                if (createdCount > 0) await invalidateIngredients();
+              } catch {
+                toast.info("Recipe saved. Refresh the recipes list if needed.");
+              }
+              toast.success("Recipe imported");
+              router.push("/recipes?edit=" + (data as string));
+            } finally { setSaving(false); }
+          },
+        );
+      } catch (e) {
+        toast.error("Could not save recipe: " + (e instanceof Error ? e.message : "Save failed"), {
+          action: { label: "Retry", onClick: () => void latestSave.current?.() },
+        });
+      }
+    };
+  });
+
+  useEffect(() => () => {
+    // Toasts outlive pages; leaving the import screen must disable their Retry action.
+    latestSave.current = null;
+  }, []);
 
   const createLine = createFor != null ? lines.find((l) => l.uid === createFor) : undefined;
 
@@ -345,7 +408,7 @@ export default function RecipeImportClient({
         <IngredientPicker
           ingredients={ingredients}
           value={l.ingredient_id}
-          onChange={(id) => patch(l.uid, { ingredient_id: id })}
+          onChange={(id) => patch(l.uid, selectLineIngredient(l, id ? byId.get(id) ?? null : null))}
         />
         {!l.ingredient_id && (
           <button
@@ -368,7 +431,7 @@ export default function RecipeImportClient({
     const ing = l.ingredient_id ? byId.get(l.ingredient_id) : undefined;
     const unit = ing?.unit ?? l.qtyUnit;
     const id = `qty-${mobile ? "m" : "d"}-${l.uid}`;
-    const problem = lineProblem(l);
+    const problem = lineProblem(l, ing);
     return (
       <div>
         <label htmlFor={id} className={mobile ? "block text-xs text-gray-500 mb-0.5" : "sr-only"}>
@@ -424,6 +487,8 @@ export default function RecipeImportClient({
       {mobile && <span>{l.include ? "Included" : "Skipped"}</span>}
     </label>
   );
+
+  if (!sessionReady) return <p className="text-sm text-gray-500">Restoring import…</p>;
 
   // ============================================================ RENDER: input stage
   if (!draft) {
@@ -930,7 +995,7 @@ export default function RecipeImportClient({
           onSaved={(ing) => {
             setIngredients((prev) => [...prev, ing].sort((a, b) => a.name.localeCompare(b.name)));
             setCreatedCount((n) => n + 1);
-            patch(createLine.uid, { ingredient_id: ing.id, include: true, qtyUnit: createLine.qtyUnit });
+            patch(createLine.uid, { ...selectLineIngredient(createLine, ing), include: true });
           }}
         />
       )}
