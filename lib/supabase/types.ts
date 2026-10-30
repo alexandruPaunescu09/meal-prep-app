@@ -591,3 +591,9 @@ export interface ReserveLabelParseArgs {
   p_model: string;
   p_limit: number;
 }
+
+/** supabase.rpc("save_imported_recipe", { p_recipe, p_ingredients, p_aliases }) -> recipe id (uuid) */
+export interface SaveImportedRecipeAlias {
+  alias: string;
+  ingredient_id: string;
+}

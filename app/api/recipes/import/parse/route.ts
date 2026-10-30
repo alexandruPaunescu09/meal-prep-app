@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth/require-admin";
 import { ClaudeError } from "@/lib/ai/claude";
 import { extractRecipeFromUrl } from "@/lib/recipes/import";
 import { mapRecipe, type RecipeImageFile, type RecipeMapInput } from "@/lib/recipes/import/map";
-import { findDuplicateByName } from "@/lib/recipes/import/postprocess";
+import { findDuplicateRecipe } from "@/lib/recipes/import/postprocess";
 import { fetchFailureResponse, validateJsonBody, validateUploads } from "@/lib/recipes/import/request";
 import type { RecipeImportResponse, RecipeImportSource } from "@/lib/recipes/import/types";
 
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
     supabase.from("ingredients").select("*").order("name"),
     supabase.from("ingredient_aliases").select("ingredient_id, store, alias"),
     supabase.from("ingredient_categories").select("slug, name").order("sort_order"),
-    supabase.from("recipes").select("id, name"),
+    supabase.from("recipes").select("id, name, source_url"),
   ]);
   if (ingRes.error || aliasRes.error || catRes.error || recipeRes.error) {
     return NextResponse.json({ error: "Failed to load the ingredient catalog" }, { status: 500 });
@@ -115,7 +115,11 @@ export async function POST(req: NextRequest) {
       source,
       recipe: result.recipe,
       lines: result.lines,
-      duplicateOf: findDuplicateByName(result.recipe.name, recipeRes.data ?? []),
+      duplicateOf: findDuplicateRecipe(
+        result.recipe.name,
+        source.kind === "url" ? source.url : null,
+        recipeRes.data ?? [],
+      ),
     },
     model: result.model,
   };

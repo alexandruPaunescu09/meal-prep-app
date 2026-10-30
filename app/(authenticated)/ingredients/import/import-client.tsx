@@ -9,24 +9,19 @@ import {
   Loader2,
   AlertTriangle,
   Plus,
-  ChevronDown,
   CheckCircle2,
   ArrowLeft,
   ExternalLink,
 } from "lucide-react";
-import { useListboxNav } from "@/lib/hooks/use-listbox-nav";
 import IngredientForm from "@/components/ingredient-form";
+import IngredientPicker from "@/components/ingredient-picker";
+import { MAX_PARTS, MAX_TOTAL_BYTES, prepareFile } from "@/lib/images/slice";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { formatLei, formatPricePerUnit, formatDate, toLocalISODate } from "@/lib/format";
 import { invalidateIngredients } from "@/lib/actions/revalidate";
 import type { Category, Ingredient, ParsedInvoiceLine } from "@/lib/supabase/types";
 
-const MAX_TOTAL_BYTES = 4 * 1024 * 1024;
-const CHUNK_H = 1560;
-const OVERLAP = 120;
-const MAX_W = 1600;
-const MAX_PARTS = 10; // server limit on /api/invoices/parse
 
 type ParseResponse = {
   store: string;
@@ -47,7 +42,6 @@ type ReviewLine = {
   package_price: string;
 };
 
-type Prepared = { name: string; blob: Blob };
 
 function titleCase(s: string) {
   return s
@@ -57,7 +51,6 @@ function titleCase(s: string) {
 }
 
 const BIG_CHANGE_PCT = 30;
-const PICKER_LIMIT = 50;
 
 type ChangedItem = {
   id: string;
@@ -89,216 +82,6 @@ function pctBadge(pct: number | null) {
         </span>
       )}
     </span>
-  );
-}
-
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/jpeg", 0.85),
-  );
-}
-
-/** Slice tall images into <=1560px JPEG chunks with overlap; PDFs and small images pass through. */
-async function prepareFile(file: File): Promise<Prepared[]> {
-  if (file.type === "application/pdf") return [{ name: file.name, blob: file }];
-  const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_W / bmp.width);
-  const w = Math.round(bmp.width * scale);
-  const h = Math.round(bmp.height * scale);
-  const passthrough =
-    scale === 1 &&
-    h <= CHUNK_H &&
-    file.size < 1.5 * 1024 * 1024 &&
-    ["image/jpeg", "image/png", "image/webp"].includes(file.type);
-  if (passthrough) {
-    bmp.close();
-    return [{ name: file.name, blob: file }];
-  }
-  const out: Prepared[] = [];
-  const step = CHUNK_H - OVERLAP;
-  let y = 0;
-  let i = 1;
-  while (y < h) {
-    const ch = Math.min(CHUNK_H, h - y);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = ch;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, w, ch);
-    ctx.drawImage(bmp, 0, y / scale, bmp.width, ch / scale, 0, 0, w, ch);
-    out.push({ name: `${file.name.replace(/\.[^.]+$/, "")}-part${i}.jpg`, blob: await canvasToJpeg(canvas) });
-    if (y + ch >= h) break;
-    y += step;
-    i++;
-  }
-  bmp.close();
-  return out;
-}
-
-function IngredientPicker({
-  ingredients,
-  value,
-  onChange,
-}: {
-  ingredients: Ingredient[];
-  value: string | null;
-  onChange: (id: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const [flip, setFlip] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-  const selected = ingredients.find((i) => i.id === value);
-
-  function openPicker() {
-    // Open upward when there isn't room below (avoids clipping at the viewport bottom).
-    const r = triggerRef.current?.getBoundingClientRect();
-    setFlip(!!r && window.innerHeight - r.bottom < 320 && r.top > window.innerHeight - r.bottom);
-    setActive(0);
-    setOpen(true);
-  }
-
-  function closePicker(refocus = true) {
-    setOpen(false);
-    setQ("");
-    if (refocus) triggerRef.current?.focus();
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQ("");
-      }
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  const { list, total } = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    const f = t
-      ? ingredients.filter((i) => `${i.name} ${i.brand ?? ""}`.toLowerCase().includes(t))
-      : ingredients;
-    return { list: f.slice(0, PICKER_LIMIT), total: f.length };
-  }, [ingredients, q]);
-
-  const choose = (id: string | null) => {
-    onChange(id);
-    closePicker();
-  };
-
-  // Offset 1 when the "Clear selection" row is present.
-  const clearOffset = value ? 1 : 0;
-  const rowCount = list.length + clearOffset;
-
-  const nav = useListboxNav({
-    count: rowCount,
-    onSelect: (i) => {
-      if (clearOffset && i === 0) choose(null);
-      else {
-        const it = list[i - clearOffset];
-        if (it) choose(it.id);
-      }
-    },
-    onEscape: (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      closePicker();
-    },
-    enabled: open,
-    listRef,
-  });
-  const { activeIndex: active, setActiveIndex: setActive } = nav;
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && rowCount === 0) e.preventDefault();
-    nav.onKeyDown(e);
-  }
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => (open ? closePicker(false) : openPicker())}
-        className="w-full flex items-center justify-between gap-2 px-2 py-1.5 border border-gray-300 rounded-lg text-sm text-left bg-white hover:bg-gray-50"
-      >
-        <span className={`truncate ${selected ? "text-gray-900" : "text-gray-400"}`}>
-          {selected ? `${selected.name}${selected.brand ? ` (${selected.brand})` : ""}` : "Select ingredient…"}
-        </span>
-        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
-      </button>
-      {open && (
-        <div
-          className={`absolute z-30 left-0 right-0 sm:right-auto sm:w-72 bg-white border rounded-lg shadow-lg ${
-            flip ? "bottom-full mb-1" : "top-full mt-1"
-          }`}
-        >
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setActive(0);
-            }}
-            onKeyDown={onKeyDown}
-            placeholder="Search…"
-            aria-label="Search ingredients"
-            className="w-full px-3 py-2 text-sm border-b outline-none rounded-t-lg"
-          />
-          <ul ref={listRef} role="listbox" className="max-h-60 overflow-y-auto">
-            {value && (
-              <li role="option" aria-selected={active === 0} data-idx={0}>
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => choose(null)}
-                  onMouseEnter={() => setActive(0)}
-                  className={`w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 ${
-                    active === 0 ? "bg-gray-100" : ""
-                  }`}
-                >
-                  Clear selection
-                </button>
-              </li>
-            )}
-            {list.map((i, n) => {
-              const idx = n + clearOffset;
-              return (
-                <li key={i.id} role="option" aria-selected={active === idx} data-idx={idx}>
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onClick={() => choose(i.id)}
-                    onMouseEnter={() => setActive(idx)}
-                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-emerald-50 ${
-                      active === idx ? "bg-emerald-50" : ""
-                    }`}
-                  >
-                    {i.name}
-                    {i.brand && <span className="text-gray-400"> ({i.brand})</span>}
-                    <span className="text-gray-400 text-xs"> · {i.unit}</span>
-                  </button>
-                </li>
-              );
-            })}
-            {list.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matches</li>}
-          </ul>
-          {total > PICKER_LIMIT && (
-            <p className="px-3 py-1.5 text-xs text-gray-500 border-t">
-              Showing {PICKER_LIMIT} of {total} — refine search
-            </p>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 

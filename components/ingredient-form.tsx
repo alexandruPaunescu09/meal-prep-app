@@ -68,6 +68,8 @@ interface IngredientFormProps {
   onOpenExisting?: (id: string) => void;
   /** Open the barcode scanner as soon as the form mounts. */
   startWithScanner?: boolean;
+  /** Open the nutrition search as soon as the form mounts, prefilled with this query (new ingredients). */
+  initialNutritionQuery?: string;
 }
 
 type NutKey =
@@ -184,13 +186,14 @@ export default function IngredientForm({
   onSaved,
   onOpenExisting,
   startWithScanner,
+  initialNutritionQuery,
 }: IngredientFormProps) {
   const router = useRouter();
   const supabase = createClient();
   const confirm = useConfirm();
   const toast = useToast();
-  const [showNutritionSearch, setShowNutritionSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [showNutritionSearch, setShowNutritionSearch] = useState(!!initialNutritionQuery?.trim());
+  const [searchQuery, setSearchQuery] = useState(initialNutritionQuery?.trim() ?? "");
   const [showScanner, setShowScanner] = useState(!!startWithScanner);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState<

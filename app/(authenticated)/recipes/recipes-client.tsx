@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, Fragment, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -20,6 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
 import {
   Plus,
+  Download,
   Pencil,
   Trash2,
   ChevronDown,
@@ -269,13 +271,22 @@ export default function RecipesClient({
               : `${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add Recipe
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/recipes/import"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <Download className="w-4 h-4" />
+            Import
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Recipe
+          </button>
+        </div>
       </div>
 
       {/* Search + sort */}
