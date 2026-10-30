@@ -13,6 +13,7 @@ import {
   SaveRecipeIngredientInput,
 } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
+import { nutritionGrams, missingPieceWeight } from "@/lib/calculations/piece-weight";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
 import { formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
 import { Modal } from "@/components/ui/modal";
@@ -423,7 +424,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 {entries.map((entry) => {
                   const q = qtyToNumber(entry.qty);
                   const rowCost = q * entry.ingredient.price_per_unit;
-                  const rowKcal = ((entry.ingredient.calories ?? 0) * q) / 100;
+                  const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
                   return (
                     <div
                       key={entry.id}
@@ -436,6 +437,11 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                         <p className="text-xs text-gray-500">
                           {formatLei(rowCost)} · {Math.round(rowKcal)} kcal
                         </p>
+                        {missingPieceWeight(entry.ingredient) && (
+                          <p className="text-xs text-amber-700">
+                            Counts as grams until you set a weight per piece
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         <input

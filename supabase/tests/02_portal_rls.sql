@@ -133,6 +133,9 @@ select has_view('public', 'recipes_public', 'recipes_public exists');
 select hasnt_column('public', 'ingredients_public', 'package_price', 'ingredients_public hides package_price');
 select hasnt_column('public', 'ingredients_public', 'price_per_unit', 'ingredients_public hides price_per_unit');
 select hasnt_column('public', 'ingredients_public', 'quantity_purchased', 'ingredients_public hides quantity_purchased');
+-- RI-0a: the piece weight is customer-visible, prices and notes still are not.
+select has_column('public', 'ingredients_public', 'piece_weight_g', 'ingredients_public exposes piece_weight_g');
+select hasnt_column('public', 'ingredients_public', 'notes', 'ingredients_public hides notes');
 select hasnt_column('public', 'recipes_public', 'notes', 'recipes_public hides notes');
 select is((select count(*)::int from information_schema.columns where table_schema = 'public' and table_name in ('ingredients_public', 'recipes_public') and column_name in ('package_price', 'price_per_unit', 'quantity_purchased', 'notes')), 0, 'no confidential column in either view (information_schema)');
 set local role authenticated;

@@ -1,5 +1,6 @@
 import { RecipeIngredient, Ingredient, Recipe, MealPlanEntry, MealType, MealPlan, Client } from "@/lib/supabase/types";
 import { calculateRecipe, RecipeCalculation } from "./recipe";
+import { nutritionGrams } from "./piece-weight";
 
 export interface DayTotals {
   cost: number;
@@ -77,7 +78,7 @@ export function calculateDay(entries: FullEntry[]): DayTotals {
     } else if (entry.ingredient && entry.quantity) {
       const ing = entry.ingredient;
       const qty = entry.quantity * entry.portions;
-      const factor = qty / 100;
+      const factor = nutritionGrams(ing, qty) / 100;
       totals.cost += qty * ing.price_per_unit;
       totals.calories += (ing.calories ?? 0) * factor;
       totals.protein += (ing.protein ?? 0) * factor;

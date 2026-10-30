@@ -25,6 +25,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { formatLei, formatPricePerUnit, humanizeSlug } from "@/lib/format";
+import { missingPieceWeight } from "@/lib/calculations/piece-weight";
 
 type SortKey = "name" | "ppu" | "calories";
 type QuickFilter = "all" | "noprice" | "nonutrition";
@@ -511,6 +512,11 @@ export default function IngredientsClient({
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                       {categoryLabels[ing.category] ?? ing.category}
                     </span>
+                    {missingPieceWeight(ing) && (
+                      <span className="inline-block mt-1 ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
+                        No piece weight
+                      </span>
+                    )}
                   </button>
                   <div className="flex items-center ml-2">
                     <IconButton label={`Edit ${ing.name}`} onClick={() => openEdit(ing)}>
@@ -666,6 +672,11 @@ export default function IngredientsClient({
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                             {categoryLabels[ing.category] ?? ing.category}
                           </span>
+                          {missingPieceWeight(ing) && (
+                            <span className="ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
+                              No piece weight
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-600">
                           {ing.quantity_purchased} {ing.unit}

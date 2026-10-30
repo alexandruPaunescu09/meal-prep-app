@@ -12,8 +12,8 @@ import { planEntryNutrition, type NutritionSource } from "@/lib/calculations/dia
 
 const NUTRITION_COLS = "calories, protein, carbs, fat, fiber, sugar, sat_fat, salt, micronutrients";
 export const FOOD_COLS = `id, barcode, name, brand, unit, ${NUTRITION_COLS}, serving_size, serving_label, status, created_by_client_id, promoted_ingredient_id`;
-export const INGREDIENT_COLS = `id, name, brand, unit, ${NUTRITION_COLS}`;
-const RECIPE_COLS = `id, name, portions, recipe_ingredients(quantity, ingredient:ingredients(${NUTRITION_COLS}))`;
+export const INGREDIENT_COLS = `id, name, brand, unit, piece_weight_g, ${NUTRITION_COLS}`;
+const RECIPE_COLS = `id, name, portions, recipe_ingredients(quantity, ingredient:ingredients(unit, piece_weight_g, ${NUTRITION_COLS}))`;
 
 const SEARCH_FETCH_LIMIT = 50;
 const RECIPE_CANDIDATE_LIMIT = 200;
@@ -94,26 +94,38 @@ export function foodToItem(f: FoodRow): CatalogItem {
   };
 }
 
-type IngredientRow = NutritionRow & { id: string; name: string; brand: string | null; unit: string };
+type IngredientRow = NutritionRow & {
+  id: string;
+  name: string;
+  brand: string | null;
+  unit: string;
+  piece_weight_g?: number | null;
+};
 
 export function ingredientToItem(i: IngredientRow): CatalogItem {
+  const pieceWeight =
+    i.unit === "buc" && i.piece_weight_g != null && i.piece_weight_g > 0 ? i.piece_weight_g : null;
   return {
     kind: "ingredient",
     id: i.id,
     name: i.name,
     brand: i.brand,
-    // 'buc' (pieces) has no gram weight in the data model; the calculations already treat it as g.
+    // A 'buc' (pieces) ingredient WITH a piece weight is logged in grams with one piece as the
+    // serving. Without a weight it keeps the old mapping (the count counts as grams).
     unit: i.unit === "ml" ? "ml" : "g",
     per100: toNutrition(i),
+    ...(pieceWeight ? { servingSize: pieceWeight, servingLabel: "piece" } : {}),
     verified: true,
   };
 }
+
+type RecipeIngredientRow = NutritionRow & { unit?: string | null; piece_weight_g?: number | null };
 
 type RecipeRow = {
   id: string;
   name: string;
   portions: number;
-  recipe_ingredients: { quantity: number; ingredient: NutritionRow | NutritionRow[] | null }[];
+  recipe_ingredients: { quantity: number; ingredient: RecipeIngredientRow | RecipeIngredientRow[] | null }[];
 };
 
 export function recipeToItem(r: RecipeRow): CatalogItem {

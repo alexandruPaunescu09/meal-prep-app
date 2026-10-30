@@ -19,6 +19,8 @@ export interface Ingredient {
   unit: string;
   package_price: number;
   price_per_unit: number;
+  /** Grams per 1 buc (RI-0a); only meaningful when unit = 'buc'. Nutrition is per 100 g. */
+  piece_weight_g: number | null;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
