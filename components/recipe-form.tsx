@@ -15,20 +15,19 @@ import {
 import { calculateRecipe, RecipeCalculation } from "@/lib/calculations/recipe";
 import { nutritionGrams, missingPieceWeight } from "@/lib/calculations/piece-weight";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
+import { formatCost, formatLei, formatNumber, formatPricePerUnit, humanizeSlug, parseDecimal } from "@/lib/format";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { Plus, Trash2, Search, Check, ArrowUp, ArrowDown, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Search, Check, ExternalLink } from "lucide-react";
 import {
-  moveItem,
   normalizeSourceUrl,
   normalizeSteps,
   validateSourceUrl,
   validateSteps,
 } from "@/lib/recipes/steps";
-import { RECIPE_STEP_MAX_COUNT, RECIPE_STEP_MAX_LENGTH } from "@/lib/validations/schemas";
+import RecipeStepsEditor, { type StepEntry } from "@/components/recipe-steps-editor";
 
 type RecipeWithIngredients = Recipe & {
   recipe_ingredients: (RecipeIngredient & { ingredient: Ingredient })[];
@@ -44,11 +43,6 @@ interface IngredientEntry {
   ingredient: Ingredient;
   /** Raw text so partial input ("0.", "") is preserved while typing. */
   qty: string;
-}
-
-interface StepEntry {
-  id: string;
-  text: string;
 }
 
 const PICKER_LIMIT = 100;
@@ -455,7 +449,10 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="space-y-2">
                 {entries.map((entry) => {
                   const q = qtyToNumber(entry.qty);
-                  const rowCost = q * entry.ingredient.price_per_unit;
+                  const rowCost =
+                    entry.ingredient.price_per_unit == null
+                      ? null
+                      : q * entry.ingredient.price_per_unit;
                   const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
                   return (
                     <div
@@ -467,7 +464,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                           {entry.ingredient.name}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {formatLei(rowCost)} · {Math.round(rowKcal)} kcal
+                          {rowCost == null ? "Price pending" : formatLei(rowCost)} · {Math.round(rowKcal)} kcal
                         </p>
                         {missingPieceWeight(entry.ingredient) && (
                           <p className="text-xs text-amber-700">
@@ -515,8 +512,12 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               <div className="grid grid-cols-5 gap-2">
                 <div className="bg-emerald-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-gray-500">Cost</p>
-                  <p className="text-sm font-bold text-emerald-700">
-                    {formatLei(calc.costPerPortion)}
+                  <p
+                    className={`font-bold text-emerald-700 ${
+                      calc.unpricedCount > 0 ? "text-xs leading-tight" : "text-sm"
+                    }`}
+                  >
+                    {formatCost(calc.costPerPortion, calc.unpricedCount)}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-2 text-center">
@@ -545,7 +546,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-1.5">
-                Total cost: {formatLei(calc.totalCost)} for {portionsValid ? portions : 1} portion
+                Total cost: {formatCost(calc.totalCost, calc.unpricedCount)} for {portionsValid ? portions : 1} portion
                 {(portionsValid ? portions : 1) > 1 ? "s" : ""}
               </p>
             </div>
@@ -615,67 +616,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
           </div>
 
           {/* Steps */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="block text-sm font-medium text-gray-700">Steps</span>
-              <button
-                type="button"
-                onClick={() => setSteps((prev) => [...prev, { id: crypto.randomUUID(), text: "" }])}
-                disabled={steps.length >= RECIPE_STEP_MAX_COUNT}
-                className="inline-flex items-center gap-1 text-sm text-emerald-700 hover:underline disabled:opacity-40"
-              >
-                <Plus size={14} /> Add step
-              </button>
-            </div>
-            {steps.length === 0 ? (
-              <p className="text-xs text-gray-500">No steps yet.</p>
-            ) : (
-              <ol className="space-y-2">
-                {steps.map((step, i) => (
-                  <li key={step.id} className="flex items-start gap-2">
-                    <span className="mt-2 w-5 shrink-0 text-right text-sm text-gray-500">{i + 1}.</span>
-                    <textarea
-                      aria-label={`Step ${i + 1}`}
-                      value={step.text}
-                      maxLength={RECIPE_STEP_MAX_LENGTH}
-                      onChange={(e) =>
-                        setSteps((prev) =>
-                          prev.map((x) => (x.id === step.id ? { ...x, text: e.target.value } : x))
-                        )
-                      }
-                      rows={2}
-                      className={`${inputCls} resize-none`}
-                    />
-                    <div className="flex shrink-0">
-                      <IconButton
-                        label={`Move step ${i + 1} up`}
-                        disabled={i === 0}
-                        onClick={() => setSteps((prev) => moveItem(prev, i, -1))}
-                      >
-                        <ArrowUp size={16} />
-                      </IconButton>
-                      <IconButton
-                        label={`Move step ${i + 1} down`}
-                        disabled={i === steps.length - 1}
-                        onClick={() => setSteps((prev) => moveItem(prev, i, 1))}
-                      >
-                        <ArrowDown size={16} />
-                      </IconButton>
-                      <IconButton
-                        label={`Remove step ${i + 1}`}
-                        tone="danger"
-                        onClick={() => setSteps((prev) => prev.filter((x) => x.id !== step.id))}
-                      >
-                        <Trash2 size={16} />
-                      </IconButton>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {stepsError && <p className="text-xs text-red-600 mt-1">{stepsError}</p>}
-            <p className="text-xs text-gray-500 mt-1">Internal for now. Empty steps are dropped on save.</p>
-          </div>
+          <RecipeStepsEditor steps={steps} setSteps={setSteps} error={stepsError} />
 
           {error && (
             <p role="alert" className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
@@ -748,7 +689,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                         )}
                         <span className="block text-xs text-gray-500">
                           {humanizeSlug(ing.category)} ·{" "}
-                          {formatPricePerUnit(ing.price_per_unit, ing.unit)}
+                          {ing.price_per_unit == null ? "Price pending" : formatPricePerUnit(ing.price_per_unit, ing.unit)}
                         </span>
                       </span>
                       {added && (

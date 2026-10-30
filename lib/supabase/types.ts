@@ -17,8 +17,9 @@ export interface Ingredient {
   category: IngredientCategory;
   quantity_purchased: number;
   unit: string;
-  package_price: number;
-  price_per_unit: number;
+  /** NULL = price pending (RI-0c); price_per_unit is then NULL too. */
+  package_price: number | null;
+  price_per_unit: number | null;
   /** Grams per 1 buc (RI-0a); only meaningful when unit = 'buc'. Nutrition is per 100 g. */
   piece_weight_g: number | null;
   calories: number | null;
@@ -589,4 +590,10 @@ export interface ReserveLabelParseArgs {
   p_client_id: string;
   p_model: string;
   p_limit: number;
+}
+
+/** supabase.rpc("save_imported_recipe", { p_recipe, p_ingredients, p_aliases }) -> recipe id (uuid) */
+export interface SaveImportedRecipeAlias {
+  alias: string;
+  ingredient_id: string;
 }

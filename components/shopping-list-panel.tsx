@@ -11,7 +11,7 @@ import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { copyText, escapeHtml, printHtml } from "@/lib/browser";
-import { formatWeekRange } from "@/lib/format";
+import { formatCost, formatWeekRange } from "@/lib/format";
 
 type FullEntry = MealPlanEntry & {
   recipe?: Recipe & {
@@ -53,7 +53,7 @@ export default function ShoppingListPanel({
   const [copied, setCopied] = useState(false);
   const [hideChecked, setHideChecked] = useState(false);
 
-  const { groups, totalCost } = useMemo(
+  const { groups, totalCost, unpricedCount } = useMemo(
     () => generateShoppingList(entries, categoryLabels),
     [entries, categoryLabels]
   );
@@ -67,17 +67,19 @@ export default function ShoppingListPanel({
             ...g,
             items,
             subtotal: items.reduce((sum, i) => sum + i.estimatedCost, 0),
+            unpricedCount: items.filter((i) => i.unpriced).length,
           };
         })
         .filter((g) => g.items.length > 0),
     [groups, checkedItems]
   );
   const toBuyCost = toBuyGroups.reduce((s, g) => s + g.subtotal, 0);
+  const toBuyUnpriced = toBuyGroups.reduce((s, g) => s + g.unpricedCount, 0);
   const visibleGroups = hideChecked ? toBuyGroups : groups;
   const checkedCount = checkedItems.size;
 
   async function handleCopy() {
-    const ok = await copyText(shoppingListToText(toBuyGroups, toBuyCost));
+    const ok = await copyText(shoppingListToText(toBuyGroups, toBuyCost, toBuyUnpriced));
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -99,7 +101,7 @@ export default function ShoppingListPanel({
                   i.totalQuantity % 1 === 0
                     ? i.totalQuantity
                     : i.totalQuantity.toFixed(1)
-                }${escapeHtml(i.unit)}</td><td class="r">${i.estimatedCost.toFixed(2)} lei</td></tr>`
+                }${escapeHtml(i.unit)}</td><td class="r">${i.unpriced ? "price pending" : `${i.estimatedCost.toFixed(2)} lei`}</td></tr>`
             )
             .join("")}</table>`
       )
@@ -222,7 +224,11 @@ export default function ShoppingListPanel({
                           {item.unit}
                         </span>
                         <span className="text-emerald-700 font-medium w-20 text-right">
-                          {item.estimatedCost.toFixed(2)} lei
+                          {item.unpriced ? (
+                            <span className="text-xs font-normal text-amber-700">Price pending</span>
+                          ) : (
+                            `${item.estimatedCost.toFixed(2)} lei`
+                          )}
                         </span>
                       </div>
                     </label>
@@ -230,7 +236,7 @@ export default function ShoppingListPanel({
                 })}
               </div>
               <p className="text-xs text-gray-400 text-right mt-1">
-                Subtotal: {group.subtotal.toFixed(2)} lei
+                Subtotal: {formatCost(group.subtotal, group.unpricedCount)}
               </p>
             </div>
           ))}
@@ -243,13 +249,13 @@ export default function ShoppingListPanel({
             <span className="text-sm font-semibold text-gray-700">
               {checkedCount > 0 ? "Still to buy" : "Total Estimated Cost"}
             </span>
-            <span className="text-lg font-bold text-emerald-700">
-              {toBuyCost.toFixed(2)} lei
+            <span className={`font-bold text-emerald-700 ${toBuyUnpriced > 0 ? "text-sm" : "text-lg"}`}>
+              {formatCost(toBuyCost, toBuyUnpriced)}
             </span>
           </div>
           {checkedCount > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              Full list {totalCost.toFixed(2)} lei · {checkedCount} item
+              Full list {formatCost(totalCost, unpricedCount)} · {checkedCount} item
               {checkedCount !== 1 ? "s" : ""} marked &ldquo;Have it&rdquo;
             </p>
           )}

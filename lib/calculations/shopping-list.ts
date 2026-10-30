@@ -1,4 +1,4 @@
-import { humanizeSlug } from "@/lib/format";
+import { formatCost, humanizeSlug } from "@/lib/format";
 import {
   Ingredient,
   Recipe,
@@ -12,7 +12,10 @@ export interface ShoppingItem {
   category: string;
   totalQuantity: number;
   unit: string;
+  /** Known cost; 0 when the ingredient has no price (see `unpriced`). */
   estimatedCost: number;
+  /** True when the ingredient is price pending: estimatedCost is not a real figure. */
+  unpriced: boolean;
 }
 
 export interface ShoppingListGroup {
@@ -20,6 +23,7 @@ export interface ShoppingListGroup {
   label: string;
   items: ShoppingItem[];
   subtotal: number;
+  unpricedCount: number;
 }
 
 type FullEntry = MealPlanEntry & {
@@ -35,6 +39,7 @@ export function generateShoppingList(
 ): {
   groups: ShoppingListGroup[];
   totalCost: number;
+  unpricedCount: number;
 } {
   const itemMap = new Map<string, ShoppingItem>();
 
@@ -71,19 +76,20 @@ export function generateShoppingList(
       label: categoryLabels?.[category] ?? humanizeSlug(category),
       items: categoryItems.sort((a, b) => a.name.localeCompare(b.name)),
       subtotal: categoryItems.reduce((sum, i) => sum + i.estimatedCost, 0),
+      unpricedCount: categoryItems.filter((i) => i.unpriced).length,
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
   const totalCost = items.reduce((sum, i) => sum + i.estimatedCost, 0);
 
-  return { groups, totalCost };
+  return { groups, totalCost, unpricedCount: items.filter((i) => i.unpriced).length };
 }
 
 function accumulateItem(itemMap: Map<string, ShoppingItem>, ing: Ingredient, quantity: number) {
   const existing = itemMap.get(ing.id);
   if (existing) {
     existing.totalQuantity += quantity;
-    existing.estimatedCost += quantity * ing.price_per_unit;
+    if (ing.price_per_unit != null) existing.estimatedCost += quantity * ing.price_per_unit;
   } else {
     itemMap.set(ing.id, {
       ingredientId: ing.id,
@@ -91,14 +97,16 @@ function accumulateItem(itemMap: Map<string, ShoppingItem>, ing: Ingredient, qua
       category: ing.category,
       totalQuantity: quantity,
       unit: ing.unit,
-      estimatedCost: quantity * ing.price_per_unit,
+      estimatedCost: ing.price_per_unit == null ? 0 : quantity * ing.price_per_unit,
+      unpriced: ing.price_per_unit == null,
     });
   }
 }
 
 export function shoppingListToText(
   groups: ShoppingListGroup[],
-  totalCost: number
+  totalCost: number,
+  unpricedCount = 0
 ): string {
   const lines: string[] = ["SHOPPING LIST", "=============", ""];
 
@@ -109,12 +117,14 @@ export function shoppingListToText(
         item.totalQuantity % 1 === 0
           ? item.totalQuantity.toString()
           : item.totalQuantity.toFixed(1);
-      lines.push(`- ${item.name}: ${qty}${item.unit} (~${item.estimatedCost.toFixed(2)} lei)`);
+      lines.push(
+        `- ${item.name}: ${qty}${item.unit} (${item.unpriced ? "price pending" : `~${item.estimatedCost.toFixed(2)} lei`})`
+      );
     }
-    lines.push(`  Subtotal: ${group.subtotal.toFixed(2)} lei`);
+    lines.push(`  Subtotal: ${formatCost(group.subtotal, group.unpricedCount)}`);
     lines.push("");
   }
 
-  lines.push(`TOTAL: ${totalCost.toFixed(2)} lei`);
+  lines.push(`TOTAL: ${formatCost(totalCost, unpricedCount)}`);
   return lines.join("\n");
 }

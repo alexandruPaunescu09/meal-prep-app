@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, Fragment, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -14,13 +15,14 @@ import {
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import RecipeForm from "@/components/recipe-form";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
-import { formatLei, formatNumber, humanizeSlug } from "@/lib/format";
+import { formatCost, formatNumber, humanizeSlug } from "@/lib/format";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { IconButton } from "@/components/ui/icon-button";
 import { RecipeSteps } from "@/components/recipe-steps";
 import {
   Plus,
+  Download,
   Pencil,
   Trash2,
   ChevronDown,
@@ -270,13 +272,22 @@ export default function RecipesClient({
               : `${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          Add Recipe
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/recipes/import"
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 text-sm"
+          >
+            <Download className="w-4 h-4" />
+            Import
+          </Link>
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Recipe
+          </button>
+        </div>
       </div>
 
       {/* Search + sort */}
@@ -363,7 +374,7 @@ export default function RecipesClient({
                     <div>
                       <span className="text-gray-500">Cost per portion</span>
                       <p className="font-medium text-emerald-700">
-                        {formatLei(calc.costPerPortion)}
+                        {formatCost(calc.costPerPortion, calc.unpricedCount)}
                       </p>
                     </div>
                     <div>
@@ -409,7 +420,7 @@ export default function RecipesClient({
                         <div>
                           <span className="text-gray-500">Total Cost</span>
                           <p className="font-medium text-gray-900">
-                            {formatLei(calc.totalCost)}
+                            {formatCost(calc.totalCost, calc.unpricedCount)}
                           </p>
                         </div>
                         <div>
@@ -523,7 +534,7 @@ export default function RecipesClient({
                             {recipe.portions}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-emerald-700">
-                            {formatLei(calc.costPerPortion)}
+                            {formatCost(calc.costPerPortion, calc.unpricedCount)}
                           </td>
                           <td className="px-4 py-3 text-right text-gray-600">
                             {Math.round(calc.perPortion.calories)} kcal
@@ -568,7 +579,7 @@ export default function RecipesClient({
                                   <div>
                                     <span className="text-gray-500">Total Cost</span>
                                     <p className="font-medium text-gray-900">
-                                      {formatLei(calc.totalCost)}
+                                      {formatCost(calc.totalCost, calc.unpricedCount)}
                                     </p>
                                   </div>
                                   <div>

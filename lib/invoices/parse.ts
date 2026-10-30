@@ -1,7 +1,7 @@
 // Server-only module: imported exclusively from route handlers.
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod/v4";
+import { callStructured, ClaudeError, type ClaudeErrorMessages } from "@/lib/ai/claude";
 import type { Ingredient, IngredientAlias, ParsedInvoiceLine } from "@/lib/supabase/types";
 import { isValidIsoDate } from "./dates";
 import { postProcessLines } from "./postprocess";
@@ -42,14 +42,15 @@ export interface InvoiceFile {
   base64: string;
 }
 
-export class InvoiceParseError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-  ) {
-    super(message);
-  }
-}
+/** The shared Claude error (carries an HTTP status); the old name stays for the route's `instanceof`. */
+export const InvoiceParseError = ClaudeError;
+
+const INVOICE_ERRORS: ClaudeErrorMessages = {
+  malformed: "The model's answer was cut off or malformed — try uploading fewer parts",
+  timeout: "Claude took too long to read this receipt — try again or upload fewer parts",
+  tooLong: "The receipt is too long to parse in one go; upload fewer parts",
+  refusal: "The model refused to read this document",
+};
 
 const SYSTEM = `You extract line items from Romanian grocery receipts (Lidl Plus screenshots) and invoices (Freshful PDFs), and match them to the admin's ingredient catalog.
 
@@ -89,7 +90,7 @@ function catalogText(ingredients: Ingredient[], aliases: IngredientAlias[]): str
         clean(i.brand ?? ""),
         i.unit,
         i.quantity_purchased,
-        i.package_price,
+        i.package_price ?? "price pending",
         (byIng.get(i.id) ?? []).map(clean).join("; "),
       ].join(" | "),
     )
@@ -103,7 +104,6 @@ export async function parseInvoice(args: {
 }): Promise<ParsedInvoice> {
   const { files, ingredients, aliases } = args;
   const model = process.env.INVOICE_PARSER_MODEL ?? "claude-haiku-5-5";
-  const client = new Anthropic({ timeout: 100_000, maxRetries: 1 });
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   const imageCount = files.filter((f) => f.mediaType !== "application/pdf").length;
@@ -131,58 +131,14 @@ export async function parseInvoice(args: {
     )}\n\nExtract every line item of the receipt/invoice above.`,
   });
 
-  let response;
-  try {
-    response = await client.beta.messages.parse({
-      model,
-      max_tokens: 16000,
-      system: SYSTEM,
-      messages: [{ role: "user", content }],
-      output_config: { effort: "medium", format: betaZodOutputFormat(InvoiceSchema) },
-      // Server-side refusal fallback (reruns a declined request on another
-      // model). Haiku has none, so only Sonnet/Opus-class models opt in.
-      ...(model.startsWith("claude-haiku")
-        ? {}
-        : { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }),
-    });
-  } catch (e) {
-    if (!(e instanceof Anthropic.APIError)) {
-      // beta.messages.parse throws a plain AnthropicError when the JSON is cut off.
-      if (e instanceof Anthropic.AnthropicError) {
-        console.error(`invoice parse: unusable structured output: ${e.message}`);
-        throw new InvoiceParseError(
-          "The model's answer was cut off or malformed — try uploading fewer parts",
-          422,
-        );
-      }
-      throw e;
-    }
-    // Surface the API's own reason (key/workspace/billing problems all arrive
-    // as 400/401/403), since the admin is the only one who sees this route.
-    const detail = (e.error as { error?: { message?: string } } | undefined)?.error?.message ?? e.message;
-    console.error(`invoice parse: Claude API error (${e.status ?? "no status"}): ${detail}`);
-    if (e instanceof Anthropic.RateLimitError)
-      throw new InvoiceParseError("Claude API rate limit reached, try again shortly", 429);
-    if (e instanceof Anthropic.AuthenticationError)
-      throw new InvoiceParseError(`Claude API authentication failed (check ANTHROPIC_API_KEY): ${detail}`, 500);
-    if (e instanceof Anthropic.BadRequestError)
-      throw new InvoiceParseError(`Claude rejected the request: ${detail}`, 400);
-    if (e instanceof Anthropic.APIConnectionTimeoutError)
-      throw new InvoiceParseError(
-        "Claude took too long to read this receipt — try again or upload fewer parts",
-        504,
-      );
-    if (e instanceof Anthropic.APIConnectionError)
-      throw new InvoiceParseError("Could not reach the Claude API", 502);
-    throw new InvoiceParseError(`Claude API error: ${detail}`, 502);
-  }
-
-  if (response.stop_reason === "refusal")
-    throw new InvoiceParseError("The model refused to read this document", 422);
-  if (response.stop_reason === "max_tokens")
-    throw new InvoiceParseError("The receipt is too long to parse in one go; upload fewer parts", 422);
-  const parsed = response.parsed_output;
-  if (!parsed) throw new InvoiceParseError("The model returned no structured output", 502);
+  const parsed = await callStructured({
+    label: "invoice parse",
+    model,
+    system: SYSTEM,
+    content,
+    schema: InvoiceSchema,
+    messages: INVOICE_ERRORS,
+  });
 
   const store = parsed.store.trim() || "Unknown";
   const date = parsed.invoice_date && isValidIsoDate(parsed.invoice_date) ? parsed.invoice_date : null;
