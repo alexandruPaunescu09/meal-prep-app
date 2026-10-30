@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CookingPot, Eye, EyeOff } from "lucide-react";
+import { safeReturnPath } from "@/lib/auth/return-path";
 
 function friendlyError(err: { message: string; status?: number; code?: string }) {
   const msg = err.message.toLowerCase();
@@ -62,6 +63,11 @@ export default function LoginPage() {
         .maybeSingle();
       if (profile?.role === "customer") destination = "/portal";
     }
+
+    // Return path set by the proxy (e.g. a shared recipe link); only same-origin relative paths are honoured.
+    // The proxy then routes each role correctly (customers on admin paths are bounced).
+    const next = safeReturnPath(new URLSearchParams(window.location.search).get("next"));
+    if (next) destination = next;
 
     router.push(destination);
     router.refresh();

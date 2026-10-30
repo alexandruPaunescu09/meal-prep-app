@@ -222,11 +222,15 @@ function textResult(
   return looksLikeRecipe(text) ? { ok: true, kind: "text", platform, videoUrl, title, text } : none(platform);
 }
 
+/** YouTube watch pages are ~1.5 MB (TikTok similar), close to the general 2 MB cap. Only these video page fetches get more room. */
+export const VIDEO_PAGE_MAX_BYTES = 4 * 1024 * 1024;
+
 async function resolveYoutube(link: VideoLink, deps: VideoDeps): Promise<VideoResolution> {
   const fetchFn = deps.fetchPage ?? fetchPage;
   const extractFn = deps.extractRecipeFromUrl ?? extractRecipeFromUrl;
   const page = await fetchFn(link.url, {
     ...deps.fetchDeps,
+    maxBytes: VIDEO_PAGE_MAX_BYTES,
     extraHeaders: { ...deps.fetchDeps?.extraHeaders, Cookie: YOUTUBE_CONSENT_COOKIE },
   });
   if (!page.ok) return none("youtube");
@@ -244,7 +248,7 @@ async function resolveYoutube(link: VideoLink, deps: VideoDeps): Promise<VideoRe
 
 async function resolveTiktok(link: VideoLink, deps: VideoDeps): Promise<VideoResolution> {
   const fetchFn = deps.fetchPage ?? fetchPage;
-  const page = await fetchFn(link.url, deps.fetchDeps);
+  const page = await fetchFn(link.url, { ...deps.fetchDeps, maxBytes: VIDEO_PAGE_MAX_BYTES });
   if (!page.ok) return none("tiktok");
   const details = parseTiktokPage(page.html);
   if (!details || !details.caption.trim()) return none("tiktok");

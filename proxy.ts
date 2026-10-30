@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { safeReturnPath } from "@/lib/auth/return-path";
 
 const PUBLIC_PREFIXES = [
   "/login",
@@ -57,7 +58,12 @@ export async function proxy(request: NextRequest) {
   // Unauthenticated → /login (except public)
   if (!user && !isPublic(pathname)) {
     const url = request.nextUrl.clone();
+    // Remember where they were going (shared recipe links come back to the import after sign-in).
+    // The login page re-validates `next` with safeReturnPath; here it is just a same-origin path.
+    const wanted = pathname + request.nextUrl.search;
     url.pathname = "/login";
+    url.search = "";
+    if (pathname !== "/" && safeReturnPath(wanted)) url.searchParams.set("next", wanted);
     return NextResponse.redirect(url);
   }
 
@@ -75,6 +81,14 @@ export async function proxy(request: NextRequest) {
     if (pathname === "/login") {
       const url = request.nextUrl.clone();
       url.pathname = role === "customer" ? "/portal" : "/";
+      return NextResponse.redirect(url);
+    }
+
+    // Customer sharing a recipe to the installed app (the manifest is shared) → friendly page, params dropped.
+    if (role === "customer" && (pathname === "/recipes/import" || pathname === "/recipes/import/")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/portal/recipe-import";
+      url.search = "";
       return NextResponse.redirect(url);
     }
 

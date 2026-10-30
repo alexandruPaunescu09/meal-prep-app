@@ -75,11 +75,14 @@ export default function RecipeImportClient({
   categories,
   containerTypes,
   initialUrl,
+  initialText,
 }: {
   ingredients: Ingredient[];
   categories: Category[];
   containerTypes: ContainerType[];
   initialUrl: string | null;
+  /** Shared text with no link in it: opens the Paste text tab prefilled (no automatic parse). */
+  initialText?: string | null;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -96,9 +99,9 @@ export default function RecipeImportClient({
   const byId = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
 
   // ---- input stage
-  const [tab, setTab] = useState<Tab>("url");
+  const [tab, setTab] = useState<Tab>(!initialUrl && initialText ? "text" : "url");
   const [urlInput, setUrlInput] = useState(initialUrl ?? "");
-  const [textInput, setTextInput] = useState("");
+  const [textInput, setTextInput] = useState(initialUrl ? "" : (initialText ?? "").slice(0, MAX_TEXT));
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [preparing, setPreparing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -461,6 +464,14 @@ export default function RecipeImportClient({
         <p className="text-sm text-gray-500 mb-5">
           Read a recipe from a web page, pasted text or screenshots. You review everything before anything is saved.
         </p>
+        <details className="text-xs text-gray-500 mb-5 -mt-3">
+          <summary className="cursor-pointer text-emerald-700 hover:underline w-fit">Share from your phone</summary>
+          <p className="mt-1.5 max-w-prose">
+            Android: install the app, then share a recipe link to Meal Prep. iPhone: add a small Shortcut to the share
+            sheet that opens <span className="font-mono">/recipes/import?url=…</span>. Step-by-step instructions are in{" "}
+            <span className="font-mono">docs/recipe-import-share.md</span>.
+          </p>
+        </details>
 
         <div role="tablist" aria-label="Recipe source" className="flex gap-1 border-b mb-4">
           {tabs.map((t) => (

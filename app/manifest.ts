@@ -12,6 +12,13 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#ffffff",
     // Keep in sync with viewport.themeColor in app/layout.tsx.
     theme_color: "#059669",
+    // Android share sheet -> recipe import (GET, so the params land in the URL). Customers who share
+    // here are sent to a friendly portal page by proxy.ts.
+    share_target: {
+      action: "/recipes/import",
+      method: "GET",
+      params: { title: "title", text: "text", url: "url" },
+    },
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },

@@ -127,6 +127,12 @@ describe("page parsers", () => {
 });
 
 describe("resolveVideo - YouTube", () => {
+  it("raises the page size cap to 4 MB for the watch page fetch", async () => {
+    const fetchPage = vi.fn(async (..._a: [string, FetchPageDeps?]) => ok(youtubePage("Subscribe! 0:00 intro")));
+    await resolveVideo(YT, { fetchPage });
+    expect(fetchPage.mock.calls[0][1]?.maxBytes).toBe(4 * 1024 * 1024);
+  });
+
   it("sends the consent cookie and follows description links until one has JSON-LD (first wins)", async () => {
     const fetchPage = vi.fn(async (...args: [string, FetchPageDeps?]) =>
       ok(youtubePage("Reteta: https://skip.example.com/1 si https://jamilacuisine.ro/gulas https://other.example.com/2")),
@@ -176,6 +182,12 @@ describe("resolveVideo - YouTube", () => {
 });
 
 describe("resolveVideo - TikTok", () => {
+  it("raises the page size cap to 4 MB for the page fetch", async () => {
+    const fetchPage = vi.fn(async (..._a: [string, FetchPageDeps?]) => ok("<html></html>"));
+    await resolveVideo(TT, { fetchPage });
+    expect(fetchPage.mock.calls[0][1]?.maxBytes).toBe(4 * 1024 * 1024);
+  });
+
   const TT: VideoLink = { platform: "tiktok", url: "https://vm.tiktok.com/ZMabc/" };
 
   it("uses the caption when it looks like a recipe (short link resolved by the fetcher)", async () => {
