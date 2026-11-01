@@ -17,20 +17,7 @@
       "Bash(echo \"---exit:$?---\")",
       "Bash(grep -A 2 \"today-client.tsx$\\\\|today-client.tsx:\")",
       "Bash(echo \"---lint exit: $?---\")",
-      "Bash(echo \"---build exit: $?---\")",
-      "Bash(git checkout *)",
-      "Bash(npm ci *)",
-      "PowerShell(git branch -a --format=\"%\\(refname:short\\) %\\(objectname:short\\)\")",
-      "PowerShell(Write-Output $LASTEXITCODE)",
-      "PowerShell(git diff --stat 693f898 73e1f3c; Write-Output \"exit $LASTEXITCODE\")",
-      "Bash(git cherry-pick *)",
-      "Bash(sed -i -e '384d' -e '358s/.*//' -e '321d' lib/supabase/types.ts)",
-      "Bash(GIT_EDITOR=true git cherry-pick --continue)",
-      "PowerShell(docker info --format \"{{.ServerVersion}}\"; Write-Output \"docker exit $LASTEXITCODE\"; docker ps --format \"{{.Names}} {{.Status}}\" | Select-Object -First 15)",
-      "PowerShell(cd C:\\\\Users\\\\pauns\\\\Desktop\\\\Projects\\\\meal-prep-app\\\\.claude\\\\worktrees\\\\agent-abadc222a463fc9af; Get-Content lib/supabase/types.ts | Select -Index \\(12..60+115..152\\); Get-Content lib/supabase/types.ts -Tail 15; Get-Content node_modules/next/dist/docs/01-app/03-api-reference/04-functions/revalidateTag.md -TotalCount 40; Get-Content package.json; Get-Content lib/validations/schemas.ts -TotalCount 8; npm ls vitest 2>&1 | Select -Last 3)",
-      "PowerShell(node \"C:\\\\Users\\\\pauns\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-pauns-Desktop-Projects-meal-prep-app\\\\a4ca9048-e919-4a06-bc86-f56b50ee8b9a\\\\scratchpad\\\\fd0.js\")",
-      "PowerShell(npx tsc --noEmit)",
-      "PowerShell(npm run lint)"
+      "Bash(echo \"---build exit: $?---\")"
     ]
   }
 }
