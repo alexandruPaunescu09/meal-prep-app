@@ -28,7 +28,7 @@ import { formatLei, formatPricePerUnit, humanizeSlug } from "@/lib/format";
 import { missingPieceWeight } from "@/lib/calculations/piece-weight";
 
 type SortKey = "name" | "ppu" | "calories";
-type QuickFilter = "all" | "noprice" | "nonutrition";
+type QuickFilter = "all" | "noprice" | "nonutrition" | "seasoning";
 
 export interface IngredientsInitialView {
   q: string;
@@ -81,7 +81,9 @@ export default function IngredientsClient({
   const [filter, setFilter] = useState<string>(initial.cat);
   const [search, setSearch] = useState(initial.q);
   const [quick, setQuick] = useState<QuickFilter>(
-    initial.quick === "noprice" || initial.quick === "nonutrition" ? initial.quick : "all"
+    initial.quick === "noprice" || initial.quick === "nonutrition" || initial.quick === "seasoning"
+      ? initial.quick
+      : "all"
   );
   const [sortKey, setSortKey] = useState<SortKey>(
     initial.sort === "ppu" || initial.sort === "calories" ? initial.sort : "name"
@@ -120,6 +122,7 @@ export default function IngredientsClient({
       if (effectiveFilter !== "all" && i.category !== effectiveFilter) return false;
       if (quick === "noprice" && !hasNoPrice(i)) return false;
       if (quick === "nonutrition" && !hasNoNutrition(i)) return false;
+      if (quick === "seasoning" && !i.is_seasoning) return false;
       if (q) {
         const hay = `${i.name} ${i.brand ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -140,6 +143,7 @@ export default function IngredientsClient({
   }, [ingredients, effectiveFilter, quick, search, sortKey, sortDir]);
 
   const noPriceCount = useMemo(() => ingredients.filter(hasNoPrice).length, [ingredients]);
+  const seasoningCount = useMemo(() => ingredients.filter((i) => i.is_seasoning).length, [ingredients]);
   const noNutritionCount = useMemo(
     () => ingredients.filter(hasNoNutrition).length,
     [ingredients]
@@ -443,6 +447,7 @@ export default function IngredientsClient({
             [
               { id: "noprice", label: "Price pending", count: noPriceCount },
               { id: "nonutrition", label: "No nutrition", count: noNutritionCount },
+              { id: "seasoning", label: "Seasonings", count: seasoningCount },
             ] as const
           ).map((f) => (
             <button
@@ -452,8 +457,12 @@ export default function IngredientsClient({
               aria-pressed={quick === f.id}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border ${
                 quick === f.id
-                  ? "bg-amber-500 border-amber-500 text-white"
-                  : "bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
+                  ? f.id === "seasoning"
+                    ? "bg-emerald-600 border-emerald-600 text-white"
+                    : "bg-amber-500 border-amber-500 text-white"
+                  : f.id === "seasoning"
+                    ? "bg-white border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    : "bg-white border-amber-300 text-amber-700 hover:bg-amber-50"
               }`}
             >
               {f.label} ({f.count})
@@ -521,6 +530,11 @@ export default function IngredientsClient({
                     <span className="inline-block mt-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                       {categoryLabels[ing.category] ?? ing.category}
                     </span>
+                    {ing.is_seasoning && (
+                      <span className="inline-block mt-1 ml-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-xs">
+                        Seasoning
+                      </span>
+                    )}
                     {missingPieceWeight(ing) && (
                       <span className="inline-block mt-1 ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
                         No piece weight
@@ -681,6 +695,11 @@ export default function IngredientsClient({
                           <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
                             {categoryLabels[ing.category] ?? ing.category}
                           </span>
+                          {ing.is_seasoning && (
+                            <span className="ml-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-xs">
+                              Seasoning
+                            </span>
+                          )}
                           {missingPieceWeight(ing) && (
                             <span className="ml-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs">
                               No piece weight

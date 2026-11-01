@@ -145,6 +145,7 @@ This epic adds a Seasonings section per recipe. The admin lists spices, herbs, s
 Defaults accepted by the user on 2026-11-01.
 
 1. **Default amount for a seasoning added with a chip.** Recommend: salt, pepper, dried herbs and spices default to "To taste" ON; oil, garlic, lemon, vinegar and sauces default to a weighed amount (oil 10 g, others 5 g) because they carry calories. Rule: `isCalorieDense` OR `unit = 'ml'` -> weighed, else to taste.
+   *SE-1 refinement:* that rule would make garlic "to taste", so `chipDefault` uses the category instead: `spices_herbs` -> to taste (assuming salt and pepper are filed there); otherwise weighed (`buc` 1, calorie-dense 10, else 5). Adding: the Seasonings section has its own "Add Seasoning" picker that always adds as seasoning, replacing the Ingredients/Seasonings segmented choice.
 2. **Garlic and lemons bought every week in the Pantry group.** They are perishable and really are bought. Recommend: keep the all-uses-are-seasoning rule exactly as agreed, but let the admin keep an ingredient out of Pantry by making one use a main line. If this feels wrong in practice, a later per-ingredient "always show in buy list" toggle is a small follow-up (not built now).
 3. **Oil "for frying" with no amount.** Recommend: import marks it to-taste with the non-blocking calorie warning, and the admin is expected to enter an amount. Not blocking, because the source often gives none.
 4. **Role precedence on import** when the catalog says `is_seasoning` and the model says main (or the opposite). Recommend: seasoning wins if EITHER says so; the admin moves it with one tap.
@@ -169,7 +170,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
 | SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
-| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Open |
+| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Done (PR #PRNUM) |
 | SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Open |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Open |
 | SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Open |
