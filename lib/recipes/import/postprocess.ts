@@ -1,5 +1,6 @@
 import type { RecipeImportLine, RecipeMatchConfidence, RecipeUnit } from "./types";
 import { RECIPE_ALIAS_STORE } from "./types";
+import type { LineRole } from "@/lib/recipes/seasonings";
 import { normalizeSourceKey } from "./url";
 
 /** What the model returns per line, after sentinel mapping (see map.ts). */
@@ -8,6 +9,8 @@ export interface ModelLine {
   raw_name: string;
   is_section_header: boolean;
   optional: boolean;
+  is_seasoning: boolean;
+  to_taste: boolean;
   ingredient_id: string | null;
   match_confidence: RecipeMatchConfidence | null;
   original_amount: number | null;
@@ -25,6 +28,8 @@ export interface CatalogIngredient {
   id: string;
   name: string;
   unit: string;
+  /** Admin default role (SE-0); a missing value counts as false. */
+  is_seasoning?: boolean;
 }
 export interface CatalogAlias {
   ingredient_id: string;
@@ -85,9 +90,12 @@ export function postProcessRecipeLines(
       ingredientId = aliasId;
       confidence = "high";
     }
-    // The quantity must be in the matched ingredient's unit.
+    const isHeader = l.is_section_header || headers.has(norm(l.raw_text));
+    // "To taste" lines are seasonings without an amount (the model flag or the text says so).
+    const toTaste = !isHeader && (l.to_taste || TO_TASTE_RE.test(l.raw_text));
+    // The quantity must be in the matched ingredient's unit (a to-taste line has no quantity).
     let suggestedUnit = l.suggested_unit;
-    if (ingredientId) {
+    if (ingredientId && !toTaste) {
       const ing = byId.get(ingredientId)!;
       if (l.quantity_unit !== ing.unit) {
         note = addNote(note, `Unit mismatch: amount is in ${l.quantity_unit}, ingredient is in ${ing.unit}`);
@@ -98,15 +106,21 @@ export function postProcessRecipeLines(
     }
     if (!ingredientId) confidence = null;
 
-    const isHeader = l.is_section_header || headers.has(norm(l.raw_text));
-    const optional = !isHeader && (l.optional || TO_TASTE_RE.test(l.raw_text));
+    // `optional` now means only an optional ingredient WITH an amount.
+    const optional = !isHeader && !toTaste && l.optional;
+    // Seasoning wins when EITHER the matched ingredient's default or the model says so.
+    const role: LineRole =
+      toTaste || (!isHeader && (l.is_seasoning || (ingredientId != null && byId.get(ingredientId)?.is_seasoning === true)))
+        ? "seasoning"
+        : "main";
     // Ranges ("4-5 linguri") are a midpoint guess.
     const isEstimate = l.is_estimate || (!isHeader && RANGE_RE.test(l.raw_text));
     if (isEstimate && !l.is_estimate) conversionNote = conversionNote || "Range in the source: midpoint used";
 
     let quantity = l.quantity != null && Number.isFinite(l.quantity) && l.quantity > 0 ? l.quantity : null;
     if (quantity != null) quantity = Math.round(quantity * 100) / 100;
-    if (quantity == null && !isHeader && !optional) note = addNote(note, "No usable amount");
+    if (toTaste) quantity = null;
+    if (quantity == null && !isHeader && !optional && !toTaste) note = addNote(note, "No usable amount");
 
     return {
       raw_text: l.raw_text,
@@ -114,12 +128,15 @@ export function postProcessRecipeLines(
       include: !isHeader && !optional,
       is_section_header: isHeader,
       optional,
+      role,
+      to_taste: toTaste,
       ingredient_id: isHeader ? null : ingredientId,
       match_confidence: isHeader ? null : confidence,
       original_amount: l.original_amount,
       original_unit: l.original_unit,
       quantity: isHeader ? null : quantity,
-      quantity_unit: l.quantity_unit,
+      // A to-taste line has no amount, so it simply takes the matched ingredient's unit.
+      quantity_unit: toTaste && ingredientId ? (byId.get(ingredientId)!.unit as RecipeUnit) : l.quantity_unit,
       conversion_note: conversionNote,
       is_estimate: isEstimate,
       search_term: l.search_term,

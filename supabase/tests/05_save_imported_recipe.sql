@@ -41,6 +41,13 @@ select is((select count(*)::int from ingredient_aliases where store = 'recipe' a
 select is((select ingredient_id from ingredient_aliases where store = 'recipe' and lower(alias) = 'faina veche'), 'd1000000-0000-4000-8000-000000000002'::uuid, 'existing alias repointed');
 select is((select count(*)::int from ingredient_aliases where store = 'recipe' and lower(alias) = 'faina veche'), 1, 'still one row for the repointed alias');
 
+-- ===== SE-5: seasoning lines (a to-taste line has quantity 0) =====
+select lives_ok($$select save_imported_recipe('{"name":"RI Seasoned","portions":2}'::jsonb, '[{"ingredient_id":"d1000000-0000-4000-8000-000000000001","quantity":200,"role":"main","to_taste":false},{"ingredient_id":"d1000000-0000-4000-8000-000000000002","quantity":0,"role":"seasoning","to_taste":true},{"ingredient_id":"d1000000-0000-4000-8000-000000000002","quantity":12,"role":"main","to_taste":false}]'::jsonb, '[{"alias":"sare si piper","ingredient_id":"d1000000-0000-4000-8000-000000000002"}]'::jsonb)$$, 'a to-taste seasoning plus the same ingredient as a main line saves');
+select is((select count(*)::int from recipe_ingredients ri join recipes r on r.id = ri.recipe_id where r.name = 'RI Seasoned'), 3, 'all three lines stored');
+select is((select role from recipe_ingredients ri join recipes r on r.id = ri.recipe_id where r.name = 'RI Seasoned' and ri.to_taste), 'seasoning', 'to-taste line is a seasoning');
+select is((select quantity from recipe_ingredients ri join recipes r on r.id = ri.recipe_id where r.name = 'RI Seasoned' and ri.to_taste), 0::numeric, 'to-taste line stores quantity 0');
+select is((select count(*)::int from recipe_ingredients ri join recipes r on r.id = ri.recipe_id where r.name = 'RI Seasoned' and ri.role = 'main'), 2, 'main lines keep role main');
+
 -- ===== atomicity: bad ingredient id rolls everything back =====
 select throws_ok($$select save_imported_recipe('{"name":"RI Broken"}'::jsonb, '[{"ingredient_id":"d1000000-0000-4000-8000-000000000001","quantity":5},{"ingredient_id":"d1000000-0000-4000-8000-0000000000ff","quantity":5}]'::jsonb, '[{"alias":"broken alias","ingredient_id":"d1000000-0000-4000-8000-000000000001"}]'::jsonb)$$, '23503', null, 'unknown ingredient id fails');
 select is((select count(*)::int from recipes where name = 'RI Broken'), 0, 'no recipe left behind');

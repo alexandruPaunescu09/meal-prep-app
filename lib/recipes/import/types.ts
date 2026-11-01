@@ -1,4 +1,6 @@
 // Shared (client + server safe) types for the recipe import parse response.
+import type { LineRole } from "@/lib/recipes/seasonings";
+
 export type RecipeUnit = "g" | "ml" | "buc";
 export type RecipeMatchConfidence = "high" | "medium" | "low";
 
@@ -9,11 +11,15 @@ export const RECIPE_ALIAS_STORE = "recipe";
 export interface RecipeImportLine {
   raw_text: string;
   raw_name: string;
-  /** Pre-ticked for the review screen: false for section headers and "to taste" lines. */
+  /** Pre-ticked for the review screen: false for section headers and unticked optional lines. */
   include: boolean;
   is_section_header: boolean;
-  /** "To taste" / pinch-type line without a real amount. */
+  /** An optional ingredient WITH an amount (garnish, extra nuts); pre-ticked off. */
   optional: boolean;
+  /** Section of the recipe: seasonings are listed apart from the main ingredients. */
+  role: LineRole;
+  /** "To taste" / pinch / as needed: a seasoning without an amount (quantity stays null). */
+  to_taste: boolean;
   /** Catalog ingredient id (always exists in the catalog) or null when unmatched. */
   ingredient_id: string | null;
   match_confidence: RecipeMatchConfidence | null;

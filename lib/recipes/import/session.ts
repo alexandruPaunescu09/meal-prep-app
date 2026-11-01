@@ -8,9 +8,12 @@ export const REVIEW_SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const text = z.string().max(4000);
 const unit = z.enum(["g", "ml", "buc"]);
 const nullableNumber = z.number().finite().nullable();
+const role = z.enum(["main", "seasoning"]);
 const line = z.object({
   raw_text: text, raw_name: text, include: z.boolean(), is_section_header: z.boolean(),
-  optional: z.boolean(), ingredient_id: z.string().uuid().nullable(),
+  optional: z.boolean(),
+  // SE-5: absent in drafts saved before seasonings existed, which restore as all-main.
+  role: role.default("main"), to_taste: z.boolean().default(false), ingredient_id: z.string().uuid().nullable(),
   match_confidence: z.enum(["high", "medium", "low"]).nullable(),
   original_amount: nullableNumber, original_unit: text.nullable(), quantity: nullableNumber,
   quantity_unit: unit, conversion_note: text.nullable(), is_estimate: z.boolean(),
@@ -33,6 +36,7 @@ const snapshotSchema = z.object({
   model: z.string().max(200),
   lines: z.array(z.object({
     uid: z.number().int().min(0).max(299), base: line, include: z.boolean(),
+    role: role.default("main"), toTaste: z.boolean().default(false),
     ingredient_id: z.string().uuid().nullable(), qty: z.string().max(100),
     qtyUnit: unit, matchedUnit: unit.optional(),
   })).max(300).refine((ls) => new Set(ls.map((l) => l.uid)).size === ls.length),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +29,7 @@ import { createClient } from "@/lib/supabase/client";
 import { invalidateIngredients, invalidateRecipes } from "@/lib/actions/revalidate";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import { missingPieceWeight } from "@/lib/calculations/piece-weight";
+import { isCalorieDense } from "@/lib/recipes/seasonings";
 import { formatCost, formatNumber } from "@/lib/format";
 import { MAX_PARTS, MAX_TOTAL_BYTES, prepareFile, type Prepared } from "@/lib/images/slice";
 import {
@@ -41,9 +42,12 @@ import {
   lineQuantity,
   lineHasUnitMismatch,
   mergeNote,
+  orderedForReview,
   qtyToText,
   siteCalories,
   selectLineIngredient,
+  setLineRole,
+  setLineToTaste,
   type SavePayload,
   type ReviewLine,
 } from "@/lib/recipes/import/draft";
@@ -334,7 +338,7 @@ export default function RecipeImportClient({
 
   const calc = useMemo(() => {
     const entries = lines
-      .filter((l) => !l.base.is_section_header && l.include && l.ingredient_id)
+      .filter((l) => !l.base.is_section_header && l.include && l.ingredient_id && !l.toTaste)
       .flatMap((l) => {
         const ingredient = byId.get(l.ingredient_id!);
         const quantity = lineQuantity(l);
@@ -348,8 +352,8 @@ export default function RecipeImportClient({
       lines.flatMap((l) => {
         const ingredient = l.ingredient_id ? byId.get(l.ingredient_id) : undefined;
         const quantity = lineQuantity(l);
-        if (l.base.is_section_header || !ingredient || quantity == null || Math.round(quantity * 1000) <= 0 || lineHasUnitMismatch(l, ingredient)) return [];
-        return [{ key: String(l.uid), ingredient, quantity, counts: l.include }];
+        if (l.base.is_section_header || l.toTaste || !ingredient || quantity == null || Math.round(quantity * 1000) <= 0 || lineHasUnitMismatch(l, ingredient)) return [];
+        return [{ key: String(l.uid), ingredient, quantity, counts: l.include, role: l.role }];
       }),
     [lines, byId],
   );
@@ -450,6 +454,10 @@ export default function RecipeImportClient({
     latestSave.current = null;
   }, []);
 
+  // Main ingredients first, then seasonings under their own sub-heading.
+  const ordered = orderedForReview(lines);
+  const firstSeasoningUid = ordered.find((l) => l.role === "seasoning")?.uid ?? null;
+
   const createLine = createFor != null ? lines.find((l) => l.uid === createFor) : undefined;
 
   // ------------------------------------------------------------ pieces of a line
@@ -494,7 +502,8 @@ export default function RecipeImportClient({
             id={id}
             inputMode="decimal"
             value={l.qty}
-            disabled={!l.include}
+            disabled={!l.include || l.toTaste}
+            placeholder={l.toTaste ? "to taste" : undefined}
             aria-invalid={problem && l.ingredient_id ? true : undefined}
             onChange={(e) => patch(l.uid, { qty: e.target.value, qtyUnit: ing ? ing.unit : l.qtyUnit })}
             className="w-24 px-2 py-1 border border-gray-300 rounded text-base md:text-sm disabled:bg-gray-50 disabled:text-gray-400"
@@ -507,6 +516,42 @@ export default function RecipeImportClient({
           </p>
         )}
         {l.include && problem && l.ingredient_id && <p className="text-xs text-red-600 mt-0.5">{problem}</p>}
+        {l.include && l.toTaste && ing && isCalorieDense(ing) && (
+          <p className="text-xs text-amber-700 mt-0.5">Not counted in calories — enter an amount</p>
+        )}
+      </div>
+    );
+  };
+
+  const roleCell = (l: ReviewLine, mobile: boolean) => {
+    const id = `role-${mobile ? "m" : "d"}-${l.uid}`;
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <label htmlFor={id} className="sr-only">
+          Section for {l.base.raw_text}
+        </label>
+        <select
+          id={id}
+          value={l.role}
+          disabled={!l.include}
+          onChange={(e) => patch(l.uid, setLineRole(l, e.target.value === "seasoning" ? "seasoning" : "main"))}
+          className="px-2 py-1 border border-gray-300 rounded text-base md:text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
+        >
+          <option value="main">Ingredient</option>
+          <option value="seasoning">Seasoning</option>
+        </select>
+        {l.role === "seasoning" && (
+          <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={l.toTaste}
+              disabled={!l.include}
+              onChange={(e) => patch(l.uid, setLineToTaste(l, e.target.checked))}
+              className="w-4 h-4 accent-emerald-600"
+            />
+            To taste
+          </label>
+        )}
       </div>
     );
   };
@@ -518,6 +563,9 @@ export default function RecipeImportClient({
       <div className="flex flex-wrap gap-1">
         {l.base.is_estimate && (
           <span className="px-1.5 py-0.5 text-[11px] font-medium rounded bg-amber-100 text-amber-800">Estimate</span>
+        )}
+        {l.base.to_taste && (
+          <span className="px-1.5 py-0.5 text-[11px] font-medium rounded bg-gray-100 text-gray-600">To taste</span>
         )}
         {l.base.optional && (
           <span className="px-1.5 py-0.5 text-[11px] font-medium rounded bg-gray-100 text-gray-600">Optional</span>
@@ -936,7 +984,7 @@ export default function RecipeImportClient({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {lines.map((l) =>
+              {ordered.map((l) =>
                 l.base.is_section_header ? (
                   <tr key={l.uid} className="bg-gray-50">
                     <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">
@@ -944,15 +992,26 @@ export default function RecipeImportClient({
                     </td>
                   </tr>
                 ) : (
-                  <tr
-                    key={l.uid}
-                    className={`align-top ${l.base.is_estimate && l.include ? "bg-amber-50/60" : ""} ${l.include ? "" : "opacity-60"}`}
-                  >
-                    <td className="px-3 py-2">{includeToggle(l, false)}</td>
-                    <td className="px-3 py-2">{originalCell(l)}</td>
-                    <td className="px-3 py-2">{matchCell(l)}</td>
-                    <td className="px-3 py-2">{qtyCell(l, false)}</td>
-                  </tr>
+                  <Fragment key={l.uid}>
+                    {l.uid === firstSeasoningUid && (
+                      <tr className="bg-emerald-50/60">
+                        <td colSpan={4} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                          Seasonings
+                        </td>
+                      </tr>
+                    )}
+                    <tr
+                      className={`align-top ${l.base.is_estimate && l.include ? "bg-amber-50/60" : ""} ${l.include ? "" : "opacity-60"}`}
+                    >
+                      <td className="px-3 py-2">{includeToggle(l, false)}</td>
+                      <td className="px-3 py-2">{originalCell(l)}</td>
+                      <td className="px-3 py-2">{matchCell(l)}</td>
+                      <td className="px-3 py-2 space-y-1.5">
+                        {roleCell(l, false)}
+                        {qtyCell(l, false)}
+                      </td>
+                    </tr>
+                  </Fragment>
                 ),
               )}
             </tbody>
@@ -961,25 +1020,30 @@ export default function RecipeImportClient({
 
         {/* Cards (below md) */}
         <ul className="md:hidden space-y-2">
-          {lines.map((l) =>
+          {ordered.map((l) =>
             l.base.is_section_header ? (
               <li key={l.uid} className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
                 {l.base.raw_text}
               </li>
             ) : (
-              <li
-                key={l.uid}
-                className={`bg-white border rounded-xl p-3 space-y-2 ${
-                  l.base.is_estimate && l.include ? "border-amber-300 bg-amber-50/50" : ""
-                } ${l.include ? "" : "opacity-60"}`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">{originalCell(l)}</div>
-                  {includeToggle(l, true)}
-                </div>
-                {matchCell(l)}
-                {qtyCell(l, true)}
-              </li>
+              <Fragment key={l.uid}>
+                {l.uid === firstSeasoningUid && (
+                  <li className="px-1 pt-3 text-xs font-semibold uppercase tracking-wide text-emerald-800">Seasonings</li>
+                )}
+                <li
+                  className={`bg-white border rounded-xl p-3 space-y-2 ${
+                    l.base.is_estimate && l.include ? "border-amber-300 bg-amber-50/50" : ""
+                  } ${l.include ? "" : "opacity-60"}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">{originalCell(l)}</div>
+                    {includeToggle(l, true)}
+                  </div>
+                  {matchCell(l)}
+                  {roleCell(l, true)}
+                  {qtyCell(l, true)}
+                </li>
+              </Fragment>
             ),
           )}
         </ul>
@@ -1077,7 +1141,7 @@ export default function RecipeImportClient({
                 <CheckCircle2 className="w-4 h-4" /> Ready to save
               </span>
             ) : (
-              "Add a name and at least one ingredient"
+              "Add a name and at least one main ingredient (not only seasonings)"
             )}
           </p>
           <div className="flex items-center gap-2">
@@ -1111,6 +1175,7 @@ export default function RecipeImportClient({
             unit: createLine.base.suggested_unit,
             category: createLine.base.suggested_category ?? undefined,
             package_price: null,
+            is_seasoning: createLine.role === "seasoning",
           }}
           initialNutritionQuery={createLine.base.search_term || createLine.base.raw_name}
           onClose={() => setCreateFor(null)}

@@ -14,7 +14,9 @@ export const ModelLineSchema = z.object({
   raw_text: z.string(),
   raw_name: z.string(),
   is_section_header: z.boolean(),
-  optional: z.boolean(),
+  optional: z.boolean(), // optional ingredient WITH an amount (garnish, extra nuts)
+  is_seasoning: z.boolean(),
+  to_taste: z.boolean(), // "after taste" / pinch / as needed: no amount
   ingredient_id: z.string(), // "" = no catalog match
   match_confidence: z.enum(["high", "medium", "low", "none"]),
   original_amount: z.number(), // -1 = none
@@ -47,6 +49,8 @@ export function toModelLine(l: RawLine): ModelLine {
     raw_name: l.raw_name,
     is_section_header: l.is_section_header,
     optional: l.optional,
+    is_seasoning: l.is_seasoning,
+    to_taste: l.to_taste,
     ingredient_id: strOrNull(l.ingredient_id),
     match_confidence: l.match_confidence === "none" ? null : l.match_confidence,
     original_amount: numOrNull(l.original_amount),
