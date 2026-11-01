@@ -41,7 +41,7 @@ export interface MapRecipeResult {
 const MAX_STEPS = 40;
 
 const RECIPE_ERRORS: ClaudeErrorMessages = {
-  malformed: "The model's answer was cut off or malformed — try a shorter recipe or paste only the ingredients and steps",
+  malformed: "The model's answer was malformed. Try again, or use a shorter recipe or paste only the ingredients and steps",
   timeout: "Claude took too long to read this recipe — try again or paste the text instead",
   tooLong: "The recipe is too long to parse in one go; paste a shorter part",
   refusal: "The model refused to read this recipe",

@@ -15,11 +15,11 @@ export class ClaudeError extends Error {
 
 /** Wording of the errors that depend on what is being parsed. */
 export interface ClaudeErrorMessages {
-  /** Structured output was cut off or is malformed (422). */
+  /** Finished answer that is not valid JSON or fails the schema (422). */
   malformed: string;
   /** The request timed out (504). */
   timeout: string;
-  /** stop_reason max_tokens (422). */
+  /** stop_reason max_tokens: the answer was cut off (422). */
   tooLong: string;
   /** stop_reason refusal (422). */
   refusal: string;
@@ -39,10 +39,10 @@ export function createClaudeClient(): Anthropic {
   return new Anthropic({ timeout: 100_000, maxRetries: 1 });
 }
 
-/** Maps SDK errors (and the plain error thrown for cut-off JSON) to a ClaudeError. Always throws. */
+/** Maps SDK errors to a ClaudeError. Always throws. */
 export function mapClaudeError(e: unknown, label: string, messages: ClaudeErrorMessages): never {
   if (!(e instanceof Anthropic.APIError)) {
-    // beta.messages.parse throws a plain AnthropicError when the JSON is cut off.
+    // Any plain SDK error that is not an API error (e.g. a stream that could not be decoded).
     if (e instanceof Anthropic.AnthropicError) {
       console.error(`${label}: unusable structured output: ${e.message}`);
       throw new ClaudeError(messages.malformed, 422);
@@ -75,7 +75,47 @@ export function checkStopReason(
   if (!parsed) throw new ClaudeError("The model returned no structured output", 502);
 }
 
-/** One structured-output call (effort medium, zod schema). */
+/**
+ * Turns the model's raw text into a validated object. The stop reason is checked BEFORE the
+ * text is parsed: an answer cut off at max_tokens is invalid JSON too, and must be reported as
+ * "too long", not "malformed". Only a finished answer that fails JSON/schema validation is malformed.
+ * `info` (stop reason, token counts) is logged on failure; never the document content.
+ */
+export function parseStructuredText<S extends z.ZodType>(args: {
+  label: string;
+  text: string;
+  stopReason: string | null | undefined;
+  schema: S;
+  messages: ClaudeErrorMessages;
+  info?: string;
+}): z.infer<S> {
+  const { label, text, stopReason, schema, messages, info = "" } = args;
+  const fail = (reason: string, error: ClaudeError): never => {
+    console.error(`${label}: ${reason} (stop_reason ${stopReason ?? "none"}${info ? `, ${info}` : ""})`);
+    throw error;
+  };
+  if (stopReason === "refusal") fail("refusal", new ClaudeError(messages.refusal, 422));
+  if (stopReason === "max_tokens") fail("output cut off at max_tokens", new ClaudeError(messages.tooLong, 422));
+  if (!text.trim()) fail("empty output", new ClaudeError("The model returned no structured output", 502));
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return fail("output is not valid JSON", new ClaudeError(messages.malformed, 422));
+  }
+  const result = schema.safeParse(json);
+  if (!result.success) {
+    const paths = result.error.issues.slice(0, 5).map((i) => i.path.join("."));
+    return fail(`output failed schema validation at ${paths.join(", ")}`, new ClaudeError(messages.malformed, 422));
+  }
+  return result.data;
+}
+
+/**
+ * One structured-output call (effort medium, zod schema). Streams (required by the SDK above
+ * ~21k max_tokens, and it avoids request timeouts) and validates the answer itself instead of
+ * using the SDK's `.parse`, which throws on cut-off JSON before the stop reason can be read.
+ */
 export async function callStructured<S extends z.ZodType>(args: {
   label: string;
   model: string;
@@ -87,20 +127,31 @@ export async function callStructured<S extends z.ZodType>(args: {
 }): Promise<z.infer<S>> {
   const { label, model, system, content, schema, messages, maxTokens = 16000 } = args;
   const client = createClaudeClient();
+  // Without `parse` the SDK sends the JSON schema but leaves the text alone.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+  const { parse, ...format } = betaZodOutputFormat(schema as any);
   let response;
   try {
-    response = await client.beta.messages.parse({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content }],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      output_config: { effort: "medium", format: betaZodOutputFormat(schema as any) },
-      ...refusalFallbackParams(model),
-    });
+    response = await client.beta.messages
+      .stream({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content }],
+        output_config: { effort: "medium", format },
+        ...refusalFallbackParams(model),
+      })
+      .finalMessage();
   } catch (e) {
     mapClaudeError(e, label, messages);
   }
-  checkStopReason(response.stop_reason, response.parsed_output, messages);
-  return response.parsed_output as z.infer<S>;
+  const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+  return parseStructuredText({
+    label,
+    text,
+    stopReason: response.stop_reason,
+    schema,
+    messages,
+    info: `output_tokens ${response.usage.output_tokens}/${maxTokens}`,
+  });
 }

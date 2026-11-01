@@ -46,9 +46,9 @@ export interface InvoiceFile {
 export const InvoiceParseError = ClaudeError;
 
 const INVOICE_ERRORS: ClaudeErrorMessages = {
-  malformed: "The model's answer was cut off or malformed — try uploading fewer parts",
-  timeout: "Claude took too long to read this receipt — try again or upload fewer parts",
-  tooLong: "The receipt is too long to parse in one go; upload fewer parts",
+  malformed: "The model's answer was malformed. Try again, or upload fewer pages or parts",
+  timeout: "Claude took too long to read this receipt. Try again, or upload fewer pages or parts",
+  tooLong: "The receipt is too long to read in one go. Upload fewer pages or parts",
   refusal: "The model refused to read this document",
 };
 
@@ -138,6 +138,8 @@ export async function parseInvoice(args: {
     content,
     schema: InvoiceSchema,
     messages: INVOICE_ERRORS,
+    // Long invoices run to ~16k tokens of JSON; reasoning tokens count against max_tokens too.
+    maxTokens: 32000,
   });
 
   const store = parsed.store.trim() || "Unknown";

@@ -214,6 +214,28 @@ describe("shared Claude error mapping", () => {
     expect(() => mapClaudeError(new TypeError("boom"), "test", msgs)).toThrow(TypeError);
   });
 
+  it("reports a cut-off answer as too long, not malformed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { parseStructuredText, ClaudeError } = await import("@/lib/ai/claude");
+    const { z } = await import("zod/v4");
+    const schema = z.object({ lines: z.array(z.object({ n: z.number() })) });
+    const messages = { malformed: "M", timeout: "T", tooLong: "L", refusal: "R" };
+    const run = (text: string, stopReason: string) => {
+      try {
+        return parseStructuredText({ label: "t", text, stopReason, schema, messages });
+      } catch (e) {
+        expect(e).toBeInstanceOf(ClaudeError);
+        return [(e as InstanceType<typeof ClaudeError>).status, (e as Error).message];
+      }
+    };
+    expect(run('{"lines":[{"n":1}', "max_tokens")).toEqual([422, "L"]);
+    expect(run("", "refusal")).toEqual([422, "R"]);
+    expect(run('{"lines":[{"n":1}', "end_turn")).toEqual([422, "M"]);
+    expect(run('{"lines":[{"n":"x"}]}', "end_turn")).toEqual([422, "M"]);
+    expect(run("  ", "end_turn")).toEqual([502, "The model returned no structured output"]);
+    expect(run('{"lines":[{"n":1}]}', "end_turn")).toEqual({ lines: [{ n: 1 }] });
+  });
+
   it("handles refusal and max_tokens stop reasons", async () => {
     const { checkStopReason } = await import("@/lib/ai/claude");
     const msgs = { malformed: "M", timeout: "T", tooLong: "L", refusal: "R" };
