@@ -42,9 +42,19 @@ describe("roundScaled", () => {
     expect(roundScaled(106, 100, "ml")).toBe(110);
   });
   it("never rounds a non-zero quantity to 0", () => {
-    expect(roundScaled(1, 10, "g")).toBe(5);
+    expect(roundScaled(1, 10, "g")).toBe(1);
+    expect(roundScaled(0.1, 1, "g")).toBe(0.5);
     expect(roundScaled(0.2, 1, "buc")).toBe(1);
     expect(roundScaled(0.1, 0.5, "buc")).toBe(0.5);
+  });
+  it("g/ml under 10 round to the nearest 0.5, minimum 0.5; 10 and above keep the old steps", () => {
+    expect(roundScaled(2, 2, "g")).toBe(2);
+    expect(roundScaled(2.3, 3, "g")).toBe(2.5);
+    expect(roundScaled(2.2, 3, "ml")).toBe(2);
+    expect(roundScaled(9.8, 12, "g")).toBe(10);
+    expect(roundScaled(12, 15, "g")).toBe(10);
+    expect(roundScaled(13, 15, "g")).toBe(15);
+    expect(roundScaled(52, 60, "g")).toBe(50);
   });
   it("pieces: whole unless the original had a half", () => {
     expect(roundScaled(2.4, 3, "buc")).toBe(2);
@@ -163,6 +173,41 @@ describe("scaleRecipe", () => {
     const r = scaleRecipe({ lines: [{ key: "e", ingredient: egg, quantity: 4 }], portions: 1, targetKcal: 100 });
     expect(r.ok && r.before.calories).toBe(200);
     expect(r.ok && r.lines[0].after).toBe(2);
+  });
+});
+
+describe("seasonings and to-taste lines", () => {
+  it("leaves quantity-0 (to taste) lines unchanged, uncounted and never bumped", () => {
+    const pepper = ing({ id: "pepper", calories: null as unknown as number });
+    const r = scaleRecipe({
+      lines: [
+        { key: "rice", ingredient: rice, quantity: 400 },
+        { key: "salt", ingredient: oil, quantity: 2, role: "seasoning" },
+        { key: "pepper", ingredient: pepper, quantity: 0, role: "seasoning" },
+      ],
+      portions: 1,
+      targetKcal: 250,
+    });
+    if (!r.ok) throw new Error("expected ok");
+    const by = Object.fromEntries(r.lines.map((l) => [l.key, l]));
+    expect(by.pepper.after).toBe(0);
+    expect(by.pepper.role).toBe("seasoning");
+    expect(by.salt.after).toBeGreaterThan(0);
+    expect(by.rice.after % 5).toBe(0);
+    expect(r.noNutritionNames).toEqual([]);
+  });
+  it("keeps a small seasoning near its size and scales mains as before", () => {
+    const r = scaleRecipe({
+      lines: [
+        { key: "rice", ingredient: rice, quantity: 300 },
+        { key: "salt", ingredient: oil, quantity: 2, role: "seasoning" },
+      ],
+      portions: 1,
+      targetKcal: 302,
+    });
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.lines[0].after).toBe(300);
+    expect(r.lines[1].after).toBe(2);
   });
 });
 

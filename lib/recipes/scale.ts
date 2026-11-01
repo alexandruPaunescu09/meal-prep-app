@@ -1,6 +1,7 @@
 // Pure logic for "Scale to a target": scale recipe quantities so one portion hits a kcal target.
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import { resolveTargets } from "@/lib/calculations/meal-plan";
+import type { LineRole } from "@/lib/recipes/seasonings";
 import type { Client, Ingredient, MealPlan } from "@/lib/supabase/types";
 
 export interface ScaleLineInput {
@@ -9,11 +10,14 @@ export interface ScaleLineInput {
   quantity: number;
   /** false = scaled like the rest but left out of the calorie maths (e.g. an unticked optional line). Default true. */
   counts?: boolean;
+  /** Line role, for display grouping only (the rounding rule does not depend on it). Default 'main'. */
+  role?: LineRole;
 }
 
 export interface ScaleLineResult {
   key: string;
   ingredient: Ingredient;
+  role?: LineRole;
   unit: string;
   before: number;
   after: number;
@@ -45,7 +49,8 @@ export type ScaleResult =
 const clean = (n: number) => Math.round(n * 1000) / 1000;
 
 /**
- * Round a scaled quantity. g / ml (and any other unit): nearest 5 below 100, else nearest 10.
+ * Round a scaled quantity. g / ml (and any other unit): nearest 0.5 below 10 (minimum 0.5, so 2 g salt
+ * stays 2 g), nearest 5 from 10 to 100, else nearest 10.
  * Pieces (`buc`): whole pieces, or halves only when the original already had a half.
  * A non-zero quantity never becomes 0 (minimum one step).
  */
@@ -56,7 +61,7 @@ export function roundScaled(scaled: number, original: number, unit: string | nul
     const step = halves ? 0.5 : 1;
     return clean(Math.max(step, Math.round(scaled / step) * step));
   }
-  const step = scaled < 100 ? 5 : 10;
+  const step = scaled < 10 ? 0.5 : scaled < 100 ? 5 : 10;
   return clean(Math.max(step, Math.round(scaled / step) * step));
 }
 
@@ -86,6 +91,7 @@ export function scaleRecipe(input: { lines: ScaleLineInput[]; portions: number; 
   const results: ScaleLineResult[] = lines.map((l) => ({
     key: l.key,
     ingredient: l.ingredient,
+    role: l.role,
     unit: l.ingredient.unit,
     before: l.quantity,
     after: l.quantity > 0 ? roundScaled(l.quantity * factor, l.quantity, l.ingredient.unit) : l.quantity,
@@ -94,7 +100,7 @@ export function scaleRecipe(input: { lines: ScaleLineInput[]; portions: number; 
   const after = macrosOf(lines, (l) => afterByKey.get(l.key) ?? l.quantity, portions);
 
   const noNutritionNames = [
-    ...new Set(lines.filter((l) => l.counts !== false && l.ingredient.calories == null).map((l) => l.ingredient.name)),
+    ...new Set(lines.filter((l) => l.counts !== false && l.quantity > 0 && l.ingredient.calories == null).map((l) => l.ingredient.name)),
   ];
 
   return { ok: true, factor, lines: results, before, after, drift: after.calories - targetKcal, targetKcal, noNutritionNames };

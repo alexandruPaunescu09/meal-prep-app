@@ -13,6 +13,7 @@ import {
   SaveRecipeIngredientInput,
 } from "@/lib/supabase/types";
 import { calculateRecipe } from "@/lib/calculations/recipe";
+import { lineAmountText, splitLines } from "@/lib/recipes/seasonings";
 import RecipeForm from "@/components/recipe-form";
 import { invalidateRecipes } from "@/lib/actions/revalidate";
 import { formatCost, formatNumber, humanizeSlug } from "@/lib/format";
@@ -402,22 +403,7 @@ export default function RecipesClient({
                   </div>
                   {expandedId === recipe.id && (
                     <div className="mt-3 pt-3 border-t">
-                      <p className="text-xs font-semibold text-gray-600 mb-1">
-                        Ingredients ({recipe.recipe_ingredients.length})
-                      </p>
-                      <div className="grid grid-cols-2 gap-1 mb-3">
-                        {recipe.recipe_ingredients.map((ri) => (
-                          <div
-                            key={ri.id}
-                            className="text-xs text-gray-900 flex justify-between bg-gray-50 px-2 py-1 rounded border"
-                          >
-                            <span>{ri.ingredient.name}</span>
-                            <span className="text-gray-500 ml-2">
-                              {ri.quantity}{ri.ingredient.unit}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                      <RecipeLines recipe={recipe} cols="grid-cols-2" bg="bg-gray-50" />
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div>
                           <span className="text-gray-500">Total Cost</span>
@@ -558,25 +544,7 @@ export default function RecipesClient({
                           <tr key={`${recipe.id}-details`} className="border-b">
                             <td colSpan={8} className="px-4 py-3 bg-gray-50">
                               <div className="space-y-3">
-                                <div>
-                                  <p className="text-xs font-semibold text-gray-600 mb-1">
-                                    Ingredients ({recipe.recipe_ingredients.length})
-                                  </p>
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
-                                    {recipe.recipe_ingredients.map((ri) => (
-                                      <div
-                                        key={ri.id}
-                                        className="text-xs text-gray-900 flex justify-between bg-white px-2 py-1 rounded border"
-                                      >
-                                        <span>{ri.ingredient.name}</span>
-                                        <span className="text-gray-500 ml-2">
-                                          {ri.quantity}
-                                          {ri.ingredient.unit}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
+                                <RecipeLines recipe={recipe} cols="grid-cols-2 sm:grid-cols-3" bg="bg-white" />
                                 <div className="grid grid-cols-4 sm:grid-cols-8 gap-3 text-xs">
                                   <div>
                                     <span className="text-gray-500">Total Cost</span>
@@ -662,6 +630,32 @@ export default function RecipesClient({
       {showForm && (
         <RecipeForm key={editRecipe?.id ?? "new"} recipe={editRecipe} onClose={closeForm} />
       )}
+    </div>
+  );
+}
+
+/** Expanded recipe lines: "Ingredients (n)" then "Seasonings (m)" (omitted when none). */
+function RecipeLines({ recipe, cols, bg }: { recipe: RecipeWithIngredients; cols: string; bg: string }) {
+  const { main, seasonings } = splitLines(recipe.recipe_ingredients);
+  const block = (title: string, lines: typeof main, last: boolean) => (
+    <div className={last ? "" : "mb-3"}>
+      <p className="text-xs font-semibold text-gray-600 mb-1">
+        {title} ({lines.length})
+      </p>
+      <div className={`grid ${cols} gap-1`}>
+        {lines.map((ri) => (
+          <div key={ri.id} className={`text-xs text-gray-900 flex justify-between ${bg} px-2 py-1 rounded border`}>
+            <span>{ri.ingredient.name}</span>
+            <span className="text-gray-500 ml-2">{lineAmountText(ri, ri.to_taste ? undefined : ri.ingredient.unit)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="mb-3">
+      {block("Ingredients", main, seasonings.length === 0)}
+      {seasonings.length > 0 && block("Seasonings", seasonings, true)}
     </div>
   );
 }

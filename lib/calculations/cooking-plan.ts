@@ -4,12 +4,15 @@ import {
   RecipeIngredient,
   MealPlanEntry,
 } from "@/lib/supabase/types";
+import { splitLines } from "@/lib/recipes/seasonings";
 
 export interface CookingPlanRecipeIngredient {
   ingredientId: string;
   name: string;
   unit: string;
   quantity: number;
+  /** "to taste" line: quantity is 0 and the UI shows "to taste". */
+  toTaste: boolean;
 }
 
 export interface CookingPlanClientRow {
@@ -24,7 +27,10 @@ export interface CookingPlanRecipe {
   totalPortions: number;
   basePortions: number;
   totalFinalWeightG: number | null;
+  /** Main lines only. */
   ingredients: CookingPlanRecipeIngredient[];
+  /** Seasoning lines (weighed ones scaled to the batch, to-taste ones kept as "to taste"). */
+  seasonings: CookingPlanRecipeIngredient[];
   clientBreakdown: CookingPlanClientRow[];
   /** Recipe steps, once per recipe (not per plan). Empty when none. */
   steps: string[];
@@ -122,15 +128,27 @@ export function generateCookingPlan(entries: FullEntry[]): {
           ? (acc.finalWeight / acc.basePortions) * acc.totalPortions
           : null;
 
-      const ingredients: CookingPlanRecipeIngredient[] = acc.recipeIngredients
+      const lines = acc.recipeIngredients
         .filter((ri) => ri.ingredient)
         .map((ri) => ({
+          role: ri.role ?? ("main" as const),
           ingredientId: ri.ingredient!.id,
           name: ri.ingredient!.name,
           unit: ri.ingredient!.unit,
-          quantity: ri.quantity * scale,
+          quantity: ri.to_taste ? 0 : ri.quantity * scale,
+          toTaste: !!ri.to_taste,
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
+      const { main, seasonings: seasoningLines } = splitLines(lines);
+      const strip = (l: (typeof lines)[number]): CookingPlanRecipeIngredient => ({
+        ingredientId: l.ingredientId,
+        name: l.name,
+        unit: l.unit,
+        quantity: l.quantity,
+        toTaste: l.toTaste,
+      });
+      const ingredients = main.map(strip);
+      const seasonings = seasoningLines.map(strip);
 
       const clientBreakdown: CookingPlanClientRow[] = Array.from(
         acc.clientPortions.entries()
@@ -152,6 +170,7 @@ export function generateCookingPlan(entries: FullEntry[]): {
         basePortions: acc.basePortions,
         totalFinalWeightG,
         ingredients,
+        seasonings,
         clientBreakdown,
         steps: acc.steps,
       };
