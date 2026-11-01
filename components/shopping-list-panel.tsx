@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Copy, Eye, EyeOff, Loader2, Printer, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, Eye, EyeOff, Loader2, Printer, RotateCcw } from "lucide-react";
 import {
   generateShoppingList,
   shoppingListToText,
+  shoppingItemQuantityText,
 } from "@/lib/calculations/shopping-list";
 import type { MealPlanEntry, Recipe, RecipeIngredient, Ingredient } from "@/lib/supabase/types";
 import { useShoppingChecks } from "@/lib/hooks/use-shopping-checks";
@@ -53,10 +54,30 @@ export default function ShoppingListPanel({
   const [copied, setCopied] = useState(false);
   const [hideChecked, setHideChecked] = useState(false);
 
-  const { groups, totalCost, unpricedCount } = useMemo(
+  const [pantryOpen, setPantryOpen] = useState(false);
+
+  const { groups, pantry, totalCost, unpricedCount } = useMemo(
     () => generateShoppingList(entries, categoryLabels),
     [entries, categoryLabels]
   );
+
+  const pantryItems = pantry?.items ?? [];
+  const pantryChecked = pantryItems.filter((i) => checkedItems.has(i.ingredientId)).length;
+  const pantryToCheck = useMemo(() => {
+    if (!pantry) return null;
+    const items = pantry.items.filter((i) => !checkedItems.has(i.ingredientId));
+    if (items.length === 0) return null;
+    return {
+      ...pantry,
+      items,
+      subtotal: items.reduce((sum, i) => sum + i.estimatedCost, 0),
+      unpricedCount: items.filter((i) => i.unpriced).length,
+    };
+  }, [pantry, checkedItems]);
+  const visiblePantryItems = hideChecked
+    ? pantryItems.filter((i) => !checkedItems.has(i.ingredientId))
+    : pantryItems;
+  const hasAnything = groups.length > 0 || pantryItems.length > 0;
 
   const toBuyGroups = useMemo(
     () =>
@@ -77,9 +98,16 @@ export default function ShoppingListPanel({
   const toBuyUnpriced = toBuyGroups.reduce((s, g) => s + g.unpricedCount, 0);
   const visibleGroups = hideChecked ? toBuyGroups : groups;
   const checkedCount = checkedItems.size;
+  // Checked items that are part of the buy total (pantry checks do not change it).
+  const checkedBuyCount = groups.reduce(
+    (n, g) => n + g.items.filter((i) => checkedItems.has(i.ingredientId)).length,
+    0
+  );
 
   async function handleCopy() {
-    const ok = await copyText(shoppingListToText(toBuyGroups, toBuyCost, toBuyUnpriced));
+    const ok = await copyText(
+      shoppingListToText(toBuyGroups, toBuyCost, toBuyUnpriced, pantryToCheck)
+    );
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -106,6 +134,18 @@ export default function ShoppingListPanel({
             .join("")}</table>`
       )
       .join("");
+    const pantryRows = pantryToCheck
+      ? `<h2>Pantry check</h2><p>Check the cupboard. Not in the total (about ${escapeHtml(
+          formatCost(pantryToCheck.subtotal, pantryToCheck.unpricedCount)
+        )}).</p><table>${pantryToCheck.items
+          .map(
+            (i) =>
+              `<tr><td class="box">&#9744;</td><td>${escapeHtml(i.name)}</td><td class="r">${escapeHtml(
+                shoppingItemQuantityText(i)
+              )}</td></tr>`
+          )
+          .join("")}</table>`
+      : "";
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Shopping list</title><style>
       body{font-family:system-ui,sans-serif;color:#111;margin:24px}
       h1{font-size:18px;margin:0 0 4px} p{margin:0 0 12px;font-size:12px;color:#555}
@@ -114,7 +154,7 @@ export default function ShoppingListPanel({
       .box{width:20px;font-size:16px} .r{text-align:right;white-space:nowrap}
     </style></head><body><h1>Shopping list · ${escapeHtml(formatWeekRange(weekStart))}</h1>
     <p>${escapeHtml(plansLabel)} · estimated ${toBuyCost.toFixed(2)} lei</p>
-    ${rows || "<p>Nothing left to buy.</p>"}</body></html>`;
+    ${rows || "<p>Nothing left to buy.</p>"}${pantryRows}</body></html>`;
     if (!printHtml(html)) toast.error("Could not open the print view.");
   }
 
@@ -136,7 +176,7 @@ export default function ShoppingListPanel({
         out of Copy, Print and the &ldquo;still to buy&rdquo; total, and the
         ticks are shared by every plan in this week.
       </p>
-      {groups.length > 0 && (
+      {hasAnything && (
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <button type="button" onClick={handleCopy} className={BTN}>
             {copied ? (
@@ -180,14 +220,15 @@ export default function ShoppingListPanel({
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
         </div>
-      ) : groups.length === 0 ? (
+      ) : !hasAnything ? (
         <p className="text-sm text-gray-400 text-center py-8">{emptyMessage}</p>
-      ) : visibleGroups.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-8">
-          Everything is checked. Nothing left to buy.
-        </p>
       ) : (
         <div className="space-y-5">
+          {groups.length > 0 && visibleGroups.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-4">
+              Everything is checked. Nothing left to buy.
+            </p>
+          )}
           {visibleGroups.map((group) => (
             <div key={group.category}>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -240,6 +281,73 @@ export default function ShoppingListPanel({
               </p>
             </div>
           ))}
+
+          {pantry && (hideChecked ? visiblePantryItems.length > 0 : true) && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setPantryOpen((v) => !v)}
+                aria-expanded={pantryOpen}
+                aria-controls="pantry-check-list"
+                className="w-full flex items-center gap-2 text-left rounded-lg border border-dashed px-3 py-2 hover:bg-gray-50"
+              >
+                {pantryOpen ? (
+                  <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />
+                )}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    Pantry check &middot; {pantryItems.length} item
+                    {pantryItems.length !== 1 ? "s" : ""}
+                    {pantryChecked > 0 && (
+                      <span className="ml-2 normal-case font-normal text-emerald-700">
+                        {pantryChecked} of {pantryItems.length} checked
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    {pantry.subtotal === 0 && pantry.unpricedCount === 0
+                      ? "No cost"
+                      : `${pantry.unpricedCount === 0 ? "~" : ""}${formatCost(pantry.subtotal, pantry.unpricedCount)}`}
+                    , not in the total
+                  </span>
+                </span>
+              </button>
+              {pantryOpen && (
+                <div id="pantry-check-list" className="space-y-1 mt-2">
+                  {visiblePantryItems.map((item) => {
+                    const checked = checkedItems.has(item.ingredientId);
+                    return (
+                      <label
+                        key={item.ingredientId}
+                        className={`flex items-center gap-2 py-2 px-3 bg-gray-50 rounded-lg cursor-pointer ${checked ? "opacity-50" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleItem(item.ingredientId)}
+                          aria-label={`Have it: ${item.name}`}
+                          className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
+                        />
+                        <span
+                          className={`text-sm font-medium text-gray-900 flex-1 ${checked ? "line-through" : ""}`}
+                        >
+                          {item.name}
+                          <span className="ml-2 text-xs font-normal text-gray-400">
+                            {checked ? "Have it" : ""}
+                          </span>
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          {item.toTasteOnly ? "to taste" : shoppingItemQuantityText(item)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -247,16 +355,16 @@ export default function ShoppingListPanel({
         <div className="sticky bottom-0 bg-white border-t mt-4 pt-3">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-700">
-              {checkedCount > 0 ? "Still to buy" : "Total Estimated Cost"}
+              {checkedBuyCount > 0 ? "Still to buy" : "Total Estimated Cost"}
             </span>
             <span className={`font-bold text-emerald-700 ${toBuyUnpriced > 0 ? "text-sm" : "text-lg"}`}>
               {formatCost(toBuyCost, toBuyUnpriced)}
             </span>
           </div>
-          {checkedCount > 0 && (
+          {checkedBuyCount > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              Full list {formatCost(totalCost, unpricedCount)} · {checkedCount} item
-              {checkedCount !== 1 ? "s" : ""} marked &ldquo;Have it&rdquo;
+              Full list {formatCost(totalCost, unpricedCount)} · {checkedBuyCount} item
+              {checkedBuyCount !== 1 ? "s" : ""} marked &ldquo;Have it&rdquo;
             </p>
           )}
         </div>
