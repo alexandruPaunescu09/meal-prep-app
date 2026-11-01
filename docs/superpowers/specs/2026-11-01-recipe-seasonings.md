@@ -170,7 +170,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 |---|---|---|---|---|
 | SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
 | SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Open |
-| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Done (PR #N) |
+| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Done (PR #46) |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Open |
 | SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Open |
 | SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Open |
