@@ -88,6 +88,14 @@ describe("chipDefault", () => {
     expect(chipDefault(ing("fats", "ml", 884))).toEqual({ toTaste: false, quantity: 10 });
     expect(chipDefault(ing("other", "g", 301))).toEqual({ toTaste: false, quantity: 10 });
   });
+  it("gives realistic pantry items the agreed defaults", () => {
+    expect(chipDefault(ing("spices_herbs", "g", 0))).toEqual({ toTaste: true, quantity: 0 }); // salt
+    expect(chipDefault(ing("spices_herbs", "g", 251))).toEqual({ toTaste: true, quantity: 0 }); // pepper
+    expect(chipDefault(ing("fats", "ml", 884))).toEqual({ toTaste: false, quantity: 10 }); // oil
+    expect(chipDefault(ing("vegetables", "g", 149))).toEqual({ toTaste: false, quantity: 5 }); // garlic
+    expect(chipDefault(ing("fruits", "ml", 22))).toEqual({ toTaste: false, quantity: 5 }); // lemon juice
+    expect(chipDefault(ing("fruits", "buc", 29))).toEqual({ toTaste: false, quantity: 1 }); // whole lemon
+  });
   it("weighs everything else as 5", () => {
     expect(chipDefault(ing("other", "ml", 20))).toEqual({ toTaste: false, quantity: 5 });
     expect(chipDefault(ing("other", "g", 300))).toEqual({ toTaste: false, quantity: 5 });
