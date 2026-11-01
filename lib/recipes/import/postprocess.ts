@@ -91,8 +91,10 @@ export function postProcessRecipeLines(
       confidence = "high";
     }
     const isHeader = l.is_section_header || headers.has(norm(l.raw_text));
+    // An explicit usable amount always makes a weighed line ("10 ml oil, or to taste" stays 10 ml).
+    const hasAmount = l.quantity != null && Number.isFinite(l.quantity) && l.quantity > 0;
     // "To taste" lines are seasonings without an amount (the model flag or the text says so).
-    const toTaste = !isHeader && (l.to_taste || TO_TASTE_RE.test(l.raw_text));
+    const toTaste = !isHeader && !hasAmount && (l.to_taste || TO_TASTE_RE.test(l.raw_text));
     // The quantity must be in the matched ingredient's unit (a to-taste line has no quantity).
     let suggestedUnit = l.suggested_unit;
     if (ingredientId && !toTaste) {

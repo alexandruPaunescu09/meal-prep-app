@@ -93,6 +93,24 @@ describe("postProcessRecipeLines", () => {
     expect(r).toMatchObject({ to_taste: true, role: "seasoning", include: true });
   });
 
+  it("an explicit amount beats 'or to taste' wording (model to_taste false)", () => {
+    for (const raw_text of ["10 ml ulei, sau după gust", "10 ml oil, or to taste"]) {
+      const r = run(line({ raw_text, is_seasoning: true, ingredient_id: "oil", quantity: 10, quantity_unit: "ml", to_taste: false }));
+      expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 10, quantity_unit: "ml", include: true, ingredient_id: "oil" });
+      expect(r.note).toBeNull();
+    }
+  });
+
+  it("an explicit amount stays weighed even when the model also says to_taste", () => {
+    const r = run(line({ raw_text: "10 ml oil, or to taste", is_seasoning: true, ingredient_id: "oil", quantity: 10, quantity_unit: "ml", to_taste: true }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 10, quantity_unit: "ml", include: true });
+  });
+
+  it("'sare după gust' with no amount is still to taste", () => {
+    const r = run(line({ raw_text: "sare după gust", quantity: null, ingredient_id: "salt", quantity_unit: "g" }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: true, quantity: null, include: true });
+  });
+
   it("a stated amount stays a weighed line (seasoning flag from the model)", () => {
     const r = run(line({ raw_text: "2 linguri ulei", is_seasoning: true, ingredient_id: "oil", quantity: 30, quantity_unit: "ml" }));
     expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 30, include: true });
