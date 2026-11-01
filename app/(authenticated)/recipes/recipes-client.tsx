@@ -172,6 +172,8 @@ export default function RecipesClient({
     const p_ingredients: SaveRecipeIngredientInput[] = recipe.recipe_ingredients.map((ri) => ({
       ingredient_id: ri.ingredient_id,
       quantity: ri.quantity,
+      role: ri.role ?? "main",
+      to_taste: ri.to_taste ?? false,
     }));
 
     const { data: newId, error } = await supabase.rpc("save_recipe", {

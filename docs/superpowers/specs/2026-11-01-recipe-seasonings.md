@@ -1,7 +1,7 @@
 # EPIC: Recipe seasonings — a "Seasonings" section on recipes
 
 **Date:** 2026-11-01
-**Status:** Spec only. Nothing built. All six stories (SE-0…SE-5) are open.
+**Status:** SE-0 done. SE-1…SE-5 are open.
 
 ## Problem
 
@@ -168,7 +168,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
-| SE-0 | Schema, save path, types, shared helper | M | — | Open |
+| SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
 | SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Open |
 | SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Open |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Open |

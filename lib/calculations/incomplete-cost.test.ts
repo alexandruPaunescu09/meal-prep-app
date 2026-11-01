@@ -81,9 +81,47 @@ describe("calculateRecipe cost", () => {
     );
     expect(c.unpricedCount).toBe(1);
   });
+
+  it("a zero-quantity (to taste) unpriced line is not counted as unpriced", () => {
+    const c = calculateRecipe(
+      [
+        { ingredient: rice, quantity: 200 },
+        { ingredient: sumac, quantity: 0 },
+      ],
+      1
+    );
+    expect(c.totalCost).toBeCloseTo(2);
+    expect(c.unpricedCount).toBe(0);
+    expect(c.unpricedNames).toEqual([]);
+  });
+
+  it("the same unpriced ingredient counts when it also has a weighed line", () => {
+    const c = calculateRecipe(
+      [
+        { ingredient: sumac, quantity: 0 },
+        { ingredient: sumac, quantity: 5 },
+      ],
+      1
+    );
+    expect(c.unpricedNames).toEqual(["Sumac"]);
+  });
 });
 
 describe("calculateDay / calculateWeek cost", () => {
+  it("day and week ignore a to-taste unpriced line in a recipe", () => {
+    const toTasteRecipe = {
+      id: "t",
+      portions: 1,
+      recipe_ingredients: [
+        { ingredient: rice, quantity: 100 },
+        { ingredient: saffron, quantity: 0 },
+      ],
+    };
+    const e = [{ day_of_week: 1, recipe: toTasteRecipe, portions: 1 }] as never[];
+    expect(calculateDay(e).unpricedNames).toEqual([]);
+    expect(calculateWeek(e, 2).unpricedCount).toBe(0);
+  });
+
   const recipe = {
     id: "r",
     portions: 2,

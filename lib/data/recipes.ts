@@ -37,6 +37,8 @@ export const getRecipesWithIngredients = unstable_cache(
           recipe_id,
           ingredient_id,
           quantity,
+          role,
+          to_taste,
           ingredient:ingredients (*)
         )
       `

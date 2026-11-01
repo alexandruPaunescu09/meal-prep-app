@@ -161,7 +161,7 @@ export function buildSavePayload(
       source_url: normalizeSourceUrl(fields.sourceUrl),
       instructions: normalizeSteps(fields.steps),
     },
-    ingredients: [...sums].map(([ingredient_id, quantity]) => ({ ingredient_id, quantity: round3(quantity) })),
+    ingredients: [...sums].map(([ingredient_id, quantity]) => ({ ingredient_id, quantity: round3(quantity), role: "main" as const, to_taste: false })),
     aliases: [...aliases.values()],
     mergedIngredientIds: [...counts].filter(([, n]) => n > 1).map(([id]) => id),
   };

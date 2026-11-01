@@ -9,6 +9,7 @@ export const ingredientSchema = z.object({
   unit: z.enum(["g", "ml", "buc"]),
   package_price: z.number().nonnegative("Must be >= 0").nullable(), // null = price pending
   piece_weight_g: z.number().positive("Must be > 0").nullable().optional(),
+  is_seasoning: z.boolean().default(false),
   calories: z.number().nonnegative().nullable().optional(),
   protein: z.number().nonnegative().nullable().optional(),
   carbs: z.number().nonnegative().nullable().optional(),

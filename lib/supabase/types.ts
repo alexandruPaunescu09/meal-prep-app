@@ -22,6 +22,8 @@ export interface Ingredient {
   price_per_unit: number | null;
   /** Grams per 1 buc (RI-0a); only meaningful when unit = 'buc'. Nutrition is per 100 g. */
   piece_weight_g: number | null;
+  /** "Usually a seasoning": only the default role when added to a recipe (SE-0). Admin-only. */
+  is_seasoning: boolean;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
@@ -74,6 +76,10 @@ export interface RecipeIngredient {
   recipe_id: string;
   ingredient_id: string;
   quantity: number;
+  /** 'seasoning' lines are listed apart from the main ingredients (SE-0). */
+  role: "main" | "seasoning";
+  /** "To taste" line: stored with quantity 0, only valid on a seasoning. */
+  to_taste: boolean;
   ingredient?: Ingredient;
 }
 
@@ -347,6 +353,8 @@ export interface SaveRecipeInput {
 }
 
 export interface SaveRecipeIngredientInput {
+  role: "main" | "seasoning";
+  to_taste: boolean;
   ingredient_id: string;
   quantity: number;
 }

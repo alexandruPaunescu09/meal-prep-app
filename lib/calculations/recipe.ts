@@ -50,7 +50,8 @@ export function calculateRecipe(
 
   for (const { ingredient, quantity } of ingredients) {
     if (ingredient.price_per_unit == null) {
-      unpriced.set(ingredient.id, ingredient.name);
+      // A "to taste" line (quantity 0) costs nothing, so a missing price does not matter.
+      if (quantity > 0) unpriced.set(ingredient.id, ingredient.name);
     } else {
       totalCost += quantity * ingredient.price_per_unit;
     }
