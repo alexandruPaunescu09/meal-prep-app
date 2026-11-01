@@ -5,6 +5,7 @@ import { MealPlanDocument, MealPlanPDFData } from "@/lib/pdf/meal-plan";
 import { calculateRecipe } from "@/lib/calculations/recipe";
 import { nutritionGrams } from "@/lib/calculations/piece-weight";
 import { calculateDay } from "@/lib/calculations/meal-plan";
+import { seasonedWithText, splitLines } from "@/lib/recipes/seasonings";
 import { Resend } from "resend";
 import React from "react";
 
@@ -54,13 +55,17 @@ async function buildPDFData(planId: string): Promise<MealPlanPDFData | null> {
             return {
               recipeName: entry.recipe.name,
               portions: entry.portions,
-              ingredients: entry.recipe.recipe_ingredients
-                .filter((ri: any) => ri.ingredient)
+              ingredients: splitLines<any>(
+                entry.recipe.recipe_ingredients.filter((ri: any) => ri.ingredient)
+              ).main
                 .map((ri: any) => ({
                   name: ri.ingredient.name,
                   quantity: Math.round((ri.quantity * entry.portions / entry.recipe.portions) * 10) / 10,
                   unit: ri.ingredient.unit ?? "g",
                 })),
+              seasonedWith: seasonedWithText(
+                entry.recipe.recipe_ingredients.filter((ri: any) => ri.ingredient)
+              ),
               nutrition: {
                 calories: calc.perPortion.calories * entry.portions,
                 protein: calc.perPortion.protein * entry.portions,

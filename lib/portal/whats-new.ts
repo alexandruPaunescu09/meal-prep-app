@@ -7,6 +7,7 @@ import {
   PencilLine,
   PlusCircle,
   Scale,
+  Sprout,
   Star,
   TrendingUp,
   type LucideIcon,
@@ -33,6 +34,17 @@ export interface Release {
  * a release at the top: the pop-up opens again for everyone whose account predates `date`.
  */
 export const RELEASES: Release[] = [
+  {
+    id: "2026-11-seasonings",
+    date: "2026-11-01",
+    items: [
+      {
+        icon: Sprout,
+        title: "Seasonings on your meals",
+        body: "Each meal now lists its seasonings in one line under the ingredients.",
+      },
+    ],
+  },
   {
     id: "2026-10-food-diary",
     date: "2026-10-20",
