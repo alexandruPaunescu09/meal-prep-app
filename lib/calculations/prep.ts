@@ -103,6 +103,8 @@ function getIngredientsFromEntry(entry: FullEntry): {
     const portionMultiplier = entry.portions / recipe.portions;
     for (const ri of recipe.recipe_ingredients) {
       if (!ri.ingredient) continue;
+      // "To taste" lines have no weight to prep (stored as quantity 0).
+      if (ri.to_taste || !(ri.quantity > 0)) continue;
       results.push({
         ingredient: ri.ingredient,
         quantity: ri.quantity * portionMultiplier,

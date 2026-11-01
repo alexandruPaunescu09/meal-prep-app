@@ -47,3 +47,37 @@ describe("cleanSteps", () => {
     expect(cleanSteps(null)).toEqual([]);
   });
 });
+
+describe("generateCookingPlan seasonings", () => {
+  const line = (id: string, name: string, quantity: number, role: "main" | "seasoning", toTaste = false) => ({
+    id: `ri-${id}`,
+    role,
+    to_taste: toTaste,
+    quantity,
+    ingredient: { id, name, unit: "g" },
+  });
+
+  it("splits mains from seasonings, scales both and keeps to taste", () => {
+    const r = {
+      ...recipe("s", []),
+      recipe_ingredients: [
+        line("rice", "Rice", 200, "main"),
+        line("garlic", "Garlic", 12, "seasoning"),
+        line("pepper", "Pepper", 0, "seasoning", true),
+      ],
+    };
+    // 2 base portions, 6 cooked -> x3
+    const { recipes } = generateCookingPlan([entry("P1", r, 6)] as never);
+    expect(recipes[0].ingredients.map((i) => [i.name, i.quantity, i.toTaste])).toEqual([["Rice", 600, false]]);
+    expect(recipes[0].seasonings.map((i) => [i.name, i.quantity, i.toTaste])).toEqual([
+      ["Garlic", 36, false],
+      ["Pepper", 0, true],
+    ]);
+  });
+
+  it("gives an empty seasonings list when there are none", () => {
+    const r = { ...recipe("t", []), recipe_ingredients: [line("rice", "Rice", 100, "main")] };
+    const { recipes } = generateCookingPlan([entry("P1", r, 2)] as never);
+    expect(recipes[0].seasonings).toEqual([]);
+  });
+});

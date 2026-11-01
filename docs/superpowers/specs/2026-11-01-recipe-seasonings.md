@@ -126,7 +126,7 @@ This epic adds a Seasonings section per recipe. The admin lists spices, herbs, s
 
 - Recipes list: both expanded blocks (`recipes-client.tsx:404-407` and `561-564`) show "Ingredients (n)" then "Seasonings (m)" with "to taste" where it applies. Clone copies role and to_taste (SE-0 payload).
 - Cooking plan: `CookingPlanRecipe` gets `seasonings: CookingPlanRecipeIngredient[]` (with `toTaste: boolean`); `ingredients` becomes main only. Quantities scale to the batch as today; to-taste stay "to taste". `weekly-cooking-modal.tsx` renders a "Seasonings" sub-list per recipe, also in the print output.
-- Scale: `ScaleLineInput` gets `role` and `toTaste`. To-taste lines are excluded from the scale (not counted, not changed, never trip "a non-zero quantity never becomes 0"). Seasoning lines scale with the rest, but `roundScaled` uses a finer step for seasonings under 10 g/ml: nearest 0.5, minimum 0.5; at or above 10 the existing rule applies. The modal shows seasoning rows under their own sub-heading.
+- Scale (as built, SE-2): the finer rounding (nearest 0.5 under 10 g/ml, minimum 0.5) applies to ANY non-`buc` line under 10, not only seasonings, because callers do not pass a role yet; `ScaleLineInput` gets only an optional `role` (display grouping), and to-taste lines are recognised by quantity 0. Original design: `ScaleLineInput` gets `role` and `toTaste`. To-taste lines are excluded from the scale (not counted, not changed, never trip "a non-zero quantity never becomes 0"). Seasoning lines scale with the rest, but `roundScaled` uses a finer step for seasonings under 10 g/ml: nearest 0.5, minimum 0.5; at or above 10 the existing rule applies. The modal shows seasoning rows under their own sub-heading.
 - Prep: `getIngredientsFromEntry` skips `to_taste` lines. A weighed seasoning (garlic 12 g) still gets prep rules (peeling and chopping are real prep).
 
 ### Recipe import (SE-5)
@@ -170,7 +170,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 |---|---|---|---|---|
 | SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
 | SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Open |
-| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Open |
+| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Done (PR #N) |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Open |
 | SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Open |
 | SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Open |
