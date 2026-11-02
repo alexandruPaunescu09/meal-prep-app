@@ -46,6 +46,9 @@ interface IngredientEntry {
   ingredient: Ingredient;
   /** Raw text so partial input ("0.", "") is preserved while typing. */
   qty: string;
+  /** Loaded role / to-taste flag, sent back on save (no UI until SE-1). */
+  role: "main" | "seasoning";
+  toTaste: boolean;
 }
 
 const PICKER_LIMIT = 100;
@@ -104,6 +107,8 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       id: ri.id,
       ingredient: ri.ingredient,
       qty: String(ri.quantity),
+      role: ri.role ?? "main",
+      toTaste: ri.to_taste ?? false,
     })) ?? []
   );
 
@@ -222,7 +227,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   function addIngredient(ingredient: Ingredient) {
     if (usedIds.has(ingredient.id)) return;
     const id = crypto.randomUUID();
-    setEntries((prev) => [...prev, { id, ingredient, qty: "100" }]);
+    setEntries((prev) => [...prev, { id, ingredient, qty: "100", role: "main", toTaste: false }]);
     focusEntryId.current = id;
     setIngredientsError("");
   }
@@ -300,6 +305,8 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     const p_ingredients: SaveRecipeIngredientInput[] = entries.map((en) => ({
       ingredient_id: en.ingredient.id,
       quantity: qtyToNumber(en.qty),
+      role: en.role,
+      to_taste: en.toTaste,
     }));
 
     const { error: rpcErr } = await supabase.rpc("save_recipe", {

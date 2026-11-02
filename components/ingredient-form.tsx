@@ -43,6 +43,8 @@ export interface IngredientFormState {
   /** null = price pending (RI-0c). */
   package_price: number | null;
   piece_weight_g: number | null;
+  /** "Usually a seasoning" (SE-0: carried through, UI toggle comes in SE-1). */
+  is_seasoning?: boolean;
   calories: number | null;
   protein: number | null;
   carbs: number | null;
@@ -418,6 +420,8 @@ export default function IngredientForm({
       unit: v.unit,
       package_price: newPrice,
       piece_weight_g: pieceWeight,
+      // Carry the stored value on edit so a save never resets it (toggle UI: SE-1).
+      is_seasoning: ingredient ? ingredient.is_seasoning : (defaults?.is_seasoning ?? false),
       ...nutPayload,
       micronutrients: v.micronutrients,
       api_source: v.api_source,

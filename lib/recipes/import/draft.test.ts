@@ -96,7 +96,7 @@ describe("buildSavePayload", () => {
       line({ ingredient_id: "b", quantity: 10, raw_name: "sare", optional: true, include: false }),
     ]);
     const p = buildSavePayload(fields, ls, ings);
-    expect(p.ingredients).toEqual([{ ingredient_id: "a", quantity: 200 }]);
+    expect(p.ingredients).toEqual([{ ingredient_id: "a", quantity: 200, role: "main", to_taste: false }]);
     expect(p.aliases).toEqual([{ alias: "faina alba", ingredient_id: "a" }]);
     expect(p.recipe).toEqual({
       name: "Bastonase",
@@ -127,7 +127,7 @@ describe("buildSavePayload", () => {
       line({ ingredient_id: "a", quantity: 50.5, raw_name: "faina pentru pane" }),
     ]);
     const p = buildSavePayload(fields, ls, ings);
-    expect(p.ingredients).toEqual([{ ingredient_id: "a", quantity: 150.5 }]);
+    expect(p.ingredients).toEqual([{ ingredient_id: "a", quantity: 150.5, role: "main", to_taste: false }]);
     expect(p.mergedIngredientIds).toEqual(["a"]);
     expect(mergeNote(p.mergedIngredientIds, ings)).toContain("Faina");
     expect(mergeNote([], ings)).toBeNull();
