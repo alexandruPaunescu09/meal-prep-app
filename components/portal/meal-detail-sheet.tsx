@@ -8,6 +8,7 @@ import ReviewComposer from "./review-composer";
 import { MACRO_BG } from "@/lib/portal/macro-colors";
 import { Modal } from "@/components/ui/modal";
 import { formatDate, formatQuantity } from "@/lib/format";
+import { seasonedWithText, splitLines } from "@/lib/recipes/seasonings";
 
 type FullEntry = PortalEntry;
 
@@ -55,6 +56,10 @@ export default function MealDetailSheet({
   const n = planEntryNutrition(entry);
   const title = entry.recipe?.name ?? entry.ingredient?.name ?? "—";
   const description = entry.recipe?.customer_description;
+
+  const recipeLines = entry.recipe?.recipe_ingredients ?? [];
+  const mainLines = splitLines(recipeLines).main;
+  const seasonedWith = seasonedWithText(recipeLines);
 
   const macroKcal = { protein: n.protein * 4, carbs: n.carbs * 4, fat: n.fat * 9 };
   const macroTotal = macroKcal.protein + macroKcal.carbs + macroKcal.fat;
@@ -156,9 +161,11 @@ export default function MealDetailSheet({
 
         {entry.recipe && entry.recipe.recipe_ingredients.length > 0 && (
           <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Ingredients</h3>
-            <ul className="space-y-1 text-sm text-gray-700">
-              {entry.recipe.recipe_ingredients.map((ri) => {
+            {mainLines.length > 0 && (
+              <>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Ingredients</h3>
+                <ul className="space-y-1 text-sm text-gray-700">
+              {mainLines.map((ri) => {
                 const scaled = (ri.quantity / entry.recipe!.portions) * entry.portions;
                 return (
                   <li key={ri.id} className="flex justify-between gap-2">
@@ -169,7 +176,12 @@ export default function MealDetailSheet({
                   </li>
                 );
               })}
-            </ul>
+                </ul>
+              </>
+            )}
+            {seasonedWith && (
+              <p className={`text-sm text-gray-500 ${mainLines.length > 0 ? "mt-2" : ""}`}>{seasonedWith}</p>
+            )}
           </section>
         )}
 

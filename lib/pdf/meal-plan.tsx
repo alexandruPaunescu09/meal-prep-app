@@ -31,6 +31,8 @@ interface MealEntry {
   recipeName: string;
   portions: number;
   ingredients?: { name: string; quantity: number; unit: string }[];
+  /** "Seasoned with: a, b" (names only), null/absent without seasonings. */
+  seasonedWith?: string | null;
   nutrition: {
     calories: number;
     protein: number;
@@ -97,6 +99,9 @@ export function MealPlanDocument({ data }: { data: MealPlanPDFData }) {
                             <Text style={styles.ingredientLine}>
                               Ingredients: {entry.ingredients.map(i => `${i.name} ${i.quantity}${i.unit}`).join(", ")}
                             </Text>
+                          )}
+                          {entry.seasonedWith && (
+                            <Text style={styles.ingredientLine}>{entry.seasonedWith}</Text>
                           )}
                           <Text style={styles.nutritionLine}>
                             {Math.round(entry.nutrition.calories)} kcal | P: {entry.nutrition.protein.toFixed(1)}g | C: {entry.nutrition.carbs.toFixed(1)}g | F: {entry.nutrition.fat.toFixed(1)}g | Fiber: {entry.nutrition.fiber.toFixed(1)}g | Sugar: {entry.nutrition.sugar.toFixed(1)}g | Sat Fat: {entry.nutrition.sat_fat.toFixed(1)}g | Salt: {entry.nutrition.salt.toFixed(2)}g
