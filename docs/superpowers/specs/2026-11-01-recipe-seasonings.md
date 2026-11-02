@@ -1,7 +1,7 @@
 # EPIC: Recipe seasonings — a "Seasonings" section on recipes
 
 **Date:** 2026-11-01
-**Status:** all six stories (SE-0…SE-5) are built and in review (PRs open, not merged).
+**Status:** all six stories (SE-0…SE-5) merged in PRs #43–#48; spec #42 squash-merged. Both production migrations verified.
 
 ## Problem
 
@@ -169,12 +169,12 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
-| SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
-| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Done (PR #47) |
-| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Done (PR #46) |
-| SE-3 | Shopping list "Pantry check" | M | SE-0 | Done (PR #45) |
-| SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Done (PR #44) |
-| SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Done (PR #48) |
+| SE-0 | Schema, save path, types, shared helper | M | — | Merged (PR #43) |
+| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Merged (PR #47) |
+| SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Merged (PR #46) |
+| SE-3 | Shopping list "Pantry check" | M | SE-0 | Merged (PR #45) |
+| SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Merged (PR #44) |
+| SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Merged (PR #48) |
 
 ### Order and parallel work
 
@@ -228,3 +228,25 @@ As the admin, I want to add seasonings in their own list, so that I can write "t
 - Live check with Haiku 5.5 on the gustos and lauralaurentiu fixtures ("sare și piper după gust").
 
 **Acceptance:** importing the lauralaurentiu page yields salt and pepper as included to-taste seasonings; saving keeps them; the recipe cost and kcal match the main lines plus any weighed seasoning.
+
+## Integration verification — 2026-11-03
+
+Merged in dependency order: #42 (squash), #43, #47, #46, #45, #44, #48.
+
+| PR | Merge commit |
+|---|---|
+| #42 | `2cd8a1e7b2644f78f6c5be48ee4cadc66bad9519` |
+| #43 | `1f3eaa83cc4b3ef0e608706a38da10aecc5d4fcc` |
+| #47 | `a7f0e091b6015804475379ab9816cccbe68d28d0` |
+| #46 | `044188713416f13bcbf2739af688020854f14779` |
+| #45 | `155ac9f3699c450a6e887784caedfb9591b3751c` |
+| #44 | `1d7aa735dd476eb48898aff7bb130ae42c254717` |
+| #48 | `89f2bc9b7940a761bbb69bc6cea901222f9f37d0` |
+
+All PR heads passed lint/types/unit tests and fresh migration replay/pgTAP/build before merging. The combined source passed 619 unit tests, TypeScript and a production build locally (dummy configuration); lint had no errors and 8 warnings. Final main source matched this combined source, and `.claude` had no delta from pre-integration main. Both review findings were fixed with regression coverage: explicit seasoning-chip defaults and preserving explicit import amounts beside “to taste” wording.
+
+Production migration gates:
+- [Schema migration run 41534018730](https://github.com/alexandruPaunescu09/meal-prep-app/actions/runs/41534018730) succeeded after #43, before UI merges. The actual database push applied `20261101000000_recipe_seasonings.sql`.
+- [Category migration run 41534198739](https://github.com/alexandruPaunescu09/meal-prep-app/actions/runs/41534198739) succeeded after #47. The migration list showed `20261101000100` recorded remotely; dry-run and actual database push both reported the remote database up to date.
+
+The dirty original checkout and user files were preserved. Final post-merge CI/deployment status is reported separately after completion.
