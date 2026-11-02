@@ -53,3 +53,49 @@ export function isCalorieDense(ingredient: { calories: number | null }): boolean
 export function defaultRole(ingredient: { is_seasoning: boolean }): LineRole {
   return ingredient.is_seasoning ? "seasoning" : "main";
 }
+
+/** Category slug of the "Spices & Herbs" group (seeded by SE-1). */
+export const SPICES_CATEGORY = "spices_herbs";
+
+/** Quick-add chips shown above the Seasonings list. */
+export const MAX_SEASONING_CHIPS = 12;
+
+export interface ChipDefault {
+  toTaste: boolean;
+  /** Amount in the ingredient's unit; 0 when to taste. */
+  quantity: number;
+}
+
+/**
+ * Starting amount for a seasoning added with a quick-add chip.
+ * Spices and herbs (salt and pepper included) start "to taste"; everything else
+ * is weighed: 1 for a `buc` ingredient, 10 for calorie-dense ones (oil), else 5.
+ */
+export function chipDefault(ingredient: {
+  category: string;
+  unit: string;
+  calories: number | null;
+}): ChipDefault {
+  if (ingredient.category === SPICES_CATEGORY) return { toTaste: true, quantity: 0 };
+  if (ingredient.unit === "buc") return { toTaste: false, quantity: 1 };
+  return { toTaste: false, quantity: isCalorieDense(ingredient) ? 10 : 5 };
+}
+
+/**
+ * Up to `limit` quick-add chips: `is_seasoning` ingredients not already in the
+ * Seasonings list, most used in recipes first, then by name.
+ */
+export function pickSeasoningChips<T extends { id: string; name: string; is_seasoning: boolean }>(
+  ingredients: T[],
+  usedIds: ReadonlySet<string>,
+  usage?: ReadonlyMap<string, number>,
+  limit: number = MAX_SEASONING_CHIPS
+): T[] {
+  return ingredients
+    .filter((i) => i.is_seasoning && !usedIds.has(i.id))
+    .sort(
+      (a, b) =>
+        (usage?.get(b.id) ?? 0) - (usage?.get(a.id) ?? 0) || a.name.localeCompare(b.name, "ro")
+    )
+    .slice(0, limit);
+}
