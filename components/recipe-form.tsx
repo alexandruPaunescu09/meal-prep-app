@@ -20,7 +20,14 @@ import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { Plus, Trash2, Search, Check, ExternalLink } from "lucide-react";
+import { Plus, Trash2, Search, Check, ExternalLink, ArrowDown, ArrowUp } from "lucide-react";
+import {
+  chipDefault,
+  isCalorieDense,
+  pickSeasoningChips,
+  splitLines,
+  type LineRole,
+} from "@/lib/recipes/seasonings";
 import {
   normalizeSourceUrl,
   normalizeSteps,
@@ -46,9 +53,15 @@ interface IngredientEntry {
   ingredient: Ingredient;
   /** Raw text so partial input ("0.", "") is preserved while typing. */
   qty: string;
-  /** Loaded role / to-taste flag, sent back on save (no UI until SE-1). */
-  role: "main" | "seasoning";
+  /** Which list the line sits in. */
+  role: LineRole;
+  /** "To taste": saved as quantity 0 (seasonings only). */
   toTaste: boolean;
+}
+
+/** The quantity that is saved and calculated: a to-taste line is always 0. */
+function entryQty(e: Pick<IngredientEntry, "qty" | "toTaste">): number {
+  return e.toTaste ? 0 : qtyToNumber(e.qty);
 }
 
 const PICKER_LIMIT = 100;
@@ -106,13 +119,17 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     recipe?.recipe_ingredients.map((ri) => ({
       id: ri.id,
       ingredient: ri.ingredient,
-      qty: String(ri.quantity),
+      qty: ri.to_taste ? "" : String(ri.quantity),
       role: ri.role ?? "main",
       toTaste: ri.to_taste ?? false,
     })) ?? []
   );
 
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
+  /** ingredient id -> number of recipes using it as a seasoning (orders the chips). */
+  const [seasoningUsage, setSeasoningUsage] = useState<Map<string, number>>(new Map());
+  /** Which list the picker adds to. */
+  const [pickerRole, setPickerRole] = useState<LineRole>("main");
   const [ingredientsLoaded, setIngredientsLoaded] = useState(false);
   const [containerTypes, setContainerTypes] = useState<ContainerType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -138,7 +155,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       cd,
       fw,
       ct,
-      es.map((e) => [e.ingredient.id, e.qty]),
+      es.map((e) => [e.ingredient.id, e.qty, e.role, e.toTaste]),
       su,
       st.map((x) => x.text),
     ]);
@@ -166,6 +183,19 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       .then(({ data }) => {
         if (data) setContainerTypes(data as ContainerType[]);
       });
+    // Only orders the quick-add chips; a failure just falls back to name order.
+    supabase
+      .from("recipe_ingredients")
+      .select("ingredient_id")
+      .eq("role", "seasoning")
+      .then(({ data }) => {
+        if (!data) return;
+        const counts = new Map<string, number>();
+        for (const row of data as { ingredient_id: string }[]) {
+          counts.set(row.ingredient_id, (counts.get(row.ingredient_id) ?? 0) + 1);
+        }
+        setSeasoningUsage(counts);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -182,9 +212,21 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     return () => cancelAnimationFrame(raf);
   }, [showPicker]);
 
-  const usedIds = useMemo(
-    () => new Set(entries.map((e) => e.ingredient.id)),
-    [entries]
+  const { main: mainEntries, seasonings: seasoningEntries } = useMemo(() => splitLines(entries), [entries]);
+
+  /** An ingredient may appear once per section. */
+  const usedByRole = useMemo(
+    () => ({
+      main: new Set(mainEntries.map((e) => e.ingredient.id)),
+      seasoning: new Set(seasoningEntries.map((e) => e.ingredient.id)),
+    }),
+    [mainEntries, seasoningEntries]
+  );
+  const usedIds = usedByRole[pickerRole];
+
+  const chips = useMemo(
+    () => pickSeasoningChips(allIngredients, usedByRole.seasoning, seasoningUsage),
+    [allIngredients, usedByRole.seasoning, seasoningUsage]
   );
 
   const pickerResults = useMemo(() => {
@@ -202,7 +244,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
 
   const calc: RecipeCalculation = useMemo(() => {
     return calculateRecipe(
-      entries.map((e) => ({ ingredient: e.ingredient, quantity: qtyToNumber(e.qty) })),
+      entries.map((e) => ({ ingredient: e.ingredient, quantity: entryQty(e) })),
       portionsValid ? portions : 1
     );
   }, [entries, portions, portionsValid]);
@@ -213,8 +255,8 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
   const scaleLines = useMemo<ScaleLineInput[]>(
     () =>
       entries
-        .filter((e) => qtyToNumber(e.qty) > 0)
-        .map((e) => ({ key: e.id, ingredient: e.ingredient, quantity: qtyToNumber(e.qty) })),
+        .filter((e) => entryQty(e) > 0)
+        .map((e) => ({ key: e.id, ingredient: e.ingredient, quantity: entryQty(e) })),
     [entries]
   );
   const scalable = canScale(scaleLines);
@@ -224,16 +266,53 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     );
   }
 
-  function addIngredient(ingredient: Ingredient) {
-    if (usedIds.has(ingredient.id)) return;
+  /** Adds a line to one section. Seasonings start from the chip default (to taste for spices). */
+  function addIngredient(ingredient: Ingredient, role: LineRole) {
+    if (usedByRole[role].has(ingredient.id)) return;
     const id = crypto.randomUUID();
-    setEntries((prev) => [...prev, { id, ingredient, qty: "100", role: "main", toTaste: false }]);
-    focusEntryId.current = id;
+    let entry: IngredientEntry = { id, ingredient, qty: "100", role: "main", toTaste: false };
+    if (role === "seasoning") {
+      const d = chipDefault(ingredient);
+      entry = { id, ingredient, qty: d.toTaste ? "" : String(d.quantity), role, toTaste: d.toTaste };
+    }
+    setEntries((prev) => [...prev, entry]);
+    if (!entry.toTaste) focusEntryId.current = id;
     setIngredientsError("");
+  }
+
+  function openPicker(role: LineRole) {
+    setPickerRole(role);
+    setShowPicker(true);
   }
 
   function updateQty(id: string, qty: string) {
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, qty } : e)));
+  }
+
+  function setToTaste(id: string, toTaste: boolean) {
+    setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, toTaste, qty: "" } : e)));
+    // Focus the amount once the input has re-rendered.
+    if (!toTaste) requestAnimationFrame(() => qtyRefs.current.get(id)?.focus());
+  }
+
+  /** Moves a line to the other section. To taste is cleared on the way to Ingredients (amount left empty). */
+  function moveEntry(id: string, role: LineRole) {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry || entry.role === role) return;
+    if (usedByRole[role].has(entry.ingredient.id)) {
+      toast.error(
+        `${entry.ingredient.name} is already in ${role === "main" ? "Ingredients" : "Seasonings"}. Remove one of the two lines first.`
+      );
+      return;
+    }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id === id
+          ? { ...e, role, toTaste: false, qty: e.toTaste ? "" : e.qty }
+          : e
+      )
+    );
+    setIngredientsError("");
   }
 
   function removeEntry(id: string) {
@@ -271,11 +350,11 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       setPortionsError("Enter a whole number of portions (1 or more).");
       invalid = true;
     }
-    if (entries.length === 0) {
+    if (mainEntries.length === 0) {
       setIngredientsError("Add at least one ingredient.");
       invalid = true;
-    } else if (entries.some((en) => qtyToNumber(en.qty) <= 0)) {
-      setIngredientsError("Every ingredient needs a quantity greater than 0.");
+    } else if (entries.some((en) => !en.toTaste && qtyToNumber(en.qty) <= 0)) {
+      setIngredientsError("Every ingredient needs a quantity greater than 0 (seasonings can be to taste).");
       invalid = true;
     }
     if (finalWeightStr.trim() !== "" && (finalWeight == null || finalWeight < 0)) {
@@ -304,7 +383,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     };
     const p_ingredients: SaveRecipeIngredientInput[] = entries.map((en) => ({
       ingredient_id: en.ingredient.id,
-      quantity: qtyToNumber(en.qty),
+      quantity: entryQty(en),
       role: en.role,
       to_taste: en.toTaste,
     }));
@@ -326,6 +405,87 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     router.refresh();
     toast.success(recipe ? "Recipe updated" : "Recipe created");
     onClose();
+  }
+
+  /** One recipe line, in either section. */
+  function renderRow(entry: IngredientEntry) {
+    const q = entryQty(entry);
+    const isSeasoning = entry.role === "seasoning";
+    const rowCost =
+      entry.ingredient.price_per_unit == null ? null : q * entry.ingredient.price_per_unit;
+    const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
+    const needsAmount = !entry.toTaste && qtyToNumber(entry.qty) <= 0;
+    const calorieWarning = entry.toTaste && isCalorieDense(entry.ingredient);
+    return (
+      <div
+        key={entry.id}
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gray-50 rounded-lg px-3 py-2"
+      >
+        <div className="flex-1 min-w-[8rem]">
+          <p className="text-sm font-medium text-gray-900">{entry.ingredient.name}</p>
+          <p className="text-xs text-gray-500">
+            {entry.toTaste
+              ? "To taste · adds 0 kcal"
+              : `${rowCost == null ? "Price pending" : formatLei(rowCost)} · ${Math.round(rowKcal)} kcal`}
+          </p>
+          {!entry.toTaste && missingPieceWeight(entry.ingredient) && (
+            <p className="text-xs text-amber-700">Counts as grams until you set a weight per piece</p>
+          )}
+          {calorieWarning && (
+            <p className="text-xs text-amber-700">Not counted in calories — enter an amount</p>
+          )}
+          {needsAmount && entry.qty.trim() === "" && (
+            <p className="text-xs text-amber-700">Enter an amount</p>
+          )}
+        </div>
+        {isSeasoning && (
+          <label className="flex min-h-10 items-center gap-2 text-xs text-gray-700 md:min-h-8">
+            <input
+              type="checkbox"
+              checked={entry.toTaste}
+              onChange={(e) => setToTaste(entry.id, e.target.checked)}
+              aria-label={`${entry.ingredient.name} to taste`}
+              className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            To taste
+          </label>
+        )}
+        <div className="flex items-center gap-1">
+          <input
+            ref={(el) => {
+              if (el) qtyRefs.current.set(entry.id, el);
+              else qtyRefs.current.delete(entry.id);
+            }}
+            type="text"
+            inputMode="decimal"
+            disabled={entry.toTaste}
+            aria-label={`Quantity of ${entry.ingredient.name} in ${entry.ingredient.unit}`}
+            value={entry.toTaste ? "" : entry.qty}
+            placeholder={entry.toTaste ? "—" : undefined}
+            onChange={(e) => updateQty(entry.id, e.target.value)}
+            className="w-20 px-2 py-1.5 border rounded text-sm text-gray-900 text-right focus:ring-1 focus:ring-emerald-500 outline-none disabled:bg-gray-100 disabled:text-gray-400"
+          />
+          <span className="text-xs text-gray-500 w-9">{entry.ingredient.unit}</span>
+        </div>
+        <IconButton
+          label={
+            isSeasoning
+              ? `Move ${entry.ingredient.name} to Ingredients`
+              : `Move ${entry.ingredient.name} to Seasonings`
+          }
+          onClick={() => moveEntry(entry.id, isSeasoning ? "main" : "seasoning")}
+        >
+          {isSeasoning ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
+        </IconButton>
+        <IconButton
+          label={`Remove ${entry.ingredient.name}`}
+          tone="danger"
+          onClick={() => removeEntry(entry.id)}
+        >
+          <Trash2 size={16} />
+        </IconButton>
+      </div>
+    );
   }
 
   const footer = (
@@ -447,7 +607,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
           <div className="border-t pt-4">
             <div className="flex items-center justify-between gap-3 mb-3">
               <h3 className="text-sm font-semibold text-gray-700">
-                Ingredients ({entries.length})
+                Ingredients ({mainEntries.length})
               </h3>
               <div className="flex items-center gap-3">
                 {ingredientsError && (
@@ -466,7 +626,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowPicker(true)}
+                  onClick={() => openPicker("main")}
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -475,65 +635,54 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
               </div>
             </div>
 
-            {entries.length === 0 ? (
+            {mainEntries.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">
                 No ingredients added yet.
               </p>
             ) : (
-              <div className="space-y-2">
-                {entries.map((entry) => {
-                  const q = qtyToNumber(entry.qty);
-                  const rowCost =
-                    entry.ingredient.price_per_unit == null
-                      ? null
-                      : q * entry.ingredient.price_per_unit;
-                  const rowKcal = ((entry.ingredient.calories ?? 0) * nutritionGrams(entry.ingredient, q)) / 100;
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gray-50 rounded-lg px-3 py-2"
-                    >
-                      <div className="flex-1 min-w-[8rem]">
-                        <p className="text-sm font-medium text-gray-900">
-                          {entry.ingredient.name}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {rowCost == null ? "Price pending" : formatLei(rowCost)} · {Math.round(rowKcal)} kcal
-                        </p>
-                        {missingPieceWeight(entry.ingredient) && (
-                          <p className="text-xs text-amber-700">
-                            Counts as grams until you set a weight per piece
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <input
-                          ref={(el) => {
-                            if (el) qtyRefs.current.set(entry.id, el);
-                            else qtyRefs.current.delete(entry.id);
-                          }}
-                          type="text"
-                          inputMode="decimal"
-                          aria-label={`Quantity of ${entry.ingredient.name} in ${entry.ingredient.unit}`}
-                          value={entry.qty}
-                          onChange={(e) => updateQty(entry.id, e.target.value)}
-                          className="w-20 px-2 py-1.5 border rounded text-sm text-gray-900 text-right focus:ring-1 focus:ring-emerald-500 outline-none"
-                        />
-                        <span className="text-xs text-gray-500 w-9">
-                          {entry.ingredient.unit}
-                        </span>
-                      </div>
-                      <IconButton
-                        label={`Remove ${entry.ingredient.name}`}
-                        tone="danger"
-                        onClick={() => removeEntry(entry.id)}
-                      >
-                        <Trash2 size={16} />
-                      </IconButton>
-                    </div>
-                  );
-                })}
+              <div className="space-y-2">{mainEntries.map(renderRow)}</div>
+            )}
+          </div>
+
+          {/* Seasonings */}
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between gap-3 mb-1">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Seasonings ({seasoningEntries.length})
+              </h3>
+              <button
+                type="button"
+                onClick={() => openPicker("seasoning")}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Seasoning
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Spices, herbs, salt, oil, garlic and sauces. Customers see only their names. Weighed seasonings count in cost and calories.
+            </p>
+
+            {chips.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Quick add seasonings">
+                {chips.map((ing) => (
+                  <button
+                    type="button"
+                    key={ing.id}
+                    onClick={() => addIngredient(ing, "seasoning")}
+                    className="inline-flex min-h-10 items-center gap-1 rounded-full border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-800 hover:bg-emerald-50 md:min-h-8"
+                  >
+                    <Plus className="w-3 h-3" aria-hidden="true" />
+                    {ing.name}
+                  </button>
+                ))}
               </div>
+            )}
+
+            {seasoningEntries.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-3">No seasonings added.</p>
+            ) : (
+              <div className="space-y-2">{seasoningEntries.map(renderRow)}</div>
             )}
           </div>
 
@@ -672,7 +821,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
       <Modal
         open={showPicker}
         onClose={closePicker}
-        title="Pick Ingredients"
+        title={pickerRole === "seasoning" ? "Pick Seasonings" : "Pick Ingredients"}
         size="md"
         footer={
           <button
@@ -680,7 +829,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
             onClick={closePicker}
             className="py-2 px-4 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 text-sm"
           >
-            Done{entries.length > 0 ? ` (${entries.length} added)` : ""}
+            Done{usedIds.size > 0 ? ` (${usedIds.size} added)` : ""}
           </button>
         }
       >
@@ -721,7 +870,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
                     <button
                       type="button"
                       disabled={added}
-                      onClick={() => addIngredient(ing)}
+                      onClick={() => addIngredient(ing, pickerRole)}
                       className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg hover:bg-emerald-50 disabled:hover:bg-transparent text-sm transition-colors"
                     >
                       <span className="min-w-0">

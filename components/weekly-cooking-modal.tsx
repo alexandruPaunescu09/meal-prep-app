@@ -204,6 +204,16 @@ export default function WeeklyCookingModal({
             : ""
         }
         ${
+          r.seasonings.length
+            ? `<p class="h">Seasonings</p><table>${r.seasonings
+                .map(
+                  (i) =>
+                    `<tr><td>${escapeHtml(i.name)}</td><td class="r">${escapeHtml(qtyText(i))}</td></tr>`
+                )
+                .join("")}</table>`
+            : ""
+        }
+        ${
           r.steps.length
             ? `<p class="h">Steps</p><ol>${r.steps
                 .map((s) => `<li>${escapeHtml(s)}</li>`)
@@ -489,11 +499,34 @@ function RecipeRow({
             </div>
           )}
 
+          {recipe.seasonings.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Seasonings
+              </p>
+              <div className="space-y-1">
+                {recipe.seasonings.map((ing) => (
+                  <div
+                    key={ing.ingredientId}
+                    className="flex items-center justify-between text-sm px-2 py-1"
+                  >
+                    <span className="text-gray-700">{ing.name}</span>
+                    <span className="text-gray-600">{qtyText(ing)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <RecipeSteps steps={recipe.steps} />
         </div>
       )}
     </div>
   );
+}
+
+function qtyText(i: { toTaste: boolean; quantity: number; unit: string }): string {
+  return i.toTaste ? "to taste" : `${formatQty(i.quantity)}${i.unit}`;
 }
 
 function formatQty(n: number): string {
