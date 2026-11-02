@@ -25,6 +25,8 @@ export interface MapCatalogIngredient {
   unit: string;
   /** Added by RI-0a; optional so this compiles with or without that migration. */
   piece_weight_g?: number | null;
+  /** Admin default role (SE-0), shown to the model as a hint. */
+  is_seasoning?: boolean;
 }
 
 export interface MapCategory {
@@ -50,11 +52,14 @@ const RECIPE_ERRORS: ClaudeErrorMessages = {
 const SYSTEM = `You turn a cooking recipe (from a web page, pasted text or screenshots; usually Romanian or English) into structured data and map each ingredient line onto the admin's ingredient catalog.
 
 Output one entry in "lines" for EVERY printed ingredient line, in order, including section headers.
+Exception: a line that names two or more ingredients sharing one "to taste" (e.g. "sare și piper după gust") becomes one entry per ingredient ("sare", "piper"), each with to_taste true.
 
 Per line:
 - raw_text: the line as printed. raw_name: the ingredient name only (no amount, no preparation words like "tocat"), as printed.
 - is_section_header: true for group headings such as "Pentru sos:", "Pentru blat", "For the dressing". They are NOT ingredients. For those set quantity -1, quantity_unit "none", suggested_unit "none", ingredient_id "", search_term "". Use "none" for quantity_unit/suggested_unit on any line without an amount too.
-- optional: true for "după gust"/"dupa gust"/"to taste"/"as needed" lines and a pinch ("un vârf de cuțit", "un praf"). Pinches/to-taste lines have no real amount: quantity -1.
+- optional: true ONLY for an optional ingredient that HAS an amount (a garnish, "optional: chopped nuts"). A "to taste" line is not optional, see to_taste.
+- is_seasoning: true for spices, dried and fresh herbs, salt, pepper, and flavouring liquids, aromatics and condiments: oil, lemon and lime juice, garlic, ginger, vinegar, sauces such as soy sauce or mustard. Everything else (the real food of the dish) is false. The catalog's last column shows "seasoning" for ingredients the admin already files as seasonings; treat it as a hint, not a rule.
+- to_taste: true for "după gust"/"dupa gust"/"la gust"/"to taste"/"as needed" lines, a pinch ("un vârf de cuțit", "un praf", "a pinch of") and oil "for frying" with no amount. Set is_seasoning true too. Such lines have no real amount: quantity -1, quantity_unit "none". A STATED amount ("1 tsp", "2 linguri", "3 căței") is NOT to_taste (even if the line also says "or to taste"): it is a normal weighed line converted with the table below, even for salt, oil or garlic (and is_seasoning stays true for those).
 - ingredient_id: ONLY an id from the catalog below, never invent one. "" when there is no confident match. match_confidence: high (clearly the same ingredient), medium (probably), low (a guess), none when ingredient_id is "". An alias in the catalog that equals the printed name means that ingredient. Prefer the plain ingredient over a branded product unless the brand is stated. Match despite missing diacritics (faina = făină, ardei = ardei).
 - original_amount / original_unit: what the source says (e.g. 2 and "linguri"); -1 and "" when absent. For a range such as "4-5" use the midpoint (4.5) here.
 - quantity: the amount in quantity_unit. For a MATCHED ingredient quantity_unit MUST be that ingredient's catalog unit (g, ml or buc): for a buc ingredient give pieces; for a g/ml ingredient convert pieces/spoons/cups to grams or millilitres. When unmatched, quantity_unit is the natural unit of the ingredient (g solids, ml liquids, buc countable things) and quantity is in it.
@@ -70,7 +75,7 @@ Conversion table (use it; conversion_note stays short, e.g. "1 lingură ≈ 15 m
 - Densities: water/milk/stock ~1.0 g/ml; oil 0.92 g/ml; honey 1.4 g/ml; sour cream/yogurt ~1.03 g/ml; butter 1 tbsp = 14 g. Per US cup: all-purpose flour ~125 g, sugar ~200 g, brown sugar ~210 g, long-grain rice ~185 g, rolled oats ~90 g, grated cheese ~100 g. Per tablespoon: flour ~8 g, sugar ~12.5 g, salt ~18 g. Per teaspoon: salt ~6 g.
 - Typical piece weights (when the catalog row shows no piece weight): medium onion ~110 g, garlic clove ~5 g (a head ~50 g), egg ~55 g, medium potato ~170 g, medium carrot ~60 g, medium tomato ~120 g, medium zucchini ~200 g, bell pepper ~150 g, lemon ~100 g (juice ~40 ml), slice of bread ~30 g. If the catalog row has a piece weight, use THAT for pieces → grams and still flag is_estimate only if the size is vague.
 
-Romanian specifics: text often lacks diacritics (lingurite, faina, ouă/oua); "după gust"/"dupa gust" = to taste (optional); "un vârf de cuțit"/"varf de cutit" = a pinch; "o legătură" = a bunch (estimate); "4-5 linguri" = range → midpoint 4.5, is_estimate true; "1/2", "1 1/2" are fractions; "sau" alternatives: see the alternatives rule above.
+Romanian specifics: text often lacks diacritics (lingurite, faina, ouă/oua); "după gust"/"dupa gust"/"la gust" = to taste (to_taste true, is_seasoning true); "un vârf de cuțit"/"varf de cutit" = a pinch (to_taste true); "o legătură" = a bunch (estimate); "4-5 linguri" = range → midpoint 4.5, is_estimate true; "1/2", "1 1/2" are fractions; "sau" alternatives: see the alternatives rule above.
 
 Recipe fields:
 - name: the recipe's title, cleaned (no site name, no "reteta video" suffixes). portions: number of portions/servings stated (e.g. "4 portii"); 0 when not stated.
@@ -96,6 +101,7 @@ function catalogText(ingredients: MapCatalogIngredient[], aliases: CatalogAlias[
         i.unit,
         i.piece_weight_g ? `${i.piece_weight_g} g/buc` : "",
         [...(byIng.get(i.id) ?? [])].join("; "),
+        i.is_seasoning ? "seasoning" : "",
       ].join(" | "),
     )
     .join("\n");
@@ -148,7 +154,7 @@ function buildContent(
   }
   content.push({
     type: "text",
-    text: `${intro}\n\nCatalog (id | name | brand | unit | piece weight | aliases):\n${catalog}\n\nCategory slugs (slug | name):\n${categories
+    text: `${intro}\n\nCatalog (id | name | brand | unit | piece weight | aliases | seasoning):\n${catalog}\n\nCategory slugs (slug | name):\n${categories
       .map((c) => `${c.slug} | ${c.name}`)
       .join("\n")}\n\nMap every ingredient line of the recipe.`,
   });

@@ -256,7 +256,7 @@ export default function RecipeForm({ recipe, onClose }: RecipeFormProps) {
     () =>
       entries
         .filter((e) => entryQty(e) > 0)
-        .map((e) => ({ key: e.id, ingredient: e.ingredient, quantity: entryQty(e) })),
+        .map((e) => ({ key: e.id, ingredient: e.ingredient, quantity: entryQty(e), role: e.role })),
     [entries]
   );
   const scalable = canScale(scaleLines);

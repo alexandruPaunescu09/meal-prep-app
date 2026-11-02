@@ -7,6 +7,7 @@ const ING = [
   { id: "flour", name: "Faina", unit: "g" },
   { id: "oil", name: "Ulei", unit: "ml" },
   { id: "egg", name: "Oua", unit: "buc" },
+  { id: "salt", name: "Sare", unit: "g" },
 ];
 
 function line(over: Partial<ModelLine> = {}): ModelLine {
@@ -15,6 +16,8 @@ function line(over: Partial<ModelLine> = {}): ModelLine {
     raw_name: "faina",
     is_section_header: false,
     optional: false,
+    is_seasoning: false,
+    to_taste: false,
     ingredient_id: "flour",
     match_confidence: "high",
     original_amount: 200,
@@ -74,10 +77,56 @@ describe("postProcessRecipeLines", () => {
     expect(r.conversion_note).toMatch(/midpoint/);
   });
 
-  it("makes to-taste lines optional and excluded", () => {
-    const r = run(line({ raw_text: "sare și piper după gust", optional: false, quantity: null }));
-    expect(r.optional).toBe(true);
-    expect(r.include).toBe(false);
+  it("makes a 'după gust' line an included to-taste seasoning with no amount", () => {
+    const r = run(line({ raw_text: "sare și piper după gust", quantity: null, ingredient_id: "salt", quantity_unit: "g" }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: true, include: true, optional: false, quantity: null, ingredient_id: "salt", quantity_unit: "g" });
+    expect(r.note).toBeNull();
+  });
+
+  it("keeps a to-taste line matched even when the unit differs, taking the ingredient's unit", () => {
+    const r = run(line({ raw_text: "ulei pentru prajit", to_taste: true, quantity: null, ingredient_id: "oil", quantity_unit: "g" }));
+    expect(r).toMatchObject({ ingredient_id: "oil", quantity_unit: "ml", to_taste: true, include: true });
+  });
+
+  it("treats a pinch flagged by the model as to taste", () => {
+    const r = run(line({ raw_text: "un vârf de cuțit boia", to_taste: true, quantity: null }));
+    expect(r).toMatchObject({ to_taste: true, role: "seasoning", include: true });
+  });
+
+  it("an explicit amount beats 'or to taste' wording (model to_taste false)", () => {
+    for (const raw_text of ["10 ml ulei, sau după gust", "10 ml oil, or to taste"]) {
+      const r = run(line({ raw_text, is_seasoning: true, ingredient_id: "oil", quantity: 10, quantity_unit: "ml", to_taste: false }));
+      expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 10, quantity_unit: "ml", include: true, ingredient_id: "oil" });
+      expect(r.note).toBeNull();
+    }
+  });
+
+  it("an explicit amount stays weighed even when the model also says to_taste", () => {
+    const r = run(line({ raw_text: "10 ml oil, or to taste", is_seasoning: true, ingredient_id: "oil", quantity: 10, quantity_unit: "ml", to_taste: true }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 10, quantity_unit: "ml", include: true });
+  });
+
+  it("'sare după gust' with no amount is still to taste", () => {
+    const r = run(line({ raw_text: "sare după gust", quantity: null, ingredient_id: "salt", quantity_unit: "g" }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: true, quantity: null, include: true });
+  });
+
+  it("a stated amount stays a weighed line (seasoning flag from the model)", () => {
+    const r = run(line({ raw_text: "2 linguri ulei", is_seasoning: true, ingredient_id: "oil", quantity: 30, quantity_unit: "ml" }));
+    expect(r).toMatchObject({ role: "seasoning", to_taste: false, quantity: 30, include: true });
+  });
+
+  it("defaults role from the matched ingredient's is_seasoning, OR the model flag", () => {
+    const ings = [...ING, { id: "salt2", name: "Sare", unit: "g", is_seasoning: true }];
+    const go = (l: ModelLine) => postProcessRecipeLines([l], ings, [], [], [])[0];
+    expect(go(line({ ingredient_id: "salt2", quantity_unit: "g" })).role).toBe("seasoning");
+    expect(go(line({ ingredient_id: "flour", is_seasoning: true })).role).toBe("seasoning");
+    expect(go(line({ ingredient_id: "flour" })).role).toBe("main");
+  });
+
+  it("optional now means an optional ingredient with an amount: skipped by default, still weighed", () => {
+    const r = run(line({ raw_text: "50 g nuci, optional", optional: true, quantity: 50 }));
+    expect(r).toMatchObject({ optional: true, include: false, role: "main", quantity: 50, to_taste: false });
   });
 
   it("excludes section headers (model flag or extractor heuristic)", () => {
@@ -115,6 +164,8 @@ describe("sentinel mapping", () => {
       raw_name: "sare",
       is_section_header: false,
       optional: true,
+      is_seasoning: true,
+      to_taste: false,
       ingredient_id: "",
       match_confidence: "none",
       original_amount: -1,
@@ -147,6 +198,8 @@ describe("sentinel mapping", () => {
         raw_name: "a",
         is_section_header: false,
         optional: false,
+        is_seasoning: false,
+        to_taste: false,
         ingredient_id: "flour",
         match_confidence: "medium",
         original_amount: 0,

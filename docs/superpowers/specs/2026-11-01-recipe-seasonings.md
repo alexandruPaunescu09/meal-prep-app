@@ -1,7 +1,7 @@
 # EPIC: Recipe seasonings — a "Seasonings" section on recipes
 
 **Date:** 2026-11-01
-**Status:** SE-0 done. SE-1…SE-5 are open.
+**Status:** all six stories (SE-0…SE-5) are built and in review (PRs open, not merged).
 
 ## Problem
 
@@ -174,7 +174,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 | SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Done (PR #46) |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Done (PR #45) |
 | SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Done (PR #44) |
-| SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Open |
+| SE-5 | Recipe import mapping and review | M | SE-0, SE-1 | Done (PR #48) |
 
 ### Order and parallel work
 

@@ -11,7 +11,7 @@ const other = "22222222-2222-4222-8222-222222222222";
 const ingredient = "33333333-3333-4333-8333-333333333333";
 const base: RecipeImportLine = {
   raw_text: "100 g flour", raw_name: "flour", include: true, is_section_header: false,
-  optional: false, ingredient_id: ingredient, match_confidence: "high", original_amount: 100,
+  optional: false, role: "main", to_taste: false, ingredient_id: ingredient, match_confidence: "high", original_amount: 100,
   original_unit: "g", quantity: 100, quantity_unit: "g", conversion_note: null,
   is_estimate: false, search_term: "flour", suggested_unit: "g", suggested_category: null, note: null,
 };
@@ -44,6 +44,26 @@ describe("review session", () => {
     expect(restoreReview(JSON.stringify(invalid), owner, 1100)).toBeNull();
     snapshot.notes = "x".repeat(20_001);
     expect(serializeReview(owner, snapshot)).toBeNull();
+  });
+  it("restores a v1 draft saved before seasonings existed as all-main", () => {
+    const old = JSON.parse(serializeReview(owner, fixture(), 1000)!);
+    delete old.snapshot.draft.lines[0].role;
+    delete old.snapshot.draft.lines[0].to_taste;
+    delete old.snapshot.lines[0].base.role;
+    delete old.snapshot.lines[0].base.to_taste;
+    delete old.snapshot.lines[0].role;
+    delete old.snapshot.lines[0].toTaste;
+    const restored = restoreReview(JSON.stringify(old), owner, 1100)!;
+    expect(restored.lines[0]).toMatchObject({ role: "main", toTaste: false });
+    expect(restored.lines[0].base).toMatchObject({ role: "main", to_taste: false });
+    expect(restored.draft.lines[0]).toMatchObject({ role: "main", to_taste: false });
+  });
+  it("keeps seasoning edits across restoration", () => {
+    const snapshot = fixture();
+    snapshot.lines[0] = { ...snapshot.lines[0], role: "seasoning", toTaste: true };
+    expect(restoreReview(serializeReview(owner, snapshot, 1000), owner, 1100)?.lines[0]).toMatchObject({
+      role: "seasoning", toTaste: true,
+    });
   });
   it("round trips review edits, skipped lines, invalid partial amounts and selected units", () => {
     const snapshot = fixture();

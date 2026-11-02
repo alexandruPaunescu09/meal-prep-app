@@ -9,6 +9,8 @@ import {
   siteCalories,
   selectLineIngredient,
   lineHasUnitMismatch,
+  setLineRole,
+  setLineToTaste,
   type DraftIngredient,
   type DraftRecipeFields,
 } from "./draft";
@@ -23,6 +25,8 @@ function line(over: Partial<RecipeImportLine>): RecipeImportLine {
     include: true,
     is_section_header: false,
     optional: false,
+    role: "main",
+    to_taste: false,
     ingredient_id: null,
     match_confidence: null,
     original_amount: null,
@@ -142,6 +146,58 @@ describe("buildSavePayload", () => {
     const p = buildSavePayload(fields, ls, ings);
     expect(p.aliases).toHaveLength(1);
     expect(p.ingredients[0].quantity).toBe(2.5);
+  });
+});
+
+describe("seasonings", () => {
+  const oil = { id: "o", name: "Ulei", unit: "ml" };
+  const all = [...ings, oil];
+  it("sums within a role and keeps roles apart", () => {
+    const ls = initReviewLines([
+      line({ ingredient_id: "a", quantity: 100, raw_name: "faina" }),
+      line({ ingredient_id: "a", quantity: 20, raw_name: "faina", role: "seasoning" }),
+      line({ ingredient_id: "a", quantity: 30, raw_name: "faina", role: "seasoning" }),
+    ]);
+    const p = buildSavePayload(fields, ls, all);
+    expect(p.ingredients).toEqual([
+      { ingredient_id: "a", quantity: 100, role: "main", to_taste: false },
+      { ingredient_id: "a", quantity: 50, role: "seasoning", to_taste: false },
+    ]);
+    expect(p.mergedIngredientIds).toEqual(["a"]);
+  });
+  it("saves a to-taste line with quantity 0", () => {
+    const ls = initReviewLines([
+      line({ ingredient_id: "a", quantity: 100 }),
+      line({ ingredient_id: "b", quantity: null, role: "seasoning", to_taste: true, raw_name: "sare" }),
+    ]);
+    expect(buildSavePayload(fields, ls, all).ingredients[1]).toEqual({
+      ingredient_id: "b", quantity: 0, role: "seasoning", to_taste: true,
+    });
+  });
+  it("lets the weighed amount win when a to-taste and a weighed line merge in the same role", () => {
+    const ls = initReviewLines([
+      line({ ingredient_id: "a", quantity: 100 }),
+      line({ ingredient_id: "o", quantity: null, role: "seasoning", to_taste: true, quantity_unit: "ml" }),
+      line({ ingredient_id: "o", quantity: 10, role: "seasoning", quantity_unit: "ml" }),
+    ]);
+    const p = buildSavePayload(fields, ls, all);
+    expect(p.ingredients[1]).toEqual({ ingredient_id: "o", quantity: 10, role: "seasoning", to_taste: false });
+    expect(p.mergedIngredientIds).toEqual([]);
+  });
+  it("needs an included main line, and a to-taste line needs no amount", () => {
+    const seasoningOnly = initReviewLines([
+      line({ ingredient_id: "b", quantity: null, role: "seasoning", to_taste: true }),
+    ]);
+    expect(lineProblem(seasoningOnly[0])).toBeNull();
+    expect(canApprove(seasoningOnly, "R")).toBe(false);
+    const withMain = [...initReviewLines([line({ ingredient_id: "a", quantity: 5 })]), ...seasoningOnly];
+    expect(canApprove(withMain, "R")).toBe(true);
+  });
+  it("clears to taste when a line moves to the main list, and the amount when it becomes to taste", () => {
+    const l = initReviewLines([line({ ingredient_id: "a", quantity: 5, role: "seasoning" })])[0];
+    const t = setLineToTaste(l, true);
+    expect(t).toMatchObject({ toTaste: true, qty: "" });
+    expect(setLineRole(t, "main")).toMatchObject({ role: "main", toTaste: false });
   });
 });
 
