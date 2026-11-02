@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { SPICES_CATEGORY } from "@/lib/recipes/seasonings";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import {
@@ -43,7 +44,7 @@ export interface IngredientFormState {
   /** null = price pending (RI-0c). */
   package_price: number | null;
   piece_weight_g: number | null;
-  /** "Usually a seasoning" (SE-0: carried through, UI toggle comes in SE-1). */
+  /** "Usually a seasoning": only sets the default section when added to a recipe. */
   is_seasoning?: boolean;
   calories: number | null;
   protein: number | null;
@@ -108,6 +109,10 @@ interface Values {
   /** Package qty was filled by the pending-price default, not typed by the admin. */
   qtyAutofilled: boolean;
   pieceWeight: string;
+  /** "Usually a seasoning" checkbox. */
+  isSeasoning: boolean;
+  /** The admin ticked/unticked the checkbox themselves, so the category no longer drives it. */
+  seasoningTouched: boolean;
   nut: Record<NutKey, string>;
   micronutrients: Record<string, number>;
   api_source: string | null;
@@ -158,6 +163,8 @@ function buildInitial(
     pricePending: ingredient ? ingredient.package_price == null : src.package_price === null,
     qtyAutofilled: false,
     pieceWeight: numToStr(src.piece_weight_g),
+    isSeasoning: ingredient ? ingredient.is_seasoning : (src.is_seasoning ?? false),
+    seasoningTouched: false,
     nut: {
       calories: nutToStr(src.calories),
       protein: nutToStr(src.protein),
@@ -420,8 +427,7 @@ export default function IngredientForm({
       unit: v.unit,
       package_price: newPrice,
       piece_weight_g: pieceWeight,
-      // Carry the stored value on edit so a save never resets it (toggle UI: SE-1).
-      is_seasoning: ingredient ? ingredient.is_seasoning : (defaults?.is_seasoning ?? false),
+      is_seasoning: v.isSeasoning,
       ...nutPayload,
       micronutrients: v.micronutrients,
       api_source: v.api_source,
@@ -569,7 +575,12 @@ export default function IngredientForm({
               <select
                 id="ing-cat"
                 value={v.category}
-                onChange={(e) => setV({ ...v, category: e.target.value })}
+                onChange={(e) => {
+                  const category = e.target.value;
+                  // A NEW ingredient in Spices & Herbs is usually a seasoning, unless the admin already chose.
+                  const prefill = !ingredient && !v.seasoningTouched && category === SPICES_CATEGORY;
+                  setV({ ...v, category, isSeasoning: prefill ? true : v.isSeasoning });
+                }}
                 className={INPUT}
               >
                 {categories.map((c) => (
@@ -579,6 +590,20 @@ export default function IngredientForm({
                 ))}
               </select>
             </div>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={v.isSeasoning}
+                onChange={(e) => setV({ ...v, isSeasoning: e.target.checked, seasoningTouched: true })}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              Usually a seasoning
+            </label>
+            <p className="mt-1 text-xs text-gray-500">
+              New recipe lines start in the Seasonings list. You can still move a line either way.
+            </p>
           </div>
 
           {/* Quantity + Unit + Price */}

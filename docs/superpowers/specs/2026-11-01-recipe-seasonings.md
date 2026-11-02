@@ -145,6 +145,7 @@ This epic adds a Seasonings section per recipe. The admin lists spices, herbs, s
 Defaults accepted by the user on 2026-11-01.
 
 1. **Default amount for a seasoning added with a chip.** One explicit rule, by category and unit (not by calories alone): an ingredient filed under `spices_herbs` defaults to "To taste" ON (quantity stored 0); every other ingredient defaults to a weighed amount: unit `buc` -> 1 piece, `isCalorieDense` (more than 300 kcal per 100 g/ml) -> 10 in its unit, otherwise 5 in its unit. Expected results: salt, pepper, dried herbs and spices (Spices & Herbs) -> to taste; oil -> 10 ml; garlic, ginger, lemon/lime juice, vinegar and sauces -> 5 in their unit (g or ml), so their cost and nutrition count; a `buc` item such as a whole lemon or a garlic bulb -> 1. Assumption: salt and pepper are filed under Spices & Herbs in the ingredient categories. Nothing is decided by `unit = 'ml'`, so low-calorie garlic and lemon are never silently sent to "to taste".
+   *SE-1 as built:* the Seasonings section has its own "Add Seasoning" picker that always adds as seasoning (replacing the Ingredients/Seasonings segmented choice); the chip default above is `chipDefault` in `lib/recipes/seasonings.ts`.
 2. **Garlic and lemons bought every week in the Pantry group.** They are perishable and really are bought. Recommend: keep the all-uses-are-seasoning rule exactly as agreed, but let the admin keep an ingredient out of Pantry by making one use a main line. If this feels wrong in practice, a later per-ingredient "always show in buy list" toggle is a small follow-up (not built now).
 3. **Oil "for frying" with no amount.** Recommend: import marks it to-taste with the non-blocking calorie warning, and the admin is expected to enter an amount. Not blocking, because the source often gives none.
 4. **Role precedence on import** when the catalog says `is_seasoning` and the model says main (or the opposite). Recommend: seasoning wins if EITHER says so; the admin moves it with one tap.
@@ -169,7 +170,7 @@ Sizes: S ≈ ½ day, M ≈ 1–2 days. Each story ships its own types, tests, a 
 | ID | Story | Size | Depends on | Status |
 |---|---|---|---|---|
 | SE-0 | Schema, save path, types, shared helper | M | — | Done (stacked on spec PR #42) |
-| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Open |
+| SE-1 | Recipe form section + "Usually a seasoning" + chips + to taste + oil warning | M | SE-0 | Done (PR #47) |
 | SE-2 | Admin displays: recipes list, cooking plan, scale, prep | M | SE-0 | Open |
 | SE-3 | Shopping list "Pantry check" | M | SE-0 | Open |
 | SE-4 | Customer meal sheet + PDF + What's new | S | SE-0 | Open |

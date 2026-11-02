@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  chipDefault,
   defaultRole,
   isCalorieDense,
   lineAmountText,
+  pickSeasoningChips,
   seasonedWithText,
   splitLines,
   type SeasoningLine,
@@ -70,5 +72,50 @@ describe("defaultRole", () => {
   it("follows is_seasoning", () => {
     expect(defaultRole({ is_seasoning: true })).toBe("seasoning");
     expect(defaultRole({ is_seasoning: false })).toBe("main");
+  });
+});
+
+describe("chipDefault", () => {
+  const ing = (category: string, unit: string, calories: number | null) => ({ category, unit, calories });
+  it("keeps spices and herbs to taste", () => {
+    expect(chipDefault(ing("spices_herbs", "g", 250))).toEqual({ toTaste: true, quantity: 0 });
+    expect(chipDefault(ing("spices_herbs", "buc", null))).toEqual({ toTaste: true, quantity: 0 });
+  });
+  it("weighs pieces as 1", () => {
+    expect(chipDefault(ing("vegetables", "buc", 40))).toEqual({ toTaste: false, quantity: 1 });
+  });
+  it("weighs calorie-dense ingredients as 10", () => {
+    expect(chipDefault(ing("fats", "ml", 884))).toEqual({ toTaste: false, quantity: 10 });
+    expect(chipDefault(ing("other", "g", 301))).toEqual({ toTaste: false, quantity: 10 });
+  });
+  it("gives realistic pantry items the agreed defaults", () => {
+    expect(chipDefault(ing("spices_herbs", "g", 0))).toEqual({ toTaste: true, quantity: 0 }); // salt
+    expect(chipDefault(ing("spices_herbs", "g", 251))).toEqual({ toTaste: true, quantity: 0 }); // pepper
+    expect(chipDefault(ing("fats", "ml", 884))).toEqual({ toTaste: false, quantity: 10 }); // oil
+    expect(chipDefault(ing("vegetables", "g", 149))).toEqual({ toTaste: false, quantity: 5 }); // garlic
+    expect(chipDefault(ing("fruits", "ml", 22))).toEqual({ toTaste: false, quantity: 5 }); // lemon juice
+    expect(chipDefault(ing("fruits", "buc", 29))).toEqual({ toTaste: false, quantity: 1 }); // whole lemon
+  });
+  it("weighs everything else as 5", () => {
+    expect(chipDefault(ing("other", "ml", 20))).toEqual({ toTaste: false, quantity: 5 });
+    expect(chipDefault(ing("other", "g", 300))).toEqual({ toTaste: false, quantity: 5 });
+    expect(chipDefault(ing("other", "g", null))).toEqual({ toTaste: false, quantity: 5 });
+  });
+});
+
+describe("pickSeasoningChips", () => {
+  const mk = (id: string, name: string, is_seasoning = true) => ({ id, name, is_seasoning });
+  const all = [mk("a", "Salt"), mk("b", "Oil"), mk("c", "Chicken", false), mk("d", "Basil")];
+  it("only offers unused seasonings, by name without usage data", () => {
+    expect(pickSeasoningChips(all, new Set(["a"])).map((i) => i.id)).toEqual(["d", "b"]);
+  });
+  it("orders by recipe usage first", () => {
+    const usage = new Map([["a", 5], ["b", 9]]);
+    expect(pickSeasoningChips(all, new Set(), usage).map((i) => i.id)).toEqual(["b", "a", "d"]);
+  });
+  it("caps at the limit", () => {
+    const many = Array.from({ length: 20 }, (_, i) => mk(String(i), `S${String(i).padStart(2, "0")}`));
+    expect(pickSeasoningChips(many, new Set())).toHaveLength(12);
+    expect(pickSeasoningChips(many, new Set(), undefined, 3)).toHaveLength(3);
   });
 });
