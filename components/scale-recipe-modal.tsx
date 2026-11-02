@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { createClient } from "@/lib/supabase/client";
 import { formatNumber, parseDecimal } from "@/lib/format";
@@ -74,6 +74,8 @@ export default function ScaleRecipeModal({ open, onClose, lines, portions, onApp
   const targetKcal = mode === "kcal" ? typed : perMeal;
 
   const result = targetKcal != null && targetKcal > 0 ? scaleRecipe({ lines, portions, targetKcal }) : null;
+  // "To taste" lines (quantity 0) are not scaled, so they stay out of the table.
+  const shown = result?.ok ? result.lines.filter((l) => l.before > 0) : [];
   const changes = result?.ok ? result.lines.filter((l) => l.after !== l.before).length : 0;
 
   function apply() {
@@ -265,17 +267,34 @@ export default function ScaleRecipeModal({ open, onClose, lines, portions, onApp
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {result.lines.map((l) => (
-                    <tr key={l.key}>
-                      <td className="px-3 py-2 text-gray-900 break-words">{l.ingredient.name}</td>
-                      <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap">
-                        {qtyText(l.before)} {l.unit}
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium text-gray-900 whitespace-nowrap">
-                        {qtyText(l.after)} {l.unit}
-                      </td>
-                    </tr>
-                  ))}
+                  {[
+                    { title: null, rows: shown.filter((l) => l.role !== "seasoning") },
+                    { title: "Seasonings", rows: shown.filter((l) => l.role === "seasoning") },
+                  ].map(
+                    (group) =>
+                      group.rows.length > 0 && (
+                        <Fragment key={group.title ?? "main"}>
+                          {group.title && (
+                            <tr className="bg-gray-50">
+                              <th scope="rowgroup" colSpan={3} className="text-left px-3 py-1.5 text-xs font-semibold text-gray-600">
+                                {group.title}
+                              </th>
+                            </tr>
+                          )}
+                          {group.rows.map((l) => (
+                            <tr key={l.key}>
+                              <td className="px-3 py-2 text-gray-900 break-words">{l.ingredient.name}</td>
+                              <td className="px-3 py-2 text-right text-gray-500 whitespace-nowrap">
+                                {qtyText(l.before)} {l.unit}
+                              </td>
+                              <td className="px-3 py-2 text-right font-medium text-gray-900 whitespace-nowrap">
+                                {qtyText(l.after)} {l.unit}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ),
+                  )}
                 </tbody>
               </table>
             </div>
