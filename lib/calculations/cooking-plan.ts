@@ -5,6 +5,7 @@ import {
   MealPlanEntry,
 } from "@/lib/supabase/types";
 import { splitLines } from "@/lib/recipes/seasonings";
+import { addDays } from "@/lib/format";
 
 export interface CookingPlanRecipeIngredient {
   ingredientId: string;
@@ -182,4 +183,57 @@ export function generateCookingPlan(entries: FullEntry[]): {
   );
 
   return { recipes, directIngredients };
+}
+
+/**
+ * Cook batches: entries are cooked together per day pair, the day before the pair starts.
+ * Sunday meal-plan entries are not part of the weekly cooking plan (meals are served Monday-Saturday;
+ * customers can still log food on Sundays in the diary, unchanged).
+ */
+export const COOK_BATCHES = [
+  { firstDay: 1, days: [1, 2] },
+  { firstDay: 3, days: [3, 4] },
+  { firstDay: 5, days: [5, 6] },
+] as const;
+
+/** First weekday (1 = Monday) of the batch a day belongs to: odd days start a batch (7 matches no batch). */
+export function batchFirstDay(dayOfWeek: number): number {
+  return dayOfWeek % 2 === 1 ? dayOfWeek : dayOfWeek - 1;
+}
+
+/** Cook date ('YYYY-MM-DD'): the day before the batch's first day (Monday-Tuesday: the Sunday before the week). */
+export function cookDateFor(weekStart: string, firstDay: number): string {
+  return addDays(weekStart, firstDay - 2);
+}
+
+export interface CookingBatch {
+  firstDay: number;
+  /** Weekdays covered (1 = Monday). */
+  days: number[];
+  firstDate: string;
+  lastDate: string;
+  cookDate: string;
+  recipes: CookingPlanRecipe[];
+  directIngredients: CookingPlanDirectIngredient[];
+}
+
+/** One cooking plan per non-empty cook batch, in week order. Sunday meal-plan entries are ignored (not part of the weekly cooking plan). */
+export function generateCookingBatches(
+  entries: FullEntry[],
+  weekStart: string
+): CookingBatch[] {
+  const batches: CookingBatch[] = [];
+  for (const { firstDay, days } of COOK_BATCHES) {
+    const inBatch = entries.filter((e) => batchFirstDay(e.day_of_week) === firstDay);
+    if (inBatch.length === 0) continue;
+    batches.push({
+      firstDay,
+      days: [...days],
+      firstDate: addDays(weekStart, days[0] - 1),
+      lastDate: addDays(weekStart, days[days.length - 1] - 1),
+      cookDate: cookDateFor(weekStart, firstDay),
+      ...generateCookingPlan(inBatch),
+    });
+  }
+  return batches;
 }
