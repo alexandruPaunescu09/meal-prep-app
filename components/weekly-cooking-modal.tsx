@@ -9,17 +9,27 @@ import {
   Ingredient,
 } from "@/lib/supabase/types";
 import {
-  generateCookingPlan,
+  generateCookingBatches,
+  CookingBatch,
   CookingPlanRecipe,
 } from "@/lib/calculations/cooking-plan";
-import { useCookingChecks } from "@/lib/hooks/use-cooking-checks";
+import { cookCheckKey, useCookingChecks } from "@/lib/hooks/use-cooking-checks";
 import { escapeHtml, printHtml } from "@/lib/browser";
 import { Modal } from "@/components/ui/modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { RecipeSteps } from "@/components/recipe-steps";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { addDays, currentWeekStart, formatWeekRange, nextWeekStart } from "@/lib/format";
+import {
+  WEEKDAYS_LONG,
+  addDays,
+  currentWeekStart,
+  formatShortDate,
+  formatWeekRange,
+  nextWeekStart,
+  parseLocalDate,
+  todayInTz,
+} from "@/lib/format";
 import {
   Loader2,
   ChevronDown,
@@ -50,9 +60,31 @@ type PlanInWeek = {
 function defaultWeek(weeks: string[]): string {
   const cur = currentWeekStart();
   const next = nextWeekStart();
+  // On a Sunday the next week's Monday-Tuesday batch is cooked today.
+  if (parseLocalDate(todayInTz())?.getDay() === 0 && weeks.includes(next)) return next;
   if (weeks.includes(cur)) return cur;
   if (weeks.includes(next)) return next;
   return weeks[0] ?? cur;
+}
+
+/** "Monday–Tuesday" */
+function batchLabel(b: CookingBatch): string {
+  return `${WEEKDAYS_LONG[b.days[0] - 1]}–${WEEKDAYS_LONG[b.days[b.days.length - 1] - 1]}`;
+}
+
+/** "2–3 Nov", "30 Oct – 2 Nov" */
+function batchDates(b: CookingBatch): string {
+  const dm = (d: string) => formatShortDate(d).split(" ").slice(1);
+  const [d1, m1] = dm(b.firstDate);
+  const [d2, m2] = dm(b.lastDate);
+  return m1 === m2 ? `${d1}–${d2} ${m1}` : `${d1} ${m1} – ${d2} ${m2}`;
+}
+
+/** "Sunday 1 Nov" */
+function cookDay(b: CookingBatch): string {
+  const x = parseLocalDate(b.cookDate);
+  const weekday = x ? WEEKDAYS_LONG[(x.getDay() + 6) % 7] : "";
+  return `${weekday} ${formatShortDate(b.cookDate).split(" ").slice(1).join(" ")}`;
 }
 
 export default function WeeklyCookingModal({
@@ -152,16 +184,18 @@ export default function WeeklyCookingModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWeek, supabase]);
 
-  const { recipes, directIngredients } = useMemo(
-    () => generateCookingPlan(entries),
-    [entries]
+  const batches = useMemo(
+    () => (selectedWeek ? generateCookingBatches(entries, selectedWeek) : []),
+    [entries, selectedWeek]
   );
+  const todayStr = todayInTz();
 
-  function toggleExpanded(recipeId: string) {
+  // Expanded rows and checks are keyed per batch + recipe (the same recipe can sit in several batches).
+  function toggleExpanded(key: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(recipeId)) next.delete(recipeId);
-      else next.add(recipeId);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -170,19 +204,17 @@ export default function WeeklyCookingModal({
     if (selectedWeek) setSelectedWeek(addDays(selectedWeek, days));
   }
 
-  const allExpanded =
-    recipes.length > 0 && recipes.every((r) => expanded.has(r.recipeId));
+  const allKeys = batches.flatMap((b) =>
+    b.recipes.map((r) => cookCheckKey(b.firstDay, r.recipeId))
+  );
+  const allExpanded = allKeys.length > 0 && allKeys.every((k) => expanded.has(k));
 
   function toggleAll() {
-    setExpanded(
-      allExpanded ? new Set() : new Set(recipes.map((r) => r.recipeId))
-    );
+    setExpanded(allExpanded ? new Set() : new Set(allKeys));
   }
 
   function handlePrint() {
-    const recipeHtml = recipes
-      .map(
-        (r) => `<h2>${checkedItems.has(r.recipeId) ? "&#9745;" : "&#9744;"} ${escapeHtml(r.name)} <span>${formatQty(r.totalPortions)} portion${r.totalPortions !== 1 ? "s" : ""}${r.totalFinalWeightG != null ? " · " + formatWeight(r.totalFinalWeightG) : ""}</span></h2>
+    const recipeBlock = (r: CookingPlanRecipe, b: CookingBatch) => `<h3>${checkedItems.has(cookCheckKey(b.firstDay, r.recipeId)) ? "&#9745;" : "&#9744;"} ${escapeHtml(r.name)} <span>${formatQty(r.totalPortions)} portion${r.totalPortions !== 1 ? "s" : ""}${r.totalFinalWeightG != null ? " · " + formatWeight(r.totalFinalWeightG) : ""}</span></h3>
         ${
           r.clientBreakdown.length
             ? `<p class="h">Per client</p><table>${r.clientBreakdown
@@ -219,27 +251,34 @@ export default function WeeklyCookingModal({
                 .map((s) => `<li>${escapeHtml(s)}</li>`)
                 .join("")}</ol>`
             : ""
-        }`
-      )
+        }`;
+    const batchHtml = batches
+      .map((b) => {
+        const direct = b.directIngredients.length
+          ? `<h3>Raw / direct ingredients</h3><table>${b.directIngredients
+              .map(
+                (d) =>
+                  `<tr><td>${escapeHtml(d.name)}</td><td class="r">${formatQty(d.totalQuantity)}${escapeHtml(d.unit)}</td></tr>`
+              )
+              .join("")}</table>`
+          : "";
+        return `<h2>${escapeHtml(batchLabel(b))} <span>${escapeHtml(batchDates(b))}</span></h2>
+        <p class="cook">Cook on ${escapeHtml(cookDay(b))}</p>
+        ${b.recipes.map((r) => recipeBlock(r, b)).join("")}${direct}`;
+      })
       .join("");
-    const directHtml = directIngredients.length
-      ? `<h2>Raw / direct ingredients</h2><table>${directIngredients
-          .map(
-            (d) =>
-              `<tr><td>${escapeHtml(d.name)}</td><td class="r">${formatQty(d.totalQuantity)}${escapeHtml(d.unit)}</td></tr>`
-          )
-          .join("")}</table>`
-      : "";
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Cooking plan</title><style>
       body{font-family:system-ui,sans-serif;color:#111;margin:24px}
       h1{font-size:18px;margin:0 0 4px} p{margin:0 0 8px;font-size:12px;color:#555}
-      h2{font-size:14px;margin:18px 0 4px;border-bottom:1px solid #999;padding-bottom:2px} h2 span{font-weight:normal;color:#555;font-size:12px}
+      h2{font-size:16px;margin:26px 0 2px;border-bottom:2px solid #333;padding-bottom:2px} h2 span{font-weight:normal;color:#555;font-size:12px}
+      .cook{font-weight:600;color:#111;margin:0 0 4px}
+      h3{font-size:14px;margin:18px 0 4px;border-bottom:1px solid #999;padding-bottom:2px} h3 span{font-weight:normal;color:#555;font-size:12px}
       .h{text-transform:uppercase;letter-spacing:.05em;font-size:10px;margin:6px 0 2px}
       ol{margin:2px 0 0;padding-left:20px;font-size:13px} li{margin-bottom:3px}
       table{width:100%;border-collapse:collapse;font-size:13px} td{padding:2px 6px;border-bottom:1px solid #eee} .r{text-align:right;white-space:nowrap}
     </style></head><body><h1>Cooking plan · ${escapeHtml(formatWeekRange(selectedWeek))}</h1>
     <p>${escapeHtml(plans.map((p) => p.client?.name ?? p.name).join(", "))}</p>
-    ${recipeHtml}${directHtml}</body></html>`;
+    ${batchHtml}</body></html>`;
     if (!printHtml(html)) toast.error("Could not open the print view.");
   }
 
@@ -256,7 +295,7 @@ export default function WeeklyCookingModal({
   }
 
   const checkedCount = checkedItems.size;
-  const hasContent = recipes.length > 0 || directIngredients.length > 0;
+  const hasContent = batches.length > 0;
 
   return (
     <Modal open onClose={onClose} title="Weekly Cooking Plan" size="lg">
@@ -306,7 +345,7 @@ export default function WeeklyCookingModal({
         )}
         {hasContent && !loading && (
           <div className="flex flex-wrap items-center gap-2">
-            {recipes.length > 0 && (
+            {allKeys.length > 0 && (
               <button
                 onClick={toggleAll}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
@@ -346,45 +385,82 @@ export default function WeeklyCookingModal({
             : "No entries in this week’s meal plans yet."}
         </p>
       ) : (
-        <div className="space-y-6">
-          {recipes.length > 0 && (
-            <div className="space-y-2">
-              {recipes.map((r) => (
-                <RecipeRow
-                  key={r.recipeId}
-                  recipe={r}
-                  checked={checkedItems.has(r.recipeId)}
-                  expanded={expanded.has(r.recipeId)}
-                  onToggleCheck={() => toggleRecipe(r.recipeId)}
-                  onToggleExpand={() => toggleExpanded(r.recipeId)}
-                />
-              ))}
-            </div>
-          )}
-
-          {directIngredients.length > 0 && (
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Raw / direct ingredients
-              </h3>
-              <div className="space-y-1">
-                {directIngredients.map((d) => (
-                  <div
-                    key={d.ingredientId}
-                    className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg"
-                  >
-                    <span className="text-sm font-medium text-gray-900">
-                      {d.name}
-                    </span>
-                    <span className="text-sm text-gray-600">
-                      {formatQty(d.totalQuantity)}
-                      {d.unit}
-                    </span>
+        <div className="space-y-8">
+          {batches.map((b) => {
+            const cooked = b.recipes.filter((r) =>
+              checkedItems.has(cookCheckKey(b.firstDay, r.recipeId))
+            ).length;
+            return (
+              <section key={b.firstDay} aria-label={batchLabel(b)} className="space-y-3">
+                <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-gray-200 pb-2">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {batchLabel(b)}{" "}
+                      <span className="font-normal text-gray-500">
+                        · {batchDates(b)}
+                      </span>
+                    </h3>
+                    <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+                      Cook on {cookDay(b)}
+                      {b.cookDate === todayStr && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">
+                          Today
+                        </span>
+                      )}
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  {b.recipes.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {cooked} of {b.recipes.length} cooked
+                    </span>
+                  )}
+                </div>
+
+                {b.recipes.length > 0 && (
+                  <div className="space-y-2">
+                    {b.recipes.map((r) => {
+                      const key = cookCheckKey(b.firstDay, r.recipeId);
+                      return (
+                        <RecipeRow
+                          key={key}
+                          recipe={r}
+                          sectionLabel={batchLabel(b)}
+                          checked={checkedItems.has(key)}
+                          expanded={expanded.has(key)}
+                          onToggleCheck={() => toggleRecipe(r.recipeId, b.firstDay)}
+                          onToggleExpand={() => toggleExpanded(key)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+
+                {b.directIngredients.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                      Raw / direct ingredients
+                    </h4>
+                    <div className="space-y-1">
+                      {b.directIngredients.map((d) => (
+                        <div
+                          key={d.ingredientId}
+                          className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-lg"
+                        >
+                          <span className="text-sm font-medium text-gray-900">
+                            {d.name}
+                          </span>
+                          <span className="text-sm text-gray-600">
+                            {formatQty(d.totalQuantity)}
+                            {d.unit}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </Modal>
@@ -393,12 +469,14 @@ export default function WeeklyCookingModal({
 
 function RecipeRow({
   recipe,
+  sectionLabel,
   checked,
   expanded,
   onToggleCheck,
   onToggleExpand,
 }: {
   recipe: CookingPlanRecipe;
+  sectionLabel: string;
   checked: boolean;
   expanded: boolean;
   onToggleCheck: () => void;
@@ -413,7 +491,7 @@ function RecipeRow({
           type="checkbox"
           checked={checked}
           onChange={onToggleCheck}
-          aria-label={`Cooked: ${recipe.name}`}
+          aria-label={`Cooked for ${sectionLabel}: ${recipe.name}`}
           className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0"
         />
         <button
