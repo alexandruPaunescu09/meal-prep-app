@@ -254,6 +254,8 @@ export interface ShoppingCheckState {
 export interface CookingCheckState {
   week_start: string;
   recipe_id: string;
+  /** First weekday of the cook batch (1 Mon-Tue, 3 Wed-Thu, 5 Fri-Sat). */
+  first_day: number;
   checked_at: string;
 }
 

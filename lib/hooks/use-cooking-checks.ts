@@ -33,6 +33,11 @@ function persistWithRetry(
   });
 }
 
+/** Check-off key: a recipe is ticked per cook batch (identified by its first weekday). */
+export function cookCheckKey(firstDay: number, recipeId: string): string {
+  return `${firstDay}:${recipeId}`;
+}
+
 export function useCookingChecks(weekStart: string | null) {
   const toast = useToast();
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
@@ -59,7 +64,7 @@ export function useCookingChecks(weekStart: string | null) {
     let cancelled = false;
     supabase
       .from("cooking_check_state")
-      .select("recipe_id")
+      .select("recipe_id, first_day")
       .eq("week_start", weekStart)
       .then(({ data, error }) => {
         if (cancelled) return;
@@ -68,7 +73,9 @@ export function useCookingChecks(weekStart: string | null) {
           toast.error("Couldn't load check-offs");
         }
         const next = new Set<string>(
-          (data ?? []).map((r: { recipe_id: string }) => r.recipe_id)
+          (data ?? []).map((r: { recipe_id: string; first_day: number }) =>
+            cookCheckKey(r.first_day, r.recipe_id)
+          )
         );
         setCheckedItems(error ? new Set() : next);
         setLoadedWeek(weekStart);
@@ -81,15 +88,16 @@ export function useCookingChecks(weekStart: string | null) {
   }, [weekStart]);
 
   const toggle = useCallback(
-    (recipeId: string) => {
+    (recipeId: string, firstDay: number) => {
       if (!weekStart) return;
+      const key = cookCheckKey(firstDay, recipeId);
       const supabase = createClient();
-      const wasChecked = checkedItems.has(recipeId);
+      const wasChecked = checkedItems.has(key);
       const setOn = (on: boolean) =>
         setCheckedItems((prev) => {
           const next = new Set(prev);
-          if (on) next.add(recipeId);
-          else next.delete(recipeId);
+          if (on) next.add(key);
+          else next.delete(key);
           return next;
         });
 
@@ -104,11 +112,15 @@ export function useCookingChecks(weekStart: string | null) {
                 .delete()
                 .eq("week_start", weekStart)
                 .eq("recipe_id", recipeId)
+                .eq("first_day", firstDay)
             : supabase
                 .from("cooking_check_state")
                 .upsert(
-                  { week_start: weekStart, recipe_id: recipeId },
-                  { onConflict: "week_start,recipe_id", ignoreDuplicates: true }
+                  { week_start: weekStart, recipe_id: recipeId, first_day: firstDay },
+                  {
+                    onConflict: "week_start,recipe_id,first_day",
+                    ignoreDuplicates: true,
+                  }
                 ),
         () => setOn(wasChecked)
       );
@@ -116,7 +128,7 @@ export function useCookingChecks(weekStart: string | null) {
     [weekStart, checkedItems, toast]
   );
 
-  /** Unmarks every recipe for the current week with a single DELETE. */
+  /** Unmarks every recipe in every batch for the current week with a single DELETE. */
   const clearAll = useCallback(() => {
     if (!weekStart) return;
     const supabase = createClient();
