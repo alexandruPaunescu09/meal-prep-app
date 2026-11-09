@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { safeReturnPath } from "@/lib/auth/return-path";
+import { portalAccess } from "@/lib/auth/portal-access";
 
 const PUBLIC_PREFIXES = [
   "/login",
@@ -71,11 +72,12 @@ export async function proxy(request: NextRequest) {
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, client_id")
       .eq("id", user.id)
       .maybeSingle();
 
     const role = profile?.role as "admin" | "customer" | undefined;
+    const access = portalAccess(profile);
 
     // /login while signed in → redirect by role
     if (pathname === "/login") {
@@ -99,8 +101,10 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Admin trying to access portal → bounce to /
-    if (role === "admin" && isPortal) {
+    // Admin trying to access portal → bounce to / unless linked to a "self client" (My diary).
+    // /api/portal/invite is an admin endpoint that merely lives under the portal prefix.
+    const adminOnlyApi = pathname === "/api/portal/invite";
+    if (role === "admin" && isPortal && !adminOnlyApi && !access.canUsePortal) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
       return NextResponse.redirect(url);

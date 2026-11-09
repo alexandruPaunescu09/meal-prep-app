@@ -31,6 +31,7 @@ export async function GET() {
     const { data, error } = await auth.supabase
       .from("food_favorites")
       .select("food_id, ingredient_id, recipe_id")
+      .eq("client_id", auth.clientId)
       .order("created_at", { ascending: false })
       .limit(500);
     if (error) throw new Error(error.message);

@@ -84,6 +84,7 @@ export async function loadProgressDays(clientId: string, today: string): Promise
       const { data, error } = await supabase
         .from("meal_entry_status")
         .select("meal_plan_entry_id, status, portion_factor")
+        .eq("client_id", clientId)
         .in("meal_plan_entry_id", chunk)
         .order("meal_plan_entry_id")
         .range(a, b);

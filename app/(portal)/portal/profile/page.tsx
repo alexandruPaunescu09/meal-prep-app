@@ -2,7 +2,8 @@ import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Client } from "@/lib/supabase/types";
-import { Mail, Phone, Scale, Flame, Apple, Ban, Heart, User, KeyRound, ChevronRight } from "lucide-react";
+import { Mail, Phone, Scale, Flame, Apple, Ban, Heart, User, KeyRound, ChevronRight, LayoutDashboard } from "lucide-react";
+import { portalAccess } from "@/lib/auth/portal-access";
 import { formatKg } from "@/lib/weight";
 import SignOutButton from "./sign-out-button";
 import { WhatsNewRow } from "@/components/portal/whats-new-sheet";
@@ -14,10 +15,11 @@ export default async function PortalProfilePage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("client_id")
+    .select("role, client_id")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.client_id) redirect("/login");
+  const { isAdmin } = portalAccess(profile);
 
   const { data: client } = await supabase
     .from("clients")
@@ -99,6 +101,16 @@ export default async function PortalProfilePage() {
           <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
         </Link>
         <WhatsNewRow />
+        {isAdmin && (
+          <Link
+            href="/"
+            className="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-900 hover:text-emerald-700"
+          >
+            <LayoutDashboard className="w-4 h-4 text-gray-400" aria-hidden="true" />
+            <span className="flex-1">Coach view</span>
+            <ChevronRight className="w-4 h-4 text-gray-400" aria-hidden="true" />
+          </Link>
+        )}
         <div className="pt-2">
           <SignOutButton />
         </div>

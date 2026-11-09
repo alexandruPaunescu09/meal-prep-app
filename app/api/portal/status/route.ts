@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServer } from "@/lib/supabase/server";
+import { requireCustomer } from "@/lib/portal/require-customer";
 import { mealStatusBatchSchema, mealStatusSchema } from "@/lib/validations/schemas";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/data/tags";
@@ -10,18 +10,10 @@ import { CACHE_TAGS } from "@/lib/data/tags";
  * delete for the cleared entries), so a bad entry rejects everything.
  */
 export async function POST(req: NextRequest) {
-  const supabase = await createServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, client_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (profile?.role !== "customer" || !profile.client_id) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const auth = await requireCustomer();
+  if (!auth.ok) return auth.response;
+  const { supabase, clientId } = auth;
+  const profile = { client_id: clientId };
 
   let changes;
   try {
@@ -56,6 +48,7 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase
       .from("meal_entry_status")
       .delete()
+      .eq("client_id", clientId)
       .in("meal_plan_entry_id", toClear.map((c) => c.meal_plan_entry_id));
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -2,14 +2,15 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { LogOut, Utensils } from "lucide-react";
+import Link from "next/link";
+import { LayoutDashboard, LogOut, Utensils } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { SIGN_OUT_FAILED_MESSAGE, signOutAndClear } from "@/lib/portal/local-state";
 import { attachQueueFlusher } from "@/lib/portal/write-queue";
 import SyncStatus from "./sync-status";
 
-export default function TopBar({ greeting }: { greeting: string }) {
+export default function TopBar({ greeting, isAdmin = false }: { greeting: string; isAdmin?: boolean }) {
   const supabase = createClient();
   const router = useRouter();
   const toast = useToast();
@@ -46,6 +47,15 @@ export default function TopBar({ greeting }: { greeting: string }) {
           <p className="text-sm font-medium text-gray-900 truncate">{greeting}</p>
         </div>
         <SyncStatus />
+        {isAdmin && (
+          <Link
+            href="/"
+            className="md:hidden inline-flex items-center gap-1.5 px-3 min-h-[40px] rounded-lg bg-gray-100 text-xs font-medium text-gray-700"
+          >
+            <LayoutDashboard className="w-4 h-4" aria-hidden="true" />
+            Coach view
+          </Link>
+        )}
         <button
           type="button"
           onClick={logout}

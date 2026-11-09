@@ -107,6 +107,8 @@ export type PortalStatus = "not_invited" | "invited" | "active" | "disabled";
 export interface ClientWithPortalStatus extends Client {
   latest_weight?: LatestWeight | null;
   portal_status: PortalStatus;
+  /** This client record is the signed-in admin's own ("self client", My diary). */
+  is_self?: boolean;
 }
 
 export interface Profile {

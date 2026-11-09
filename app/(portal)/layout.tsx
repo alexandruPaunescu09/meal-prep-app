@@ -7,6 +7,7 @@ import InstallBanner from "@/components/portal/install-banner";
 import OfflineBanner from "@/components/portal/offline-banner";
 import AuthWatcher from "@/components/auth-watcher";
 import { WhatsNewAutoOpen } from "@/components/portal/whats-new-sheet";
+import { portalAccess } from "@/lib/auth/portal-access";
 import { pendingReleases } from "@/lib/portal/whats-new";
 
 export const metadata = {
@@ -31,11 +32,13 @@ export default async function PortalLayout({
     .eq("id", user.id)
     .maybeSingle();
 
-  if (!profile || profile.role !== "customer" || !profile.client_id) {
+  const access = portalAccess(profile);
+  if (!profile || !access.canUsePortal || !profile.client_id) {
     redirect("/");
   }
 
-  if (user.user_metadata?.password_set !== true) {
+  // Customers set a password after an invite; an admin already has one and must never get stuck here.
+  if (!access.isAdmin && user.user_metadata?.password_set !== true) {
     redirect("/portal/set-password");
   }
 
@@ -57,8 +60,8 @@ export default async function PortalLayout({
   return (
     <div className="min-h-dvh bg-gray-50">
       <AuthWatcher />
-      <TopBar greeting={greeting} />
-      <TopNav />
+      <TopBar greeting={greeting} isAdmin={access.isAdmin} />
+      <TopNav isAdmin={access.isAdmin} />
       <main className="max-w-3xl mx-auto px-4 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-6">
         <div className="space-y-3">
           <OfflineBanner />

@@ -50,9 +50,21 @@ export default function CopyMealSheet({
     let stale = false;
     (async () => {
       setLoad({ state: "loading" });
-      const { data, error } = await createClient()
+      const supabase = createClient();
+      // Scope to the caller's own client explicitly: an admin using the portal passes RLS on every row.
+      const { data: userData } = await supabase.auth.getUser();
+      const { data: profile } = userData.user
+        ? await supabase.from("profiles").select("client_id").eq("id", userData.user.id).maybeSingle()
+        : { data: null };
+      if (stale) return;
+      if (!profile?.client_id) {
+        setLoad({ state: "error" });
+        return;
+      }
+      const { data, error } = await supabase
         .from("food_log_entries")
         .select("*")
+        .eq("client_id", profile.client_id)
         .eq("log_date", sourceDate)
         .eq("meal_type", mealType)
         .order("created_at");

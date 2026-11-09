@@ -33,6 +33,7 @@ export default async function PortalPlanDetailPage({
     .from("meal_plans")
     .select("*")
     .eq("id", id)
+    .eq("client_id", profile.client_id)
     .maybeSingle();
   if (!plan || plan.client_id !== profile.client_id) notFound();
 
@@ -55,10 +56,10 @@ export default async function PortalPlanDetailPage({
 
   const [statusesRes, reviewsRes] = await Promise.all([
     entryIds.length
-      ? supabase.from("meal_entry_status").select("*").in("meal_plan_entry_id", entryIds)
+      ? supabase.from("meal_entry_status").select("*").eq("client_id", profile.client_id).in("meal_plan_entry_id", entryIds)
       : Promise.resolve({ data: [] }),
     entryIds.length
-      ? supabase.from("meal_reviews").select("*").in("meal_plan_entry_id", entryIds)
+      ? supabase.from("meal_reviews").select("*").eq("client_id", profile.client_id).in("meal_plan_entry_id", entryIds)
       : Promise.resolve({ data: [] }),
   ]);
 

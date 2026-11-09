@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await auth.supabase
       .from("food_log_entries")
       .select("log_date, updated_at, source_kind, food_id, ingredient_id, recipe_id, quantity, quantity_unit")
+      .eq("client_id", auth.clientId)
       .gte("log_date", since)
       .neq("source_kind", "quick")
       .order("log_date", { ascending: false })

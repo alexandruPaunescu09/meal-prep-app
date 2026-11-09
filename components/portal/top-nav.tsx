@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LayoutDashboard } from "lucide-react";
 import { PORTAL_NAV_ITEMS, isPortalNavActive } from "@/components/portal/nav-items";
 
-export default function TopNav() {
+export default function TopNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Portal" className="hidden md:block bg-white border-b border-gray-200">
@@ -28,6 +29,17 @@ export default function TopNav() {
             </li>
           );
         })}
+        {isAdmin && (
+          <li className="ml-auto">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900"
+            >
+              <LayoutDashboard className="w-4 h-4" aria-hidden="true" />
+              Coach view
+            </Link>
+          </li>
+        )}
       </ul>
     </nav>
   );
