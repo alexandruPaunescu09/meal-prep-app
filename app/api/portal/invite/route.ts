@@ -40,6 +40,22 @@ export async function POST(req: NextRequest) {
 
   const svc = service();
 
+  // A client linked to an admin profile is the coach's own record ("My diary"): never invite or
+  // revoke it, otherwise the coach could ban themselves.
+  const { data: adminLinks, error: linkErr } = await svc
+    .from("profiles")
+    .select("id")
+    .eq("client_id", client_id)
+    .eq("role", "admin")
+    .limit(1);
+  if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+  if ((adminLinks ?? []).length > 0) {
+    return NextResponse.json(
+      { error: "This client is your own record. Unlink it from your account first." },
+      { status: 400 }
+    );
+  }
+
   if (action === "invite" || action === "resend") {
     const redirectTo = process.env.NEXT_PUBLIC_PORTAL_INVITE_REDIRECT
       ?? `${req.nextUrl.origin}/login`;
@@ -89,6 +105,17 @@ export async function POST(req: NextRequest) {
     if (listErr) return NextResponse.json({ error: listErr.message }, { status: 500 });
     const target = list?.users.find((u) => u.email?.toLowerCase() === client.email!.toLowerCase());
     if (!target) return NextResponse.json({ error: "auth user not found" }, { status: 404 });
+
+    // Never ban an admin account, even if its email matches this client's.
+    const { data: targetProfile, error: tpErr } = await svc
+      .from("profiles")
+      .select("role")
+      .eq("id", target.id)
+      .maybeSingle();
+    if (tpErr) return NextResponse.json({ error: tpErr.message }, { status: 500 });
+    if (targetProfile?.role === "admin") {
+      return NextResponse.json({ error: "That email belongs to an admin account." }, { status: 400 });
+    }
 
     const { error: banErr } = await svc.auth.admin.updateUserById(target.id, {
       ban_duration: "876000h",

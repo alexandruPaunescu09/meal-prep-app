@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServer } from "@/lib/supabase/server";
+import { portalAccess } from "@/lib/auth/portal-access";
 
 export type CustomerAuth =
-  | { ok: true; supabase: SupabaseClient; clientId: string }
+  | { ok: true; supabase: SupabaseClient; clientId: string; userId: string; isAdmin: boolean }
   | { ok: false; response: NextResponse };
 
 /**
- * Route-handler guard for customer-only endpoints (same checks as /api/portal/status):
- * 401 without a session, 403 unless profiles.role = 'customer' with a client_id.
- * Returns the customer's cookie-bound (RLS-enforced) client.
+ * Route-handler guard for portal endpoints: 401 without a session, 403 unless the profile is a
+ * customer with a client_id, or an admin linked to a "self client" (`portalAccess`).
+ * Returns the caller's cookie-bound client. NOTE: for an admin that client passes `is_admin()` RLS
+ * on every table, so every query must filter by `clientId` explicitly; never rely on RLS to scope.
  */
 export async function requireCustomer(): Promise<CustomerAuth> {
   const supabase = await createServer();
@@ -25,8 +27,9 @@ export async function requireCustomer(): Promise<CustomerAuth> {
     .select("role, client_id")
     .eq("id", user.id)
     .maybeSingle();
-  if (profile?.role !== "customer" || !profile.client_id) {
+  const access = portalAccess(profile);
+  if (!access.canUsePortal || !access.clientId) {
     return { ok: false, response: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   }
-  return { ok: true, supabase, clientId: profile.client_id as string };
+  return { ok: true, supabase, clientId: access.clientId, userId: user.id, isAdmin: access.isAdmin };
 }

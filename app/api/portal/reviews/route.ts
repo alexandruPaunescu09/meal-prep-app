@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServer } from "@/lib/supabase/server";
+import { requireCustomer } from "@/lib/portal/require-customer";
 import { reviewSchema } from "@/lib/validations/schemas";
 import { revalidateTag } from "next/cache";
 import { CACHE_TAGS } from "@/lib/data/tags";
 
 export async function POST(req: NextRequest) {
-  const supabase = await createServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, client_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (profile?.role !== "customer" || !profile.client_id) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const auth = await requireCustomer();
+  if (!auth.ok) return auth.response;
+  const { supabase } = auth;
+  const profile = { client_id: auth.clientId };
 
   let body;
   try {
@@ -49,6 +41,7 @@ export async function POST(req: NextRequest) {
   const { data: previous } = await supabase
     .from("meal_reviews")
     .select("photo_path")
+    .eq("client_id", profile.client_id)
     .eq("meal_plan_entry_id", body.meal_plan_entry_id)
     .maybeSingle<{ photo_path: string | null }>();
 
@@ -100,18 +93,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const supabase = await createServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, client_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (profile?.role !== "customer" || !profile.client_id) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const auth = await requireCustomer();
+  if (!auth.ok) return auth.response;
+  const { supabase } = auth;
+  const profile = { client_id: auth.clientId };
 
   let id = req.nextUrl.searchParams.get("id");
   if (!id) {
@@ -146,7 +131,11 @@ export async function DELETE(req: NextRequest) {
   }
 
   // meal_review_tags rows cascade.
-  const { error } = await supabase.from("meal_reviews").delete().eq("id", review.id);
+  const { error } = await supabase
+    .from("meal_reviews")
+    .delete()
+    .eq("id", review.id)
+    .eq("client_id", profile.client_id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   revalidateTag(CACHE_TAGS.mealReviews, "max");

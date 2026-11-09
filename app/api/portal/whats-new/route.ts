@@ -28,8 +28,7 @@ export async function POST(req: NextRequest) {
   const { error } = await createServiceClient()
     .from("profiles")
     .update({ whats_new_seen: releaseId })
-    .eq("client_id", auth.clientId)
-    .eq("role", "customer");
+    .eq("id", auth.userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });

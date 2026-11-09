@@ -124,10 +124,12 @@ export default async function PortalTodayPage({
         supabase
           .from("meal_entry_status")
           .select("*")
+          .eq("client_id", profile.client_id)
           .in("meal_plan_entry_id", entryIds),
         supabase
           .from("meal_reviews")
           .select("*")
+          .eq("client_id", profile.client_id)
           .in("meal_plan_entry_id", entryIds),
       ]);
       statuses = (statusesRes.data as MealEntryStatus[]) ?? [];

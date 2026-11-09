@@ -151,6 +151,36 @@ export default function ClientsClient({
     router.refresh();
   }
 
+  async function unlinkSelf(client: ClientWithPortalStatus) {
+    const ok = await confirm({
+      title: `Unlink ${client.name} from your account?`,
+      message: "My diary will stop working for your login. The client record and its history are kept.",
+      confirmLabel: "Unlink",
+    });
+    if (!ok) return;
+    setBusyId(client.id);
+    try {
+      const r = await fetch("/api/admin/self-client", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast.error(typeof j.error === "string" ? j.error : "Could not unlink");
+        return;
+      }
+      await invalidateProfiles();
+      await invalidateClients();
+      router.refresh();
+      toast.success("Unlinked from your account");
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function invite(client: ClientWithPortalStatus, action: "invite" | "resend" | "revoke") {
     if (!client.email) {
       toast.error("Add an email first");
@@ -323,6 +353,11 @@ export default function ClientsClient({
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${portalStatusColor(client.portal_status)}`}>
                   Portal: {portalStatusLabel(client.portal_status)}
                 </span>
+                {client.is_self && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-600 text-white">
+                    You
+                  </span>
+                )}
               </div>
 
               {client.calorie_target && (
@@ -408,7 +443,16 @@ export default function ClientsClient({
               </div>
 
               <div className="mt-3 pt-3 border-t flex flex-wrap items-center gap-2">
-                {client.portal_status === "not_invited" && (
+                {client.is_self && (
+                  <button
+                    disabled={busyId === client.id}
+                    onClick={() => void unlinkSelf(client)}
+                    className="text-xs px-2.5 py-1 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    Unlink
+                  </button>
+                )}
+                {!client.is_self && client.portal_status === "not_invited" && (
                   <>
                     <button
                       disabled={!client.email || busyId === client.id}
@@ -423,7 +467,7 @@ export default function ClientsClient({
                     )}
                   </>
                 )}
-                {client.portal_status === "invited" && (
+                {!client.is_self && client.portal_status === "invited" && (
                   <button
                     disabled={busyId === client.id}
                     onClick={() => invite(client, "resend")}
@@ -433,7 +477,7 @@ export default function ClientsClient({
                     Resend invite
                   </button>
                 )}
-                {(client.portal_status === "active" || client.portal_status === "invited") && (
+                {!client.is_self && (client.portal_status === "active" || client.portal_status === "invited") && (
                   <button
                     disabled={busyId === client.id}
                     onClick={() => invite(client, "revoke")}

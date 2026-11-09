@@ -7,6 +7,7 @@ import { SIGN_OUT_FAILED_MESSAGE, signOutAndClear } from "@/lib/portal/local-sta
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
 import AuthWatcher from "@/components/auth-watcher";
+import MyDiaryLink from "@/components/admin/my-diary-link";
 import {
   LayoutDashboard,
   Carrot,
@@ -56,7 +57,10 @@ export default function AppShell({
   unreadReviews = 0,
   pendingFoods = 0,
   userEmail = null,
+  diaryLinked = false,
 }: {
+  /** The admin's profile is linked to a client record, so /portal (My diary) is open to them. */
+  diaryLinked?: boolean;
   children: React.ReactNode;
   unreadReviews?: number;
   /** Customer-added foods waiting for review (badge on Ingredients > Customer foods). */
@@ -211,6 +215,7 @@ export default function AppShell({
         </nav>
 
         <div className="px-3 py-4 border-t border-gray-800">
+          <MyDiaryLink linked={diaryLinked} onNavigate={() => setSidebarOpen(false)} />
           {userEmail && (
             <p
               className="px-3 pb-2 text-xs text-gray-400 truncate"

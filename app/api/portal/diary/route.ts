@@ -80,7 +80,18 @@ export async function POST(req: NextRequest) {
   }
 
   // RLS client: policy "Customer manage own" rejects any row whose client_id is not theirs,
-  // including an upsert onto another customer's id.
+  // including an upsert onto another customer's id. An admin (self client) passes RLS on every
+  // row, so refuse an id that already belongs to another client explicitly.
+  const { data: existing, error: existingError } = await auth.supabase
+    .from("food_log_entries")
+    .select("client_id")
+    .eq("id", body.id)
+    .maybeSingle();
+  if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
+  if (existing && existing.client_id !== auth.clientId) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   const { data, error } = await auth.supabase
     .from("food_log_entries")
     .upsert(

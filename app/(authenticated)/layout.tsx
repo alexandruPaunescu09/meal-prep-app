@@ -1,6 +1,7 @@
 import { createServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import AppShell from "@/components/app-shell";
+import { portalAccess } from "@/lib/auth/portal-access";
 import { getUnreadReviewCount } from "@/lib/data/reviews";
 import { getPendingFoodCount } from "@/lib/data/foods";
 
@@ -22,7 +23,7 @@ export default async function AuthenticatedLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, client_id")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -38,7 +39,12 @@ export default async function AuthenticatedLayout({
   ]);
 
   return (
-    <AppShell unreadReviews={unreadReviews} pendingFoods={pendingFoods} userEmail={user.email ?? null}>
+    <AppShell
+      unreadReviews={unreadReviews}
+      pendingFoods={pendingFoods}
+      userEmail={user.email ?? null}
+      diaryLinked={portalAccess(profile).canUsePortal}
+    >
       {children}
     </AppShell>
   );
