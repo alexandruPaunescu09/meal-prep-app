@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { selfBadge } from "@/lib/auth/self-badge";
 import { useRouter } from "next/navigation";
 import { Client, ClientWithPortalStatus, PortalStatus } from "@/lib/supabase/types";
 import { portalStatusColor, portalStatusLabel } from "@/lib/portal/status";
@@ -45,9 +46,11 @@ function plural(n: number, one: string, many: string) {
 
 export default function ClientsClient({
   clients,
+  myClientId = null,
   openNew = false,
 }: {
   clients: ClientWithPortalStatus[];
+  myClientId?: string | null;
   openNew?: boolean;
 }) {
   const router = useRouter();
@@ -353,9 +356,14 @@ export default function ClientsClient({
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${portalStatusColor(client.portal_status)}`}>
                   Portal: {portalStatusLabel(client.portal_status)}
                 </span>
-                {client.is_self && (
+                {selfBadge(client, myClientId) === "you" && (
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-emerald-600 text-white">
                     You
+                  </span>
+                )}
+                {selfBadge(client, myClientId) === "admin" && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-200 text-gray-700">
+                    Admin
                   </span>
                 )}
               </div>
@@ -443,7 +451,7 @@ export default function ClientsClient({
               </div>
 
               <div className="mt-3 pt-3 border-t flex flex-wrap items-center gap-2">
-                {client.is_self && (
+                {selfBadge(client, myClientId) === "you" && (
                   <button
                     disabled={busyId === client.id}
                     onClick={() => void unlinkSelf(client)}
@@ -452,7 +460,7 @@ export default function ClientsClient({
                     Unlink
                   </button>
                 )}
-                {!client.is_self && client.portal_status === "not_invited" && (
+                {!selfBadge(client, myClientId) && client.portal_status === "not_invited" && (
                   <>
                     <button
                       disabled={!client.email || busyId === client.id}
@@ -467,7 +475,7 @@ export default function ClientsClient({
                     )}
                   </>
                 )}
-                {!client.is_self && client.portal_status === "invited" && (
+                {!selfBadge(client, myClientId) && client.portal_status === "invited" && (
                   <button
                     disabled={busyId === client.id}
                     onClick={() => invite(client, "resend")}
@@ -477,7 +485,7 @@ export default function ClientsClient({
                     Resend invite
                   </button>
                 )}
-                {!client.is_self && (client.portal_status === "active" || client.portal_status === "invited") && (
+                {!selfBadge(client, myClientId) && (client.portal_status === "active" || client.portal_status === "invited") && (
                   <button
                     disabled={busyId === client.id}
                     onClick={() => invite(client, "revoke")}
