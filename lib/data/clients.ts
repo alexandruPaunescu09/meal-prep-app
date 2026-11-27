@@ -78,8 +78,8 @@ export const getClientsWithPortalStatus = unstable_cache(
         .filter((p) => p.role === "customer")
         .map((p) => p.client_id)
     );
-    // Clients that are an admin's own record ("self client"). Single-admin app: any admin link counts.
-    const selfIds = new Set<string>(
+    // Clients linked to some admin ("self clients"). Viewer-independent: the page decides which one is "you".
+    const adminLinkedIds = new Set<string>(
       ((profiles as { role: string; client_id: string }[]) ?? [])
         .filter((p) => p.role === "admin")
         .map((p) => p.client_id)
@@ -105,7 +105,7 @@ export const getClientsWithPortalStatus = unstable_cache(
       let portal_status: PortalStatus = "not_invited";
       if (linked.has(c.id)) portal_status = "active";
       else if (c.invited_at) portal_status = "invited";
-      return { ...c, portal_status, latest_weight: latest.get(c.id) ?? null, is_self: selfIds.has(c.id) };
+      return { ...c, portal_status, latest_weight: latest.get(c.id) ?? null, admin_linked: adminLinkedIds.has(c.id) };
     });
   },
   ["clients-with-portal-status"],
